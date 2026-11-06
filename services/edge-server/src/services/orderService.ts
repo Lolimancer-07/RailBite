@@ -49,6 +49,12 @@ export class OrderService {
     this.dispatcher = dispatcher;
   }
 
+  flushBatches(): void {
+    if (this.dispatcher) {
+      this.dispatcher.flushBatches();
+    }
+  }
+
   getOrder(id: string) {
     return this.orderRepo.findById(id);
   }

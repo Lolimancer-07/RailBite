@@ -110,3 +110,37 @@
   - Auto-reconnect loop helper with configurable interval.
 - Shared and integrated into both passenger and captain apps.
 - Raspberry Pi `hostapd` + `dnsmasq` setup script documented in `infra/pi-setup.sh`.
+
+---
+
+## Phase 6: Kitchen Display + Delivery + Cash ✅
+
+**Completed:** 2026-11-06
+
+**What works:**
+- Vite React Kitchen Display tablet app (`apps/kitchen-display`):
+  - Built and served directly by the edge server at `/kitchen` via `@fastify/static`.
+  - Connects via WebSocket MQTT (`ws://host:8883`) to `kitchen/queue` and `kitchen/actions`.
+  - Columns: New Orders (Placed) -> Cooking -> Ready, with high-contrast tablet UI.
+  - Audio chime synthesizer on new incoming cook orders using Web Audio API.
+  - Coach Batch View (`BatchView.tsx`): visualizes order grouping per coach to minimize captain walking hops through the rake.
+  - Action buttons: "▶ START COOKING" and "✓ MARK READY", triggering captain dispatch.
+- Cash ledger reconciliation:
+  - `POST /orders/:id/deliver` appends to append-only `cash_ledger`.
+  - Passenger confirms cash paid ("Did you pay Rs X?").
+  - `GET /ledger/summary` verifies expected vs collected vs confirmed totals per captain, flagging mismatches.
+
+---
+
+## Phase 7: Complaints Routing & Escalation ✅
+
+**Completed:** 2026-11-06
+
+**What works:**
+- Tier 1 complaints (Cold Food, Missing Item, Bad Taste, Wrong Item):
+  - Displays on Kitchen Display `ComplaintPanel` and Captain `complaints.tsx` with 15-minute countdown timers.
+  - Operational replacement order flow targeting seat-side delivery within 15 minutes.
+- Tier 2 complaints (Overcharging, Stale Food, Hygiene):
+  - Requires tamper-evident photo proof (SHA-256 hash + timestamp).
+  - Automatically written to `outbox` as `COMPLAINT_ESCALATION` for store-and-forward sync to regulatory bodies (IRCTC / RailMadad).
+  - Rate limiting enforced: max 3 Tier 2 complaints per PNR per trip (subsequent requests rejected with HTTP 429).

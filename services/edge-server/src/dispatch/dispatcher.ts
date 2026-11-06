@@ -149,6 +149,17 @@ export class Dispatcher {
     });
   }
 
+  flushBatches(): void {
+    this.batcher.flushAll(async (_coach, orderIds) => {
+      for (const oId of orderIds) {
+        const fullOrder = this.orderRepo.findById(oId);
+        if (fullOrder && (fullOrder.status === OrderStatus.READY || fullOrder.status === OrderStatus.PLACED)) {
+          await this.dispatchOrder(fullOrder);
+        }
+      }
+    });
+  }
+
   recoverPendingTimers(): void {
     const pending = this.orderRepo.getAssignedOrdersForRecovery();
     const now = Date.now();
