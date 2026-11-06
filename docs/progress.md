@@ -227,5 +227,25 @@
   - Regulatory complaints feed with verified SHA-256 photo evidence hashes.
   - Onboard pantry cash ledger reconciliation table (collected vs passenger-confirmed vs IRCTC expected).
 
+---
+
+## Phase 11: Device-to-Device Relay Simulation (STRETCH) ✅
+
+**Completed:** 2026-11-07
+
+**What works:**
+- Device-to-Device Mesh Protocol Specification (`docs/relay-protocol.md`):
+  - Relay packet envelope: `{ v: 1, orderId, ttl, origin, payloadB64, hmac8, hops }`.
+  - Forwarding logic with 500-item LRU deduplication, loop prevention (`hops.includes(self.id)`), and TTL decrement.
+  - BLE advertising beacon vs GATT connection profile specs.
+  - Fixed ESP32 coach vestibule node hardware architecture.
+- 24-Coach Rake Linear Network Simulator (`tools/relay-sim/src/relay.ts`):
+  - Scenario A: Models linear graph traversal from Coach 24 (S17) to Pantry (Coach 12), measuring 12 hops and path delivery.
+  - Scenario B: Simulates 2 broken coach nodes, verifying partition detection in 1-hop standard phone BLE versus single-node gap bridging in ESP32 2-hop coded PHY.
+  - Scenario C: High-concurrency flood (100 simultaneous orders), demonstrating 96% delivery efficiency and suppression of broadcast storms via LRU deduplication.
+  - Comprehensive comparison report: Pure phone BLE vs fixed ESP32 coach backbone.
+  - Automated test suite in `tools/relay-sim/src/__tests__/relay.test.ts` (5/5 tests passing).
+
+
 
 

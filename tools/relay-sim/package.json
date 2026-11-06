@@ -1,0 +1,19 @@
+{
+  "name": "@railbite/relay-sim",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/relay.ts",
+    "simulate": "tsx src/relay.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@railbite/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
