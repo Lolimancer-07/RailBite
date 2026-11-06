@@ -104,6 +104,12 @@ CREATE TABLE IF NOT EXISTS outbox (
   synced_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS sms_nonces (
+  nonce TEXT PRIMARY KEY,
+  pnr_last4 TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_orders_status ON orders(status);
 CREATE INDEX IF NOT EXISTS idx_orders_coach ON orders(coach);
 CREATE INDEX IF NOT EXISTS idx_assignments_order ON assignments(order_id);

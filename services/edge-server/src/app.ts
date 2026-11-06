@@ -26,7 +26,7 @@ import { createKitchenRoutes } from "./routes/kitchen.js";
 import { createComplaintRoutes } from "./routes/complaints.js";
 import { createLedgerRoutes } from "./routes/ledger.js";
 import { createSyncRoutes } from "./routes/sync.js";
-import { smsRoutes } from "./routes/sms.js";
+import { createSmsRoutes } from "./routes/sms.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -87,7 +87,7 @@ export async function createApp(deps: AppDependencies): Promise<{
   await app.register(createComplaintRoutes(complaintService));
   await app.register(createLedgerRoutes(ledgerRepo));
   await app.register(createSyncRoutes(outboxRepo));
-  await app.register(smsRoutes);
+  await app.register(createSmsRoutes(deps.db, orderService));
 
   return { app, orderService, complaintService, dispatcher };
 }

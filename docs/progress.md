@@ -168,3 +168,32 @@
 - Metrics report automatically generated at `docs/metrics.md`.
 - Automated test suite in `services/edge-server/src/__tests__/phase8-simulator.test.ts` (4/4 tests passing).
 
+---
+
+## Phase 9: SMS Token Path (STRETCH) ✅
+
+**Completed:** 2026-11-06
+
+**What works:**
+- Cryptographic SMS token encoding & decoding (`packages/shared/src/sms-token.ts`):
+  - Pure TypeScript zero-dependency implementation of SHA-256 and HMAC-SHA256.
+  - Token format: `RB#<pnrLast4>#<coach>-<berth>#<diners>#<itemCodes>#<nonce>#<hmac8>`.
+  - Item short code compressor & parser for 15 pantry items (`CH1,SA2`).
+  - Outbound SMS ACK message format: `RB#ACK#<orderIdLast6>#<totalPaise>#<etaMin>`.
+  - Comprehensive unit test suite in `packages/shared/src/__tests__/sms-token.test.ts` (5/5 tests passing).
+- Passenger App offline fallback:
+  - Detects no-WiFi connection state in `cart.tsx`.
+  - Pre-fills SMS token with `sms:+919876543210?body=...` using React Native `Linking`.
+  - Saves order locally in SQLite queue and immediately routes passenger to tracking screen.
+- Edge server GSM modem ingestion:
+  - `POST /sms/ingest` verifies HMAC signature using authoritative trip secret.
+  - Replay prevention: checks unique 4-hex nonce against `sms_nonces` table, rejecting replays with HTTP 409 Conflict.
+  - Passenger manifest matching: extracts full PNR and marks `verified = 1` for manifested passengers.
+  - Re-prices order using official edge MRP table, deducts inventory stock, creates order with `source: 'SMS'`.
+  - Returns calculated total paise and estimated prep/delivery time in SMS ACK format.
+- `tools/sms-simulator`:
+  - CLI script simulating GSM modem posting valid, tampered, and replay tokens.
+- Automated test suite in `services/edge-server/src/__tests__/phase9-sms.test.ts` (4/4 tests passing).
+- Protocol documentation written to `docs/sms-token.md`.
+
+

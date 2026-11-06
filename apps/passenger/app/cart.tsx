@@ -6,14 +6,16 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useCartStore } from "../src/store/cart.js";
 import { useSessionStore } from "../src/store/session.js";
+import { useConnectionStore } from "../src/store/connection.js";
 import { saveLocalOrder, queueAction } from "../src/db/queries.js";
 import { processQueue } from "../src/sync/queueWorker.js";
 import { passengerMqtt } from "../src/net/mqttClient.js";
-import { determineTrack, type OrderCreate } from "@railbite/shared";
+import { determineTrack, encodeSmsToken, encodeItemCodes, type OrderCreate } from "@railbite/shared";
 
 function generateUUID(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -29,6 +31,7 @@ function generateUUID(): string {
 export default function CartScreen() {
   const router = useRouter();
   const session = useSessionStore((s) => s.session);
+  const connState = useConnectionStore((s) => s.state);
   const { items: cartMap, addItem, removeItem, clearCart, totalPaise, paymentMode, setPaymentMode } = useCartStore();
 
   const cartList = Array.from(cartMap.values());
@@ -104,6 +107,76 @@ export default function CartScreen() {
 
     // 6. Navigate to live order tracking screen immediately
     router.replace(`/orders/${orderId}`);
+  };
+
+  const handlePlaceOrderSms = () => {
+    if (!session || !session.pnr) {
+      Alert.alert("Missing Details", "Please enter your PNR and seat details first.");
+      router.push("/onboarding");
+      return;
+    }
+
+    if (cartList.length === 0) {
+      Alert.alert("Empty Tray", "Please add items to your tray first.");
+      return;
+    }
+
+    const orderId = generateUUID();
+    const now = new Date().toISOString();
+
+    const orderItems = cartList.map(({ item, qty }) => ({
+      itemId: item.id,
+      qty,
+      unitPricePaise: item.mrpPaise,
+      name: item.name,
+    }));
+
+    const track = determineTrack(cartList.map(({ item }) => item.track));
+
+    try {
+      const itemCodes = encodeItemCodes(orderItems.map(({ itemId, qty }) => ({ itemId, qty })));
+      const token = encodeSmsToken(
+        {
+          pnrLast4: session.pnr.slice(-4),
+          coach: session.coach,
+          berth: session.berth,
+          diners: session.diners,
+          itemCodes,
+        },
+        "railbite_secret_pantry_trip_2026"
+      );
+
+      saveLocalOrder(
+        {
+          id: orderId,
+          pnr: session.pnr,
+          coach: session.coach,
+          berth: session.berth,
+          diners: session.diners,
+          track,
+          status: "PLACED",
+          paymentMode: "COD",
+          totalPaise: totalAmount,
+          source: "SMS",
+          verified: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+        orderItems
+      );
+
+      clearCart();
+
+      const pantryPhone = "+919876543210";
+      const smsUrl = `sms:${pantryPhone}?body=${encodeURIComponent(token)}`;
+      Linking.openURL(smsUrl).catch(() => {
+        Alert.alert("SMS Ready", `Send this code to ${pantryPhone}:\n\n${token}`);
+      });
+
+      router.replace(`/orders/${orderId}`);
+    } catch (err: any) {
+      Alert.alert("Error generating SMS", err.message);
+    }
   };
 
   if (cartList.length === 0) {
@@ -194,6 +267,11 @@ export default function CartScreen() {
         <TouchableOpacity style={styles.placeOrderBtn} onPress={handlePlaceOrder}>
           <Text style={styles.placeOrderText}>Place Order (₹{totalAmount / 100}) →</Text>
         </TouchableOpacity>
+        {connState !== "CONNECTED" && (
+          <TouchableOpacity style={styles.smsOrderBtn} onPress={handlePlaceOrderSms}>
+            <Text style={styles.smsOrderBtnText}>📱 Order via SMS (No Wi-Fi Needed)</Text>
+          </TouchableOpacity>
+        )}
       </View>
     </View>
   );
@@ -396,5 +474,17 @@ const styles = StyleSheet.create({
     color: "#ffffff",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  smsOrderBtn: {
+    backgroundColor: "#475569",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  smsOrderBtnText: {
+    color: "#ffffff",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

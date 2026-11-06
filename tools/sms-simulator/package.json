@@ -1,0 +1,17 @@
+{
+  "name": "@railbite/sms-simulator",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/sms-simulator.ts",
+    "simulate": "tsx src/sms-simulator.ts"
+  },
+  "dependencies": {
+    "@railbite/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}
