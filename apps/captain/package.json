@@ -1,0 +1,25 @@
+{
+  "name": "@railbite/captain",
+  "version": "0.0.1",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo run:android",
+    "build": "echo 'Expo apps built with EAS Build - run: npx expo prebuild'",
+    "lint": "eslint app src"
+  },
+  "dependencies": {
+    "@railbite/shared": "workspace:*",
+    "expo": "~51.0.0",
+    "expo-router": "~3.5.0",
+    "expo-sqlite": "~14.0.0",
+    "react": "18.2.0",
+    "react-native": "0.74.0",
+    "zustand": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/react": "~18.2.0",
+    "typescript": "^5.5.0"
+  }
+}
+

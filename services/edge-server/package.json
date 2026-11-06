@@ -1,0 +1,30 @@
+{
+  "name": "@railbite/edge-server",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "seed": "tsx src/seed/seed.ts"
+  },
+  "dependencies": {
+    "@railbite/shared": "workspace:*",
+    "@fastify/cors": "^9.0.0",
+    "@fastify/static": "^7.0.0",
+    "aedes": "^0.51.0",
+    "better-sqlite3": "^13.0.0",
+    "fastify": "^4.28.0",
+    "pino": "^9.0.0",
+    "websocket-stream": "^5.5.2",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
