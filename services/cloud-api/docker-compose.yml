@@ -1,0 +1,26 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: railbite-cloud-db
+    environment:
+      POSTGRES_DB: railbite_cloud
+      POSTGRES_USER: railbite
+      POSTGRES_PASSWORD: cloud_password_123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  cloud-api:
+    build: .
+    container_name: railbite-cloud-api
+    environment:
+      PORT: 8090
+      DATABASE_URL: postgres://railbite:cloud_password_123@postgres:5432/railbite_cloud
+    ports:
+      - "8090:8090"
+    depends_on:
+      - postgres
+
+volumes:
+  pgdata:

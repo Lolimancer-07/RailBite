@@ -196,4 +196,36 @@
 - Automated test suite in `services/edge-server/src/__tests__/phase9-sms.test.ts` (4/4 tests passing).
 - Protocol documentation written to `docs/sms-token.md`.
 
+---
+
+## Phase 10: Cloud Sync & Admin Dashboard (STRETCH) ✅
+
+**Completed:** 2026-11-07
+
+**What works:**
+- Cloud API Service (`services/cloud-api`):
+  - Fastify service running on port 8090 with SQLite/Postgres compatibility and `docker-compose.yml`.
+  - Ingestion endpoint: `POST /sync/batch` ingests batches of outbox records idempotently with unique constraint on `(trip_id, seq)`.
+  - Regulatory License Scoring engine (`scoring.ts`):
+    - Starts at 100 points.
+    - Automatically penalizes contractor license score on incoming Tier 2 escalations:
+      - Overcharging: -10 points
+      - Hygiene violations: -15 points
+      - Stale/spoiled food: -20 points
+    - Flags contractor as `CRITICAL_REVOKE_RISK` when score drops below 70 points.
+  - Endpoints: `GET /admin/scores`, `GET /admin/complaints`, `GET /admin/ledger`, `GET /health`.
+  - Automated test suite in `services/cloud-api/src/__tests__/cloud-sync.test.ts` (2/2 tests passing).
+- Edge Server Store-and-Forward Worker (`services/edge-server/src/sync/outboxWorker.ts`):
+  - Polls unsynced outbox records (`synced_at IS NULL`).
+  - Pushes batch to `${CLOUD_API_URL}/sync/batch`.
+  - On successful acknowledgment (`ackedUpTo`), marks rows as synced with atomic timestamp.
+  - Features exponential backoff with jitter on network disconnection or cloud unreachability.
+  - Automated test suite in `services/edge-server/src/__tests__/phase10-outbox-worker.test.ts` (1/1 test passing).
+- IRCTC Admin Governance Dashboard (`apps/admin-dashboard`):
+  - Vite + React + TypeScript web app running on port 5174.
+  - Live contractor license governance card with status badges (Green / Yellow Warning / Red Revocation Risk).
+  - Regulatory complaints feed with verified SHA-256 photo evidence hashes.
+  - Onboard pantry cash ledger reconciliation table (collected vs passenger-confirmed vs IRCTC expected).
+
+
 
