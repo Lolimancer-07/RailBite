@@ -57,3 +57,25 @@
 **What is stubbed:**
 - GSM hardware modem (SIM800L serial port) is stubbed behind `/sms/ingest` endpoint.
 - Cloud sync store-and-forward is stubbed behind `/sync/flush` endpoint.
+
+---
+
+## Phase 3: Passenger App (Core Loop) ✅
+
+**Completed:** 2026-11-06
+
+**What works:**
+- Offline-first SQLite database (`menu_items` cache, `orders`, `pending_actions` queue).
+- Write-Then-Send architecture: every client action (order placement, cash confirmation, complaint) is written locally first before network dispatch.
+- `queueWorker.ts`: delivers pending actions with exponential backoff and client-generated UUID idempotency key.
+- Live connection state banner: Connected (green) / Searching (orange) / Offline with queued count (red).
+- Onboarding screen: validates 10-digit PNR, coach format (e.g. B1, S2), berth (1-100), and diners count (1-8).
+- Menu screen: cached offline, refreshed when connected, category filters, instant vs cook-to-order track badges, sold-out status, bottom tray summary bar.
+- Tray/Cart screen: item increments/decrements, COD payment mode, write-then-send placement.
+- Orders list screen: instant offline access to local order history, remote sync.
+- Order details & tracking screen: step progression tracking, live MQTT subscription to `orders/{id}/status`, official MRP receipt, cash confirmation ("Did you pay Rs X?"), order cancellation (before cooking/accepted), file complaint link.
+- Complaint screen: Tier 1 (operational 15-min replacement) and Tier 2 (regulatory escalation with photo SHA-256 evidence hashing).
+- Tests: local SQLite queue insertion, offline Wi-Fi drop & recovery idempotency, and live status updates via MQTT.
+
+**What is stubbed:**
+- Native Kotlin WifiBinder is stubbed in TypeScript transport layer (Phase 5).

@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "RailBite Passenger",
+    "slug": "railbite-passenger",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "railbite-passenger",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "android": {
+      "package": "com.railbite.passenger",
+      "permissions": [
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
+        "CHANGE_WIFI_STATE",
+        "INTERNET",
+        "VIBRATE",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}
