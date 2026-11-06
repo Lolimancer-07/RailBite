@@ -7,4 +7,7 @@ android/
 ios/
 *.tsbuildinfo
 coverage/
+*.db
+*.db-shm
+*.db-wal
 

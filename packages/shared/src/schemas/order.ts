@@ -48,6 +48,7 @@ export const OrderSchema = z.object({
         itemId: z.string().uuid(),
         qty: z.number().int(),
         unitPricePaise: z.number().int(),
+        name: z.string().optional(),
       }),
     )
     .optional(),
