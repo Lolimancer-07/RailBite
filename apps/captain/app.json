@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "RailBite Captain",
+    "slug": "railbite-captain",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "scheme": "railbite-captain",
+    "userInterfaceStyle": "light",
+    "android": {
+      "package": "com.railbite.captain",
+      "permissions": [
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
+        "CHANGE_WIFI_STATE",
+        "INTERNET",
+        "VIBRATE",
+        "POST_NOTIFICATIONS",
+        "FOREGROUND_SERVICE",
+        "WAKE_LOCK",
+        "USE_FULL_SCREEN_INTENT"
+      ]
+    },
+    "plugins": [
+      "expo-router"
+    ]
+  }
+}

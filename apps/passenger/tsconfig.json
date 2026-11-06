@@ -4,5 +4,6 @@
     "jsx": "react-jsx",
     "lib": ["DOM", "ES2022"]
   },
-  "include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+  "include": ["app/**/*.ts", "app/**/*.tsx", "src/**/*.ts", "src/**/*.tsx", "modules/**/*.ts", ".expo/types/**/*.ts", "expo-env.d.ts"],
+  "exclude": ["node_modules", "src/__tests__", "vitest.config.ts"]
 }

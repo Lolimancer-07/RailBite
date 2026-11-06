@@ -1,0 +1,7 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "package": "com.railbite.wifibinder",
+    "modules": ["com.railbite.wifibinder.WifiBinderModule"]
+  }
+}

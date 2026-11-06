@@ -1,0 +1,7 @@
+{
+  "platforms": ["android"],
+  "android": {
+    "package": "com.railbite.captain.alert",
+    "modules": ["com.railbite.captain.alert.AlertForegroundServiceModule"]
+  }
+}

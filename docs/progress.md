@@ -79,3 +79,34 @@
 
 **What is stubbed:**
 - Native Kotlin WifiBinder is stubbed in TypeScript transport layer (Phase 5).
+
+---
+
+## Phase 4: Captain App + Alerts ✅
+
+**Completed:** 2026-11-06
+
+**What works:**
+- Staff PIN login (staffId, pin) with session token generation.
+- Full-screen urgent alert screen (`app/alerts.tsx`) with 60s countdown progress ring, unverified PNR alert (`verified=0`), itemized order summary, and big ACCEPT / REJECT buttons.
+- Android foreground service Kotlin module (`AlertForegroundService.kt` + `AlertForegroundServiceModule.kt`) with `IMPORTANCE_HIGH` notification channel and full-screen intent so alerts ring when phone is locked or app is in background.
+- Active deliveries screen (`app/active.tsx`): lists orders in captain's coach zone, Mark Picked Up, Mark Delivered + cash collected modal.
+- Cash ledger reconciliation screen (`app/cash.tsx`): displays expected cash from delivered orders vs actual collected cash vs passenger-confirmed cash, with mismatch warnings.
+- Complaints screen (`app/complaints.tsx`): monitors Tier 1 seat-side replacement requests with 15-minute countdown timers.
+- Tests: MQTT alert reception, 60s countdown, accept/reject actions, delivery flow, and cash ledger tracking.
+
+---
+
+## Phase 5: Wi-Fi Binding Native Module ✅
+
+**Completed:** 2026-11-06
+
+**What works:**
+- Kotlin native Expo module `wifi-binder` (`WifiBinderModule.kt`):
+  - `connectToPantry(ssid, passphrase)` using `WifiNetworkSpecifier` and `ConnectivityManager.requestNetwork` with `NET_CAPABILITY_INTERNET` removed.
+  - `bindProcessToNetwork(network)` so Android sockets route all traffic to pantry Wi-Fi even when the OS detects no internet connectivity.
+  - Event emitter for `onPantryConnected` and `onPantryLost`.
+  - `unbind()` for graceful disconnection.
+  - Auto-reconnect loop helper with configurable interval.
+- Shared and integrated into both passenger and captain apps.
+- Raspberry Pi `hostapd` + `dnsmasq` setup script documented in `infra/pi-setup.sh`.
