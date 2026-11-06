@@ -1,0 +1,19 @@
+{
+  "name": "@railbite/simulator",
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/simulator.ts",
+    "simulate": "tsx src/simulator.ts --passengers 50",
+    "batch-experiment": "tsx src/simulator.ts --batch-experiment"
+  },
+  "dependencies": {
+    "@railbite/shared": "workspace:*",
+    "mqtt": "^5.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.5.0"
+  }
+}

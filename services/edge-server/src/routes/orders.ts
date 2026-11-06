@@ -15,7 +15,11 @@ export function createOrderRoutes(orderService: OrderService): FastifyPluginAsyn
       }
 
       try {
+        const existing = orderService.getOrder(parsed.data.id);
         const order = orderService.create(parsed.data);
+        if (existing) {
+          return reply.status(200).send(order);
+        }
         return reply.status(201).send(order);
       } catch (err: any) {
         if (err.message?.includes("Insufficient stock")) {

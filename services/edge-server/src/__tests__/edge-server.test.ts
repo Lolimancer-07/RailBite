@@ -102,7 +102,7 @@ describe("RailBite Edge Server Core", () => {
       url: "/orders",
       payload,
     });
-    expect(res2.statusCode).toBe(201);
+    expect([200, 201]).toContain(res2.statusCode);
     const order2 = JSON.parse(res2.body);
     expect(order2.id).toBe(orderId);
 
