@@ -86,3 +86,4 @@ Each coach in the rake is fitted with one fixed ESP32-WROOM-32D node:
 - **RF Range**: External 2.4 GHz dipole antenna mounted near vestibule gangway bellows, achieving 25m reliable range through metal vestibules.
 - **Relay Mesh Topology**: Linear bucket brigade topology ($C_1 \leftrightarrow C_2 \leftrightarrow \dots \leftrightarrow C_{\text{pantry}} \leftrightarrow \dots \leftrightarrow C_{24}$).
 - **Failure Tolerance**: If a node $C_i$ fails, high-power BLE 5.0 coded PHY allows $C_{i-1}$ to communicate directly with $C_{i+1}$ across a single gap.
+

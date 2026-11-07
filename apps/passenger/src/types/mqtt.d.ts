@@ -16,3 +16,4 @@ declare module "mqtt" {
 
   export function connect(brokerUrl: string, opts?: IClientOptions): MqttClient;
 }
+

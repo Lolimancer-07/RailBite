@@ -69,3 +69,4 @@ class CaptainMqttClient {
 }
 
 export const captainMqtt = new CaptainMqttClient();
+

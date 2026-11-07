@@ -187,3 +187,4 @@ export function createCloudApp(db: Database.Database): FastifyInstance {
 
   return app;
 }
+

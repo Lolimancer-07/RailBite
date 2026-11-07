@@ -102,3 +102,4 @@ export async function getComplaints(): Promise<any[]> {
   }
   return res.json();
 }
+

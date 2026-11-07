@@ -196,3 +196,4 @@ export function runRelaySimulation() {
 if (process.argv[1]?.includes("relay.ts")) {
   runRelaySimulation();
 }
+

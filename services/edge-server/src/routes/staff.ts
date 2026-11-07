@@ -37,3 +37,4 @@ export function createStaffRoutes(staffRepo: StaffRepo): FastifyPluginAsync {
     });
   };
 }
+

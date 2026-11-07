@@ -8,3 +8,4 @@ export function createLedgerRoutes(ledgerRepo: LedgerRepo): FastifyPluginAsync {
     });
   };
 }
+

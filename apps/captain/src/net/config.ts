@@ -14,3 +14,4 @@ export function getApiBaseUrl(): string {
 export function setCustomApiUrl(url: string | null): void {
   customApiUrl = url;
 }
+

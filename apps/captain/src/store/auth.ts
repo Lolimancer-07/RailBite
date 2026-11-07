@@ -19,3 +19,4 @@ export const useAuthStore = create<AuthState>((set) => ({
   setStaff: (staff) => set({ staff }),
   logout: () => set({ staff: null }),
 }));
+

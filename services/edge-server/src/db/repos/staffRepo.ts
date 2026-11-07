@@ -71,3 +71,4 @@ export class StaffRepo {
     this.db.prepare("UPDATE staff SET online = ? WHERE id = ?").run(online ? 1 : 0, id);
   }
 }
+

@@ -147,3 +147,4 @@ describe("Phase 10: Cloud Sync and Contractor Scoring", () => {
     expect(complaints[0].photo_sha256).toBeDefined();
   });
 });
+

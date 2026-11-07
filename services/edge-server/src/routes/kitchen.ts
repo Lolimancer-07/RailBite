@@ -32,3 +32,4 @@ export function createKitchenRoutes(orderService: OrderService): FastifyPluginAs
     });
   };
 }
+

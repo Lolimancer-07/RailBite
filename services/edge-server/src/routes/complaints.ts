@@ -38,3 +38,4 @@ export function createComplaintRoutes(complaintService: ComplaintService): Fasti
     });
   };
 }
+

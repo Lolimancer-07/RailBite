@@ -59,3 +59,4 @@ export function initCloudDb(target?: Database.Database | string): Database.Datab
 
   return db;
 }
+

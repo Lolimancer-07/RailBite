@@ -94,3 +94,4 @@ describe("SMS Token Encoding and Decoding", () => {
     expect(parsed.etaMin).toBe(15);
   });
 });
+

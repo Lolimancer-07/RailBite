@@ -74,3 +74,4 @@ export function findBestCaptain(
 
   return bestCaptain || directAny || candidates[0] || null;
 }
+

@@ -77,3 +77,4 @@ RB#ACK#123456#7500#10
 - `123456`: Last 6 characters of authoritative order ID.
 - `7500`: Authoritative total calculated by server MRP table (₹75.00).
 - `10`: Estimated preparation/delivery time in minutes.
+

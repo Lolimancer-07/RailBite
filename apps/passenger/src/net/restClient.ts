@@ -86,3 +86,4 @@ export async function postComplaint(complaint: ComplaintCreate): Promise<Complai
   }
   return res.json();
 }
+

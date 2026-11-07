@@ -23,3 +23,4 @@ export function getMqttWsUrl(): string {
 export function setCustomMqttUrl(url: string | null): void {
   customMqttUrl = url;
 }
+

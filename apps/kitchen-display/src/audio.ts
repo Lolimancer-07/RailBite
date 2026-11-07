@@ -36,3 +36,4 @@ export function playKitchenChime(): void {
     // Ignore audio permission or context error
   }
 }
+

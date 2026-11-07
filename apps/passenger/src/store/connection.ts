@@ -15,3 +15,4 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
   setStatus: (status) => set({ status }),
   setQueuedCount: (queuedCount) => set({ queuedCount }),
 }));
+

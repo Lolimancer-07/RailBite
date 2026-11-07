@@ -148,3 +148,4 @@ pnpm --filter @railbite/simulator simulate
 - Measures latency distribution: p50 (18ms), p95 (45ms < 1000ms target), p99 (68ms).
 - Measures walking hop reduction: coach batching cuts physical crew footsteps through vestibules by **70%**.
 - Generates markdown documentation at `docs/metrics.md`.
+

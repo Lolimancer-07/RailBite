@@ -70,3 +70,4 @@ class KitchenMqttClient {
 }
 
 export const kitchenMqtt = new KitchenMqttClient();
+

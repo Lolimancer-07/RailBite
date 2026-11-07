@@ -72,3 +72,4 @@ describe("Phase 11: Device-to-Device Relay Simulation (STRETCH)", () => {
     expect(result.reachedPantry).toBe(false);
   });
 });
+

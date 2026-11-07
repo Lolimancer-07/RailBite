@@ -85,3 +85,4 @@ export const useCartStore = create<CartState>((set, get) => ({
     return count;
   },
 }));
+

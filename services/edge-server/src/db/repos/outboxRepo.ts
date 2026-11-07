@@ -40,3 +40,4 @@ export class OutboxRepo {
       .run(syncedAt, ...seqs);
   }
 }
+

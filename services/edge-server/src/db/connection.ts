@@ -45,3 +45,4 @@ export function closeDb(): void {
     dbInstance = null;
   }
 }
+

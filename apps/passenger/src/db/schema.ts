@@ -36,3 +36,4 @@ CREATE TABLE IF NOT EXISTS pending_actions (
   created_at TEXT NOT NULL
 );
 `;
+

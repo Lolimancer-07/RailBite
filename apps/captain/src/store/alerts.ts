@@ -16,3 +16,4 @@ export const useAlertsStore = create<AlertsState>((set) => ({
   setSecondsRemaining: (secondsRemaining) => set({ secondsRemaining }),
   clearAlert: () => set({ currentAlert: null, secondsRemaining: 0 }),
 }));
+

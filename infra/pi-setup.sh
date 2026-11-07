@@ -48,3 +48,4 @@ sudo systemctl enable hostapd
 sudo systemctl enable dnsmasq
 
 echo "=== Network setup ready. Install Node 20/22 and run PM2 ==="
+

@@ -20,3 +20,4 @@ export function calculatePenalty(type: string): number {
   }
   return 10;
 }
+

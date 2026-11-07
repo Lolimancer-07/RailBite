@@ -29,3 +29,4 @@ export const useActiveOrdersStore = create<ActiveOrdersState>((set) => ({
       activeOrders: state.activeOrders.filter((o) => o.id !== orderId),
     })),
 }));
+

@@ -18,3 +18,4 @@ export const useSessionStore = create<SessionState>((set) => ({
   setSession: (session) => set({ session }),
   clearSession: () => set({ session: null }),
 }));
+

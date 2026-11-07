@@ -10,3 +10,4 @@ export class ManifestRepo {
     return Boolean(row);
   }
 }
+

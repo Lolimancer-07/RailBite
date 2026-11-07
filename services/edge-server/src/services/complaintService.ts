@@ -108,3 +108,4 @@ export class ComplaintService {
     return this.complaintRepo.listActive();
   }
 }
+
