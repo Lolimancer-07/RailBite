@@ -249,3 +249,32 @@
 
 
 
+
+---
+
+## Phase 12: Prototype — Quick-Commerce Customer + Picker Demo ✅
+
+**Completed:** 2026-11-07
+**Branch:** `prototype` (commits proto-0 … proto-5)
+
+**Goal:** Demo-ready "Blinkit for train pantry food" on two Android phones + laptop edge server over LAN.
+
+**What was built:**
+- `packages/shared`: added `PACKING` order status (ACCEPTED → PACKING → OUT_FOR_DELIVERY) on both READY and COOK tracks; state machine rejects illegal transitions with 409.
+- Edge server (`services/edge-server`):
+  - `POST /orders/:id/packing`, `POST /staff/:id/online`, `GET /staff/:id/stats` endpoints.
+  - Dispatch is now online-only (offline pickers are skipped).
+  - Seed rewritten for the prototype: 15 READY (instant) items across 5 categories (Beverages, Water, Snacks, Meals, Breakfast), 4 pickers (c1–c4, PIN 1234), high stock, PNR manifest 8492000001–8492000120. No COOK items in the demo seed.
+- Passenger app (`apps/passenger`): quick-commerce home (seat chip, "~10 mins", search, category strip, product grid, ADD→stepper, sold-out overlay), floating cart bar, COD-only cart with bill summary, bottom tabs (Home / Orders), PACKING-aware tracking timeline with "Did you pay ₹X?" cash confirmation, Tier-1-only "Report a problem", server URL Settings screen + "Connected / Cannot reach server" banner, session persistence.
+- Picker app (`apps/captain`, UI renamed "Picker"): Staff ID + PIN login with server URL field, ONLINE/OFFLINE toggle, today's stats (delivered / collected / confirmed), full-screen loud new-order alert (reuses AlertForegroundService — rings when locked, high-importance notification backup), picking checklist that marks PACKING and is disabled until all items are ticked, Out for delivery, Delivered + cash collection modal, cash ledger kept.
+
+**Intentionally disabled (hidden, not deleted) for the prototype:**
+- "Order via SMS" button hidden in passenger cart (SMS/BLE/relay/cloud sync code untouched).
+- Tier 2 complaint flow (photo evidence, regulatory escalation) hidden — only simple Tier 1 reports.
+- COOK items removed from seed so no kitchen pipeline appears in the demo; `apps/kitchen-display` left untouched.
+
+**Notes / limitations:**
+- Online-only dispatch; picker presence resets on server restart.
+- Picker stats are UTC-day based.
+- Expo apps pass `tsc` but have not been device-tested; no unit tests for app UI.
+- Passenger app `vitest` tests exist in `src/__tests__` but have no `test` script (intentionally excluded from `pnpm -r test`).
