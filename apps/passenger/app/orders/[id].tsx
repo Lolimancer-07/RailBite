@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { getLocalOrder, updateLocalOrderStatus, queueAction } from "../../src/db/queries.js";
-import { getOrder, cancelOrder, confirmCashPayment } from "../../src/net/restClient.js";
+import { getOrder, cancelOrder, confirmCashPayment, submitFeedback } from "../../src/net/restClient.js";
 import { passengerMqtt } from "../../src/net/mqttClient.js";
 import { processQueue } from "../../src/sync/queueWorker.js";
 import { colors } from "../../src/ui/theme.js";
@@ -42,6 +42,26 @@ function statusToIndex(status: string): number {
   }
 }
 
+/** Seed names look like "Ramesh Kumar (Picker B1-B2)" — display only the person's name */
+function displayName(fullName: string | null | undefined): string {
+  if (!fullName) return "";
+  return fullName.replace(/\s*\(.*\)\s*$/, "");
+}
+
+// FOT-style reason chips for post-delivery rating
+const GOOD_REASONS = [
+  "Food was great",
+  "Quantity was just right",
+  "Pricing was reasonable",
+  "Staff was nice & humble",
+];
+const BAD_REASONS = [
+  "Food quality was bad",
+  "Quantity was too less",
+  "Items were over-priced",
+  "Staff was rude",
+];
+
 interface StatusUpdate {
   status: string;
   updatedAt: string;
@@ -57,6 +77,15 @@ export default function OrderDetailScreen() {
   const [pickerStatus, setPickerStatus] = useState<StatusUpdate | null>(null);
   const [cashConfirmed, setCashConfirmed] = useState(false);
   const [cancelPrompt, setCancelPrompt] = useState(false);
+
+  // FOT-style: delivery code reveal + structured post-delivery feedback
+  const [codeRevealed, setCodeRevealed] = useState(false);
+  const [feedbackState, setFeedbackState] = useState<"prompt" | "received" | "not-received" | "done">(
+    "prompt",
+  );
+  const [rating, setRating] = useState(0);
+  const [selectedReasons, setSelectedReasons] = useState<string[]>([]);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
 
   // Latest live MQTT update (kept in ref-checkable state for the timeline)
 
@@ -114,6 +143,34 @@ export default function OrderDetailScreen() {
     processQueue();
   };
 
+  const submitFeedbackRequest = (received: boolean, withRating = false) => {
+    setFeedbackBusy(true);
+    submitFeedback(id, {
+      received,
+      rating: withRating && rating > 0 ? rating : undefined,
+      reasons: selectedReasons.length > 0 ? selectedReasons : undefined,
+    })
+      .then(() => {
+        setFeedbackState("done");
+        setOrder((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                feedback: {
+                  received,
+                  rating: withRating && rating > 0 ? rating : undefined,
+                  reasons: selectedReasons.length > 0 ? selectedReasons : undefined,
+                },
+              }
+            : prev,
+        );
+      })
+      .catch((err: any) => {
+        Alert.alert("Feedback failed", err.message || "Could not submit feedback.");
+      })
+      .finally(() => setFeedbackBusy(false));
+  };
+
   if (!order) {
     return (
       <View style={styles.center}>
@@ -127,15 +184,40 @@ export default function OrderDetailScreen() {
   const isDelivered = order.status === "DELIVERED";
   const isCancelled = order.status === "CANCELLED" || order.status === "EXPIRED";
   const isCancellable = order.status === "PLACED" || order.status === "ASSIGNED";
-  const pickerName = pickerStatus?.captainName ?? null;
+  const isOutForDelivery = order.status === "OUT_FOR_DELIVERY";
+  const pickerName = displayName(pickerStatus?.captainName ?? order.captainName);
   const etaMin = pickerStatus?.etaMin ?? 10;
+
+  // FOT-style subtexts with the named picker
+  let statusSubtext: string;
+  if (isCancelled) {
+    statusSubtext = "We're really sorry about that.";
+  } else if (isDelivered) {
+    statusSubtext = "Delivery confirmed — enjoy your meal!";
+  } else if (isOutForDelivery) {
+    statusSubtext = pickerName
+      ? `${pickerName} is on the way to your seat!`
+      : "Your order is on the way!";
+  } else if (order.status === "PACKING") {
+    statusSubtext = pickerName ? `${pickerName} is packing your order` : "Packing your order";
+  } else if (order.status === "ACCEPTED") {
+    statusSubtext = pickerName ? `${pickerName} picked up your order` : "Picker assigned";
+  } else {
+    statusSubtext = "Finding a pantry picker for your coach…";
+  }
 
   const statusText =
     isCancelled
       ? "Order cancelled"
-      : order.status === "ACCEPTED"
-        ? "Picker assigned"
-        : (TIMELINE[Math.max(currentIndex, 0)]?.label || "Order placed");
+      : isDelivered
+        ? "Order Received"
+        : isOutForDelivery
+          ? "Out for delivery"
+          : order.status === "ACCEPTED"
+            ? "Picker assigned"
+            : (TIMELINE[Math.max(currentIndex, 0)]?.label || "Order placed");
+
+  const deliveryCode = order.deliveryCode as string | undefined;
 
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg }}>
@@ -152,11 +234,10 @@ export default function OrderDetailScreen() {
       <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
         <View style={styles.statusCard}>
           <Text style={styles.statusBig}>{statusText}</Text>
-          {!isCancelled ? (
-            <Text style={styles.etaText}>
-              {isDelivered
-                ? "Enjoy! Paid in cash at your berth."
-                : `Arriving in ~${etaMin} min${etaMin === 1 ? "" : "s"}`}
+          <Text style={styles.etaText}>{statusSubtext}</Text>
+          {!isCancelled && !isDelivered ? (
+            <Text style={styles.arrivalText}>
+              Arriving in ~{etaMin} min{etaMin === 1 ? "" : "s"}
             </Text>
           ) : null}
 
@@ -191,6 +272,20 @@ export default function OrderDetailScreen() {
           ) : null}
         </View>
 
+        {/* FOT-style delivery code handover — show while picker is en route */}
+        {isOutForDelivery && deliveryCode ? (
+          <View style={styles.codeCard}>
+            <Text style={styles.codeTitle}>Delivery Code</Text>
+            <Text style={styles.codeSub}>
+              Tell this secret code to the picker when they hand over your food.
+            </Text>
+            <TouchableOpacity onPress={() => setCodeRevealed(!codeRevealed)} style={styles.codeBox}>
+              <Text style={styles.codeDigits}>{codeRevealed ? deliveryCode : "••••"}</Text>
+              <Text style={styles.codeReveal}>{codeRevealed ? "Hide" : "Tap to reveal"}</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
         {/* Cash confirmation */}
         {isDelivered && !cashConfirmed ? (
           <View style={styles.cashBox}>
@@ -214,6 +309,120 @@ export default function OrderDetailScreen() {
         {isDelivered && cashConfirmed ? (
           <View style={styles.cashConfirmedBox}>
             <Text style={styles.cashConfirmedText}>✓ Thanks — cash payment confirmed.</Text>
+          </View>
+        ) : null}
+
+        {/* FOT-style structured feedback — "Did you receive this order?" + stars + reason chips */}
+        {isDelivered && feedbackState === "prompt" && !order.feedback ? (
+          <View style={styles.feedbackCard}>
+            <Text style={styles.feedbackTitle}>Did you receive this order?</Text>
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+              <TouchableOpacity
+                style={styles.receivedNoBtn}
+                disabled={feedbackBusy}
+                onPress={() => {
+                  setFeedbackState("not-received");
+                  setSelectedReasons([]);
+                }}
+              >
+                <Text style={styles.receivedNoText}>No, didn't receive</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.receivedYesBtn}
+                disabled={feedbackBusy}
+                onPress={() => {
+                  setFeedbackState("received");
+                  setRating(0);
+                  setSelectedReasons([]);
+                }}
+              >
+                <Text style={styles.receivedYesText}>Yes, received</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {isDelivered && feedbackState === "not-received" ? (
+          <View style={styles.feedbackCard}>
+            <Text style={styles.feedbackTitle}>Sorry about that</Text>
+            <Text style={styles.feedbackSub}>
+              Report the problem below — the pantry team treats complaints as a priority (3–5 working
+              days typical resolution).
+            </Text>
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+              <TouchableOpacity
+                style={styles.receivedNoBtn}
+                disabled={feedbackBusy}
+                onPress={() => setFeedbackState("prompt")}
+              >
+                <Text style={styles.receivedNoText}>Back</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.receivedNoBtn}
+                disabled={feedbackBusy}
+                onPress={() => submitFeedbackRequest(false)}
+              >
+                <Text style={styles.receivedNoText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {isDelivered && feedbackState === "received" ? (
+          <View style={styles.feedbackCard}>
+            <Text style={styles.feedbackTitle}>Rate your experience</Text>
+            <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
+              {[1, 2, 3, 4, 5].map((n) => (
+                <TouchableOpacity key={n} onPress={() => setRating(n)} disabled={feedbackBusy}>
+                  <Text style={[styles.star, rating >= n && styles.starSelected]}>★</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.feedbackChipTitle}>What did you like?</Text>
+            <View style={styles.chipRow}>
+              {GOOD_REASONS.map((reason) => {
+                const selected = selectedReasons.includes(reason);
+                return (
+                  <TouchableOpacity
+                    key={reason}
+                    style={[styles.chip, selected && styles.chipSelected]}
+                    onPress={() =>
+                      setSelectedReasons((prev) =>
+                        prev.includes(reason) ? prev.filter((r) => r !== reason) : [...prev, reason],
+                      )
+                    }
+                  >
+                    <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+                      {reason}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: "row", gap: 10, marginTop: 12 }}>
+              <TouchableOpacity
+                style={styles.receivedNoBtn}
+                disabled={feedbackBusy}
+                onPress={() => setFeedbackState("prompt")}
+              >
+                <Text style={styles.receivedNoText}>Skip</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.receivedYesBtn}
+                disabled={feedbackBusy || rating === 0}
+                onPress={() => submitFeedbackRequest(true, true)}
+              >
+                <Text style={styles.receivedYesText}>Submit</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
+        {isDelivered && (feedbackState === "done" || order.feedback) ? (
+          <View style={styles.cashConfirmedBox}>
+            <Text style={styles.cashConfirmedText}>
+              ✓ Thanks for sharing feedback on this order
+            </Text>
           </View>
         ) : null}
 
@@ -303,6 +512,7 @@ const styles = StyleSheet.create({
   },
   statusBig: { fontSize: 20, fontWeight: "bold", color: colors.ink },
   etaText: { fontSize: 13, color: colors.primary, fontWeight: "600", marginTop: 4 },
+  arrivalText: { fontSize: 12, color: colors.inkSoft, marginTop: 4 },
   timelineRow: {
     flexDirection: "row",
     marginTop: 18,
@@ -369,6 +579,66 @@ const styles = StyleSheet.create({
     padding: 12,
   },
   cashConfirmedText: { color: colors.primary, fontWeight: "bold", textAlign: "center", fontSize: 13 },
+  codeCard: {
+    backgroundColor: colors.info,
+    marginHorizontal: 16,
+    marginBottom: 14,
+    borderRadius: 14,
+    padding: 16,
+  },
+  codeTitle: { fontSize: 16, fontWeight: "bold", color: "#ffffff" },
+  codeSub: { fontSize: 12, color: "#dbeafe", marginTop: 4 },
+  codeBox: {
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    marginTop: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  codeDigits: { fontSize: 30, fontWeight: "bold", letterSpacing: 8, color: colors.ink },
+  codeReveal: { fontSize: 11, color: colors.info, fontWeight: "600", marginTop: 2 },
+  feedbackCard: {
+    backgroundColor: "#ffffff",
+    marginHorizontal: 16,
+    marginBottom: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 16,
+  },
+  feedbackTitle: { fontSize: 16, fontWeight: "bold", color: colors.ink },
+  feedbackSub: { fontSize: 12, color: colors.inkSoft, marginTop: 4, lineHeight: 17 },
+  feedbackChipTitle: { fontSize: 12, fontWeight: "bold", color: colors.inkSoft, marginTop: 12 },
+  receivedNoBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  receivedNoText: { color: colors.ink, fontWeight: "600" },
+  receivedYesBtn: {
+    flex: 1,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: "center",
+  },
+  receivedYesText: { color: "#ffffff", fontWeight: "bold" },
+  star: { fontSize: 32, color: colors.border },
+  starSelected: { color: colors.amber },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+  chip: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  chipSelected: { backgroundColor: colors.primarySoft, borderColor: colors.primary },
+  chipText: { fontSize: 12, color: colors.inkSoft },
+  chipTextSelected: { color: colors.primary, fontWeight: "600" },
   section: {
     backgroundColor: "#ffffff",
     marginHorizontal: 16,

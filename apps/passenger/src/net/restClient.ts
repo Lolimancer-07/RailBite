@@ -73,6 +73,30 @@ export async function confirmCashPayment(id: string): Promise<{ ok: boolean; ord
   return res.json();
 }
 
+/** FOT-style structured post-delivery feedback ("Did you receive this order?" + stars + reason chips) */
+export interface FeedbackPayload {
+  received: boolean;
+  rating?: number;
+  reasons?: string[];
+}
+
+export async function submitFeedback(
+  id: string,
+  feedback: FeedbackPayload,
+): Promise<{ ok: boolean; orderId: string; feedback: unknown }> {
+  const url = `${getApiBaseUrl()}/orders/${id}/feedback`;
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(feedback),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Feedback failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
 export async function postComplaint(complaint: ComplaintCreate): Promise<Complaint> {
   const url = `${getApiBaseUrl()}/complaints`;
   const res = await fetchWithTimeout(url, {

@@ -89,11 +89,11 @@ npx expo run:android
 
 ### 3. Demo walkthrough
 
-1. **Customer phone**: enter PNR `8492000001`, Coach `B1`, Seat `1` → browse menu → add items → View Cart → Place Order (Cash on Delivery).
+1. **Customer phone**: enter PNR `8492000001`, Coach `B1`, Seat `1` → browse menu (veg 🟢 / non-veg 🔴 markers shown) → tap "How RailBite works" card once → add items → View Cart ("You might have missed" upsell strip) → Place Order (Cash on Delivery).
 2. **Picker phone**: log in as `c1` / PIN `1234` → keep the ONLINE toggle on → within ~1–2 s a full-screen loud alert rings (also when locked) → ACCEPT.
-3. **Picker phone**: the picking checklist opens (customer now sees "Packing") → tick every item → "Packed — start delivery" → deliver the order → "Delivered + cash collected ₹X".
-4. **Customer phone**: every status change arrives live: Order placed → Picker assigned → Packing → Out for delivery → Delivered, then "Did you pay ₹X?" → confirm.
-5. **Cash ledger**: Picker Home shows today's orders delivered / cash collected / confirmed; the 💰 Cash ledger screen shows expected vs collected vs passenger-confirmed.
+3. **Picker phone**: the picking checklist opens (customer now sees "Packing") → tick every item → "Packed — start delivery" → server generates a secret **4-digit delivery code** → deliver the order → in the delivery modal enter the cash collected **and** repeat the passenger's 4-digit code → "Delivered + cash collected ₹X".
+4. **Customer phone**: every status change arrives live: Order placed → Picker assigned → Packing → Out for delivery → Delivered. While en route, a blue **Delivery Code** card shows masked digits `••••` — tap to reveal and tell the picker when they hand over the food. After delivery, "Did you receive this order?" → Yes → star rating + reason chips → "Thanks for sharing feedback".
+5. **Cash ledger**: Picker Home shows today's orders delivered / cash collected / confirmed / average passenger rating; the 💰 Cash ledger screen shows expected vs collected vs passenger-confirmed.
 
 **Demo credentials & test data:**
 

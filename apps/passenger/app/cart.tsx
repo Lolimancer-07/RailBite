@@ -1,15 +1,16 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   View,
   Text,
   FlatList,
   TouchableOpacity,
   StyleSheet,
+  ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useCartStore } from "../src/store/cart.js";
 import { useSessionStore } from "../src/store/session.js";
-import { saveLocalOrder, queueAction } from "../src/db/queries.js";
+import { saveLocalOrder, queueAction, getCachedMenuItems } from "../src/db/queries.js";
 import { processQueue } from "../src/sync/queueWorker.js";
 import { passengerMqtt } from "../src/net/mqttClient.js";
 import { determineTrack, type OrderCreate } from "@railbite/shared";
@@ -39,6 +40,14 @@ export default function CartScreen() {
   const cartList = Array.from(cartMap.values());
   const totalAmount = totalPaise();
   const paymentMode = "COD" as const;
+
+  // FOT-style upsell: cached menu items not already in the cart ("You might have missed")
+  const upsellItems = useMemo(() => {
+    return getCachedMenuItems()
+      .filter((m) => m.stock > 0 && !cartMap.has(m.id))
+      .slice(0, 3);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartMap.size]);
 
   const handlePlaceOrder = () => {
     if (!session || !session.pnr) {
@@ -137,6 +146,29 @@ export default function CartScreen() {
         data={cartList}
         keyExtractor={({ item }) => item.id}
         contentContainerStyle={{ paddingBottom: 130 }}
+        ListHeaderComponent={
+          upsellItems.length > 0 ? (
+            <View style={styles.upsellWrap}>
+              <Text style={styles.upsellTitle}>You might have missed</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.upsellStrip}>
+                {upsellItems.map((upsellItem) => (
+                  <View key={upsellItem.id} style={styles.upsellCard}>
+                    <Text style={styles.upsellEmoji}>
+                      {upsellItem.category === "BEVERAGES" ? "🥤" : upsellItem.category === "WATER" ? "💧" : "🍿"}
+                    </Text>
+                    <Text style={styles.upsellName} numberOfLines={1}>{upsellItem.name}</Text>
+                    <TouchableOpacity
+                      style={styles.upsellAddBtn}
+                      onPress={() => addItem(upsellItem)}
+                    >
+                      <Text style={styles.upsellAddText}>ADD</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          ) : null
+        }
         renderItem={({ item: cartEntry }) => {
           const { item, qty } = cartEntry;
           return (
@@ -266,6 +298,36 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
   footerContainer: { padding: 16 },
+  // FOT-style "You might have missed" upsell strip
+  upsellWrap: { backgroundColor: "#ffffff", paddingBottom: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  upsellTitle: {
+    fontSize: 13,
+    fontWeight: "bold",
+    color: colors.ink,
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    marginBottom: 8,
+  },
+  upsellStrip: { paddingHorizontal: 14, gap: 10 },
+  upsellCard: {
+    width: 108,
+    backgroundColor: colors.bg,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 10,
+    alignItems: "center",
+  },
+  upsellEmoji: { fontSize: 26 },
+  upsellName: { fontSize: 11, color: colors.ink, fontWeight: "600", marginTop: 4, textAlign: "center" },
+  upsellAddBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 7,
+    paddingVertical: 4,
+    paddingHorizontal: 16,
+    marginTop: 6,
+  },
+  upsellAddText: { color: "#ffffff", fontWeight: "bold", fontSize: 12 },
   paymentRow: {
     flexDirection: "row",
     alignItems: "center",

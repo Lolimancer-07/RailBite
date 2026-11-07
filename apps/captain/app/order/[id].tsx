@@ -39,6 +39,8 @@ export default function PickingChecklistScreen() {
   const [actionBusy, setActionBusy] = useState(false);
   const [deliveryModal, setDeliveryModal] = useState(false);
   const [cashCollected, setCashCollected] = useState("");
+  const [deliveryCode, setDeliveryCode] = useState("");
+  const [deliveryError, setDeliveryError] = useState("");
 
   const didMarkPacking = useRef(false);
 
@@ -112,8 +114,9 @@ export default function PickingChecklistScreen() {
     if (!staff?.staffId) return;
     const cashAmountPaise = Math.round(parseFloat(cashCollected || "0") * 100);
     setActionBusy(true);
+    setDeliveryError("");
     try {
-      await deliverOrder(id as string, staff.staffId, cashAmountPaise);
+      await deliverOrder(id as string, staff.staffId, cashAmountPaise, deliveryCode || undefined);
       removeOrder(id as string);
       setDeliveryModal(false);
       Alert.alert(
@@ -122,7 +125,13 @@ export default function PickingChecklistScreen() {
         [{ text: "Done", onPress: () => router.replace("/active") }],
       );
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to record delivery");
+      const message = err.message || "Failed to record delivery";
+      // Surface delivery-code mismatch inline so the picker can ask the passenger to reveal it
+      if (message.toLowerCase().includes("delivery code")) {
+        setDeliveryError(message);
+      } else {
+        Alert.alert("Error", message);
+      }
     } finally {
       setActionBusy(false);
     }
@@ -212,7 +221,15 @@ export default function PickingChecklistScreen() {
             </Text>
           </TouchableOpacity>
         ) : isOutForDelivery ? (
-          <TouchableOpacity style={styles.primaryBtn} disabled={actionBusy} onPress={() => setDeliveryModal(true)}>
+          <TouchableOpacity
+            style={styles.primaryBtn}
+            disabled={actionBusy}
+            onPress={() => {
+              setDeliveryCode("");
+              setDeliveryError("");
+              setDeliveryModal(true);
+            }}
+          >
             <Text style={styles.primaryBtnText}>Delivered + cash collected ₹{totalPaise / 100}</Text>
           </TouchableOpacity>
         ) : null}
@@ -234,6 +251,19 @@ export default function PickingChecklistScreen() {
               value={cashCollected}
               onChangeText={setCashCollected}
             />
+
+            {/* FOT-style delivery code — the picker repeats the passenger's 4-digit code */}
+            <Text style={styles.inputLabel}>Delivery code (ask passenger to reveal)</Text>
+            <TextInput
+              style={styles.cashInput}
+              keyboardType="numeric"
+              maxLength={4}
+              value={deliveryCode}
+              onChangeText={setDeliveryCode}
+            />
+            {deliveryError ? (
+              <Text style={styles.deliveryError}>{deliveryError}</Text>
+            ) : null}
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
@@ -361,6 +391,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     color: colors.ink,
   },
+  deliveryError: { color: colors.danger, fontSize: 12, marginBottom: 10, textAlign: "center" },
   modalButtons: { flexDirection: "row", gap: 12 },
   cancelModalBtn: {
     flex: 1,

@@ -278,3 +278,40 @@
 - Picker stats are UTC-day based.
 - Expo apps pass `tsc` but have not been device-tested; no unit tests for app UI.
 - Passenger app `vitest` tests exist in `src/__tests__` but have no `test` script (intentionally excluded from `pnpm -r test`).
+
+---
+
+## Phase 13: FOT-inspired prototype features ✅
+
+**Completed:** 2026-11-07
+**Branch:** `prototype` (commits proto-6, proto-7)
+
+**Source:** Reverse-engineered IRCTC Food on Track v2.28.0 APK (`com.irctc.fot`) via apktool decode (resource/manifest/string extraction; code-level JADX blocked pending `REA_JADX_MCP_JAR`). Ported feature patterns: delivery-code/OTP handover, structured feedback & rating, cart upsell + veg markers + How-it-works, richer status subtexts & timeline.
+
+**Backend (`services/edge-server`, proto-6):**
+- Migration `002_fot_prototype.sql`: `menu_items.is_veg` (default true), `orders.delivery_code`, new `order_feedback` table (received/rating/reasons/created_at).
+- Idempotent migration runner: splits on `/;\s*\n`, strips `--` comment lines before executing, tolerates "duplicate column name" only.
+- `OrderRepo`: `setDeliveryCode`/`getDeliveryCode`/`upsertFeedback`/`getFeedback`; `delivery_code` on `OrderRow`.
+- `OrderService`: pickup generates a stable 4-digit delivery code (stored, stable across reads) + `captainName` in metadata; `deliver` validates the repeated code → `403 DeliveryCodeError` ("Invalid delivery code — ask the passenger to reveal it") on mismatch, skipped only when no stored code; `submitFeedback` → `409` unless DELIVERED, upsert into `order_feedback`.
+- Routes: `GET /orders/:id?role=picker` strips `deliveryCode`; `POST /orders/:id/deliver` accepts `deliveryCode` and maps `DeliveryCodeError` → 403; new `POST /orders/:id/feedback`.
+- `menuRepo.map is_veg`; `ledgerRepo.getStaffStats` gains `avgRating` (1-decimal, all-time via assignments.delivered_at join) + `feedbackCount`.
+- Seed: 16 items (added "Chicken Frankie Roll" MEALS ₹65 non-veg); all others isVeg=true.
+- Docs: `docs/api-contract.md`, `docs/state-machine.md` updated.
+- New `__tests__/fot-features.test.ts` (4 tests). 4 existing deliver sites updated to fetch & pass the code; edge-server test asserts wrong code → 403; menu count 15→16. All 83 tests pass; full build green.
+
+**Passenger app (`apps/passenger`, proto-7):**
+- Home: veg 🟢/non-veg 🔴 dot marker on every product tile; "How it works" card (permanent entry) + modal that auto-opens once per install (persisted `how_it_works_dismissed` in settings KV).
+- Cart: "You might have missed" horizontal upsell strip (3 cached menu items not in cart, quick ADD).
+- Tracking: FOT-style named-picker subtexts ("%s is on the way to your seat!" via `displayName()` stripping the "(Picker B1-B2)" suffix), "Order Received" when delivered; blue Delivery Code card with masked `••••` tap-to-reveal; feedback card states prompt→received/not-received→done with Yes/Received, ★ stars (amber selected), reason chips; guards on `order.feedback`; `restClient.submitFeedback` + `FeedbackPayload`.
+- Typecheck clean (`tsc --noEmit`).
+
+**Picker app (`apps/captain`, proto-7):**
+- `captainRestClient`: `getOrderById` fetches `?role=picker` (code stripped); `deliverOrder` accepts `deliveryCode`; `PickerStats` gains `avgRating`/`feedbackCount`.
+- `app/order/[id].tsx` delivery modal: 4-digit code TextInput + inline server-error surfacing on 403.
+- `app/active.tsx`: stats row gains avg rating card ("4.5 ★ (3)"); delivery modal gains code input + error; `handleConfirmDelivery` passes the code and surfaces delivery-code mismatch inline.
+- Typecheck clean (`tsc --noEmit`).
+
+**Notes / limitations:**
+- Delivery code is visible to anyone who can GET `/orders/:id` as passenger role (same endpoint the passenger uses); no online payments; coupons/slots intentionally not ported from FOT.
+- Expo apps pass `tsc` but have not been device-tested; no unit tests for app UI.
+- Named-picker status subtext only appears after a live MQTT update (which carries `captainName` from the pickup transition); the REST response doesn't include `captainName`.

@@ -70,12 +70,13 @@ export async function deliverOrder(
   orderId: string,
   captainId: string,
   cashPaise?: number,
+  deliveryCode?: string,
 ): Promise<Order> {
   const url = `${getApiBaseUrl()}/orders/${orderId}/deliver`;
   const res = await fetchWithTimeout(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ captainId, cashPaise }),
+    body: JSON.stringify({ captainId, cashPaise, deliveryCode }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -103,7 +104,8 @@ export async function getComplaints(): Promise<any[]> {
 }
 
 export async function getOrderById(orderId: string): Promise<Order & { items?: any[] }> {
-  const url = `${getApiBaseUrl()}/orders/${orderId}`;
+  // role=picker strips the delivery code so pickers never see the passenger's code
+  const url = `${getApiBaseUrl()}/orders/${orderId}?role=picker`;
   const res = await fetchWithTimeout(url);
   if (!res.ok) {
     throw new Error(`Failed to fetch order: ${res.statusText}`);
@@ -146,6 +148,9 @@ export interface PickerStats {
   expectedPaise: number;
   collectedPaise: number;
   passengerConfirmedPaise: number;
+  // FOT-style: star feedback collected on orders this picker delivered
+  avgRating: number | null;
+  feedbackCount: number;
 }
 
 export async function getPickerStats(staffId: string): Promise<PickerStats> {

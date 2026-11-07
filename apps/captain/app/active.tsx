@@ -28,7 +28,13 @@ export default function PickerHomeScreen() {
   const { activeOrders, updateOrderStatus, removeOrder } = useActiveOrdersStore();
 
   const [online, setOnline] = useState(true);
-  const [stats, setStats] = useState<{ ordersDelivered: number; collectedPaise: number; confirmedPaise: number } | null>(null);
+  const [stats, setStats] = useState<{
+    ordersDelivered: number;
+    collectedPaise: number;
+    confirmedPaise: number;
+    avgRating: number | null;
+    feedbackCount: number;
+  } | null>(null);
 
   const loadStats = useCallback(() => {
     if (!staff?.staffId) return;
@@ -38,6 +44,8 @@ export default function PickerHomeScreen() {
           ordersDelivered: s.ordersDelivered,
           collectedPaise: s.collectedPaise,
           confirmedPaise: s.passengerConfirmedPaise,
+          avgRating: s.avgRating ?? null,
+          feedbackCount: s.feedbackCount ?? 0,
         }),
       )
       .catch(() => setStats(null));
@@ -65,23 +73,33 @@ export default function PickerHomeScreen() {
   const handleOpenDeliveryModal = (order: any) => {
     setDeliveryModalOrder(order);
     setCashCollected(String(order.totalPaise / 100));
+    setDeliveryCode("");
+    setDeliveryError("");
   };
 
   const [deliveryModalOrder, setDeliveryModalOrder] = useState<any>(null);
   const [cashCollected, setCashCollected] = useState("");
+  const [deliveryCode, setDeliveryCode] = useState("");
+  const [deliveryError, setDeliveryError] = useState("");
 
   const handleConfirmDelivery = async () => {
     if (!staff?.staffId || !deliveryModalOrder) return;
 
     const cashAmountPaise = Math.round(parseFloat(cashCollected || "0") * 100);
+    setDeliveryError("");
     try {
-      await deliverOrder(deliveryModalOrder.id, staff.staffId, cashAmountPaise);
+      await deliverOrder(deliveryModalOrder.id, staff.staffId, cashAmountPaise, deliveryCode || undefined);
       removeOrder(deliveryModalOrder.id);
       setDeliveryModalOrder(null);
       Alert.alert("Delivered", `Order marked delivered. Cash ledger recorded ₹${cashAmountPaise / 100}`);
       loadStats();
     } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to record delivery");
+      const message = err.message || "Failed to record delivery";
+      if (message.toLowerCase().includes("delivery code")) {
+        setDeliveryError(message);
+      } else {
+        Alert.alert("Error", message);
+      }
     }
   };
 
@@ -121,6 +139,10 @@ export default function PickerHomeScreen() {
         <View style={styles.statCard}>
           <Text style={styles.statValue}>₹{(stats?.confirmedPaise ?? 0) / 100}</Text>
           <Text style={styles.statLabel}>Confirmed</Text>
+        </View>
+        <View style={styles.statCard}>
+          <Text style={styles.statValue}>{stats && stats.avgRating !== null ? stats.avgRating.toFixed(1) : "—"} ★</Text>
+          <Text style={styles.statLabel}>Avg rating ({stats?.feedbackCount ?? 0})</Text>
         </View>
       </View>
 
@@ -210,6 +232,17 @@ export default function PickerHomeScreen() {
                 value={cashCollected}
                 onChangeText={setCashCollected}
               />
+
+              {/* FOT-style delivery code — picker repeats the passenger's 4-digit code */}
+              <Text style={styles.inputLabel}>Delivery code (ask passenger to reveal)</Text>
+              <TextInput
+                style={styles.cashInput}
+                keyboardType="numeric"
+                maxLength={4}
+                value={deliveryCode}
+                onChangeText={setDeliveryCode}
+              />
+              {deliveryError ? <Text style={styles.deliveryError}>{deliveryError}</Text> : null}
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity style={styles.cancelModalBtn} onPress={() => setDeliveryModalOrder(null)}>
@@ -318,6 +351,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   deliverBtnText: { color: "#ffffff", fontWeight: "bold", fontSize: 12 },
+  deliveryError: { color: colors.danger, fontSize: 12, marginBottom: 10, textAlign: "center" },
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", padding: 24 },
   modalContent: { backgroundColor: "#ffffff", borderRadius: 16, padding: 20 },
   modalTitle: { fontSize: 18, fontWeight: "bold", color: colors.ink, marginBottom: 4 },
