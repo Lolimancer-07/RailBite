@@ -65,7 +65,7 @@ export class LedgerRepo {
     }));
   }
 
-  /** Today's stats for a single staff member (UTC day) */
+  /** Today's stats for a single staff member (UTC day), plus FOT-style passenger feedback rating */
   getStaffStats(staffId: string, staffName: string): {
     staffId: string;
     staffName: string;
@@ -74,6 +74,8 @@ export class LedgerRepo {
     expectedPaise: number;
     collectedPaise: number;
     passengerConfirmedPaise: number;
+    avgRating: number | null;
+    feedbackCount: number;
   } {
     const todayPrefix = new Date().toISOString().slice(0, 10);
 
@@ -90,6 +92,16 @@ export class LedgerRepo {
       )
       .get(staffId, todayPrefix) as any;
 
+    // Passenger-facing rating: star feedback on orders this picker delivered (all-time)
+    const ratingRow = this.db
+      .prepare(
+        `SELECT COUNT(f.rating) as feedbackCount, AVG(f.rating) as avgRating
+         FROM order_feedback f
+         JOIN assignments a ON a.order_id = f.order_id
+         WHERE a.captain_id = ? AND a.delivered_at IS NOT NULL AND f.rating IS NOT NULL`,
+      )
+      .get(staffId) as any;
+
     return {
       staffId,
       staffName,
@@ -98,6 +110,8 @@ export class LedgerRepo {
       expectedPaise: Number(row?.expectedPaise || 0),
       collectedPaise: Number(row?.collectedPaise || 0),
       passengerConfirmedPaise: Number(row?.confirmedPaise || 0),
+      avgRating: ratingRow?.avgRating != null ? Math.round(Number(ratingRow.avgRating) * 10) / 10 : null,
+      feedbackCount: Number(ratingRow?.feedbackCount || 0),
     };
   }
 }

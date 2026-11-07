@@ -28,6 +28,21 @@ export const OrderStatusUpdateSchema = z.object({
 });
 export type OrderStatusUpdate = z.infer<typeof OrderStatusUpdateSchema>;
 
+/** FOT-style post-delivery feedback: "Did you receive this order?" + stars + reason chips */
+export const FeedbackCreateSchema = z.object({
+  received: z.boolean(),
+  rating: z.number().int().min(1).max(5).optional(),
+  reasons: z.array(z.string()).max(5).optional(),
+});
+export type FeedbackCreate = z.infer<typeof FeedbackCreateSchema>;
+
+export const FeedbackReadSchema = z.object({
+  received: z.boolean(),
+  rating: z.number().int().min(1).max(5).nullable().optional(),
+  reasons: z.array(z.string()).optional(),
+});
+export type FeedbackRead = z.infer<typeof FeedbackReadSchema>;
+
 export const OrderSchema = z.object({
   id: z.string().uuid(),
   pnr: z.string(),
@@ -42,6 +57,9 @@ export const OrderSchema = z.object({
   verified: z.number().int(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  /** 4-digit handover code shown to the passenger; omitted when fetched by the picker (?role=picker) */
+  deliveryCode: z.string().optional(),
+  feedback: FeedbackReadSchema.optional(),
   items: z
     .array(
       z.object({

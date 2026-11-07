@@ -44,5 +44,6 @@ The `canTransition(from, to, track)` function in `packages/shared/src/state-mach
 Routing/HTTP map:
 - ACCEPTED → PACKING: `POST /orders/:id/packing`
 - PACKING → OUT_FOR_DELIVERY: `POST /orders/:id/pickup`
-- OUT_FOR_DELIVERY → DELIVERED: `POST /orders/:id/deliver`
+- OUT_FOR_DELIVERY → DELIVERED: `POST /orders/:id/deliver` (requires the 4-digit delivery code generated on pickup; `403` on mismatch — FOT-style handover)
+- Post-DELIVERED feedback: `POST /orders/:id/feedback` — `409` if the order is not DELIVERED (FOT-style "Did you receive this order?" + star rating)
 

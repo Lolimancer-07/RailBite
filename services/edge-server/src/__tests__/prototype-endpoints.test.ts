@@ -203,7 +203,13 @@ describe("Prototype endpoints (PACKING status, picker toggle & stats)", () => {
     const deliverRes = await app.inject({
       method: "POST",
       url: `/orders/${orderId}/deliver`,
-      payload: { captainId: "c1", cashPaise: 1500 },
+      payload: {
+        captainId: "c1",
+        cashPaise: 1500,
+        deliveryCode: JSON.parse(
+          (await app.inject({ method: "GET", url: `/orders/${orderId}` })).body,
+        ).deliveryCode,
+      },
     });
     expect(deliverRes.statusCode).toBe(200);
 

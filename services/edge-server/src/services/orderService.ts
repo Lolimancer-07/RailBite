@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import crypto from "node:crypto";
 import {
   canTransition,
   computeTotal,
@@ -14,6 +15,7 @@ import { ManifestRepo } from "../db/repos/manifestRepo.js";
 import { StaffRepo } from "../db/repos/staffRepo.js";
 import { LedgerRepo } from "../db/repos/ledgerRepo.js";
 import { OutboxRepo } from "../db/repos/outboxRepo.js";
+import type { FeedbackCreate } from "@railbite/shared";
 import type { MqttPublisher } from "../mqtt/publisher.js";
 import type { Dispatcher } from "../dispatch/dispatcher.js";
 
@@ -21,6 +23,13 @@ export class StateTransitionError extends Error {
   constructor(public from: string, public to: string, public track: string) {
     super(`Illegal transition: ${from} -> ${to} on track ${track}`);
     this.name = "StateTransitionError";
+  }
+}
+
+export class DeliveryCodeError extends Error {
+  constructor() {
+    super("Invalid delivery code — ask the passenger to reveal it");
+    this.name = "DeliveryCodeError";
   }
 }
 
@@ -231,7 +240,22 @@ export class OrderService {
   }
 
   async pickup(orderId: string, captainId: string): Promise<Order> {
-    return this.transition(orderId, OrderStatus.OUT_FOR_DELIVERY, { captainId });
+    const captain = this.staffRepo.findById(captainId);
+    const order = this.orderRepo.findById(orderId);
+    if (!order) throw new Error(`Order not found: ${orderId}`);
+
+    // FOT-style delivery code: generated when the picker leaves for delivery;
+    // passenger reveals it, picker must repeat it on /deliver.
+    const deliveryCode = !order.deliveryCode
+      ? String(crypto.randomInt(1000, 10000))
+      : order.deliveryCode;
+
+    const updated = await this.transition(orderId, OrderStatus.OUT_FOR_DELIVERY, {
+      captainId,
+      captainName: captain?.name,
+    });
+    this.orderRepo.setDeliveryCode(orderId, deliveryCode);
+    return updated;
   }
 
   async startPacking(orderId: string, captainId?: string): Promise<Order> {
@@ -248,9 +272,21 @@ export class OrderService {
     }
   }
 
-  async deliver(orderId: string, captainId: string, cashPaise?: number): Promise<Order> {
+  async deliver(
+    orderId: string,
+    captainId: string,
+    cashPaise?: number,
+    deliveryCode?: string,
+  ): Promise<Order> {
     const order = this.orderRepo.findById(orderId);
     if (!order) throw new Error(`Order not found: ${orderId}`);
+
+    // FOT-style handover: the picker must repeat the passenger's delivery code
+    // (unless the order never got one, e.g. hand-migrated flows)
+    const storedCode = this.orderRepo.getDeliveryCode(orderId);
+    if (storedCode && deliveryCode?.trim() !== storedCode) {
+      throw new DeliveryCodeError();
+    }
 
     const now = new Date().toISOString();
 
@@ -265,6 +301,34 @@ export class OrderService {
     this.ledgerRepo.append(orderId, captainId, amount, now);
 
     return updated;
+  }
+
+  /** FOT-style structured feedback, allowed only after DELIVERED */
+  submitFeedback(orderId: string, input: FeedbackCreate): {
+    received: boolean;
+    rating: number | null;
+    reasons: string[];
+  } {
+    const order = this.orderRepo.findById(orderId);
+    if (!order) throw new Error(`Order not found: ${orderId}`);
+
+    if (order.status !== OrderStatus.DELIVERED) {
+      throw new StateTransitionError(order.status, "FEEDBACK", order.track);
+    }
+
+    const saved = {
+      received: input.received,
+      rating: input.rating ?? null,
+      reasons: input.reasons ?? [],
+    };
+    this.orderRepo.upsertFeedback(orderId, { ...input, now: new Date().toISOString() });
+    this.outboxRepo.append("ORDER_FEEDBACK", {
+      orderId,
+      received: saved.received,
+      rating: saved.rating,
+      reasons: saved.reasons,
+    });
+    return saved;
   }
 
   async confirmCash(orderId: string): Promise<boolean> {

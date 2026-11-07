@@ -18,7 +18,7 @@ export class MenuRepo {
   listActive(): MenuItem[] {
     const rows = this.db
       .prepare(
-        "SELECT id, name, category, track, mrp_paise as mrpPaise, stock, prep_minutes as prepMinutes, active FROM menu_items WHERE active = 1",
+        "SELECT id, name, category, track, mrp_paise as mrpPaise, stock, prep_minutes as prepMinutes, is_veg as isVeg, active FROM menu_items WHERE active = 1",
       )
       .all() as any[];
 
@@ -30,6 +30,7 @@ export class MenuRepo {
       mrpPaise: r.mrpPaise,
       stock: r.stock,
       prepMinutes: r.prepMinutes,
+      isVeg: r.isVeg === undefined ? true : Boolean(r.isVeg),
       active: Boolean(r.active),
     }));
   }
@@ -37,7 +38,7 @@ export class MenuRepo {
   findById(id: string): MenuItem | null {
     const row = this.db
       .prepare(
-        "SELECT id, name, category, track, mrp_paise as mrpPaise, stock, prep_minutes as prepMinutes, active FROM menu_items WHERE id = ?",
+        "SELECT id, name, category, track, mrp_paise as mrpPaise, stock, prep_minutes as prepMinutes, is_veg as isVeg, active FROM menu_items WHERE id = ?",
       )
       .get(id) as any;
 
@@ -50,6 +51,7 @@ export class MenuRepo {
       mrpPaise: row.mrpPaise,
       stock: row.stock,
       prepMinutes: row.prepMinutes,
+      isVeg: row.isVeg === undefined ? true : Boolean(row.isVeg),
       active: Boolean(row.active),
     };
   }

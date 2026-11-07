@@ -142,11 +142,17 @@ describe("Phase 6 (Kitchen & Cash) and Phase 7 (Complaints) End-to-End", () => {
     });
     expect(pickupRes.statusCode).toBe(200);
 
-    // 6. Captain delivers + collects cash (₹80 / 8000 paise)
+    // 6. Captain delivers + collects cash (₹80 / 8000 paise), repeating the delivery code
     const deliverRes = await app.inject({
       method: "POST",
       url: `/orders/${orderId}/deliver`,
-      payload: { captainId: "c1", cashPaise: 8000 },
+      payload: {
+        captainId: "c1",
+        cashPaise: 8000,
+        deliveryCode: JSON.parse(
+          (await app.inject({ method: "GET", url: `/orders/${orderId}` })).body,
+        ).deliveryCode,
+      },
     });
     expect(deliverRes.statusCode).toBe(200);
 

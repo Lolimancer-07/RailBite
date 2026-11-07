@@ -22,38 +22,39 @@ export function seed(target?: Database.Database | string) {
   const now = new Date().toISOString();
   tripStmt.run(config.tripId, "12951", "2026-11-06", config.hmacSecret, now);
 
-  // 2. Seed Menu Items (15 instant READY items across 5 categories)
+  // 2. Seed Menu Items (16 items: 15 instant READY across 5 categories; isVeg markers FOT-style)
   const menuStmt = db.prepare(
-    `INSERT OR REPLACE INTO menu_items (id, name, category, track, mrp_paise, stock, prep_minutes, active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
+    `INSERT OR REPLACE INTO menu_items (id, name, category, track, mrp_paise, stock, prep_minutes, is_veg, active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
   );
 
   const menuItems = [
     // BEVERAGES
-    { id: "10000000-0000-0000-0000-000000000001", name: "Masala Chai", category: "BEVERAGES", mrpPaise: 1500, stock: 200 },
-    { id: "10000000-0000-0000-0000-000000000002", name: "Filter Coffee", category: "BEVERAGES", mrpPaise: 2000, stock: 200 },
-    { id: "10000000-0000-0000-0000-000000000011", name: "Cola Can (330ml)", category: "BEVERAGES", mrpPaise: 4000, stock: 120 },
-    { id: "10000000-0000-0000-0000-000000000012", name: "Masala Buttermilk", category: "BEVERAGES", mrpPaise: 1500, stock: 100 },
+    { id: "10000000-0000-0000-0000-000000000001", name: "Masala Chai", category: "BEVERAGES", mrpPaise: 1500, stock: 200, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000002", name: "Filter Coffee", category: "BEVERAGES", mrpPaise: 2000, stock: 200, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000011", name: "Cola Can (330ml)", category: "BEVERAGES", mrpPaise: 4000, stock: 120, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000012", name: "Masala Buttermilk", category: "BEVERAGES", mrpPaise: 1500, stock: 100, isVeg: true },
     // WATER
-    { id: "10000000-0000-0000-0000-000000000005", name: "Rail Neer Water (1L)", category: "WATER", mrpPaise: 1500, stock: 250 },
-    { id: "10000000-0000-0000-0000-000000000013", name: "Packaged Water (500ml)", category: "WATER", mrpPaise: 1000, stock: 250 },
+    { id: "10000000-0000-0000-0000-000000000005", name: "Rail Neer Water (1L)", category: "WATER", mrpPaise: 1500, stock: 250, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000013", name: "Packaged Water (500ml)", category: "WATER", mrpPaise: 1000, stock: 250, isVeg: true },
     // SNACKS
-    { id: "10000000-0000-0000-0000-000000000003", name: "Parle-G Biscuits", category: "SNACKS", mrpPaise: 1000, stock: 150 },
-    { id: "10000000-0000-0000-0000-000000000004", name: "Potato Chips", category: "SNACKS", mrpPaise: 2000, stock: 150 },
-    { id: "10000000-0000-0000-0000-000000000006", name: "Samosa (2 pcs)", category: "SNACKS", mrpPaise: 3000, stock: 120 },
-    { id: "10000000-0000-0000-0000-000000000010", name: "Veg Puff", category: "SNACKS", mrpPaise: 1500, stock: 120 },
+    { id: "10000000-0000-0000-0000-000000000003", name: "Parle-G Biscuits", category: "SNACKS", mrpPaise: 1000, stock: 150, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000004", name: "Potato Chips", category: "SNACKS", mrpPaise: 2000, stock: 150, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000006", name: "Samosa (2 pcs)", category: "SNACKS", mrpPaise: 3000, stock: 120, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000010", name: "Veg Puff", category: "SNACKS", mrpPaise: 1500, stock: 120, isVeg: true },
     // MEALS
-    { id: "10000000-0000-0000-0000-000000000007", name: "Veg Grilled Sandwich", category: "MEALS", mrpPaise: 4500, stock: 100 },
-    { id: "10000000-0000-0000-0000-000000000008", name: "Packed Veg Biryani", category: "MEALS", mrpPaise: 9000, stock: 120 },
-    { id: "10000000-0000-0000-0000-000000000009", name: "Cup Noodles", category: "MEALS", mrpPaise: 5500, stock: 80 },
+    { id: "10000000-0000-0000-0000-000000000007", name: "Veg Grilled Sandwich", category: "MEALS", mrpPaise: 4500, stock: 100, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000008", name: "Packed Veg Biryani", category: "MEALS", mrpPaise: 9000, stock: 120, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000009", name: "Cup Noodles", category: "MEALS", mrpPaise: 5500, stock: 80, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000016", name: "Chicken Frankie Roll", category: "MEALS", mrpPaise: 6500, stock: 60, isVeg: false },
     // BREAKFAST
-    { id: "10000000-0000-0000-0000-000000000014", name: "Aloo Bonda (2 pcs)", category: "BREAKFAST", mrpPaise: 2500, stock: 80 },
-    { id: "10000000-0000-0000-0000-000000000015", name: "Honey Cake Slice", category: "BREAKFAST", mrpPaise: 2000, stock: 80 },
+    { id: "10000000-0000-0000-0000-000000000014", name: "Aloo Bonda (2 pcs)", category: "BREAKFAST", mrpPaise: 2500, stock: 80, isVeg: true },
+    { id: "10000000-0000-0000-0000-000000000015", name: "Honey Cake Slice", category: "BREAKFAST", mrpPaise: 2000, stock: 80, isVeg: true },
   ];
 
   for (const item of menuItems) {
     // All items are instant ready-to-serve in the prototype (no kitchen required)
-    menuStmt.run(item.id, item.name, item.category, "READY", item.mrpPaise, item.stock, 0);
+    menuStmt.run(item.id, item.name, item.category, "READY", item.mrpPaise, item.stock, 0, item.isVeg ? 1 : 0);
   }
 
   // 3. Seed Staff (4 Pickers with zones, 1 Cook retained for kitchen plumbing)
@@ -85,7 +86,7 @@ export function seed(target?: Database.Database | string) {
   }
 
   console.log(
-    "Seeding complete: 1 Trip, 15 instant Menu Items (5 categories), 5 Staff (4 pickers c1-c4 PIN=1234, 1 cook), 120 Passengers (PNR 8492000001-8492000120).",
+    "Seeding complete: 1 Trip, 16 instant Menu Items (5 categories, veg/non-veg marked), 5 Staff (4 pickers c1-c4 PIN=1234, 1 cook), 120 Passengers (PNR 8492000001-8492000120).",
   );
 }
 

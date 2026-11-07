@@ -8,6 +8,7 @@ export const MenuItemSchema = z.object({
   mrpPaise: z.number().int().positive(),
   stock: z.number().int().min(0),
   prepMinutes: z.number().int().min(0).default(0),
+  isVeg: z.boolean().default(true),
   active: z.boolean().default(true),
 });
 export type MenuItem = z.infer<typeof MenuItemSchema>;

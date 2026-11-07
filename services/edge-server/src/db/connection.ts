@@ -32,10 +32,32 @@ export function getDb(customPath?: string): Database.Database {
 }
 
 export function runMigrations(db: Database.Database): void {
-  const migrationPath = path.resolve(__dirname, "migrations", "001_init.sql");
-  if (fs.existsSync(migrationPath)) {
-    const sql = fs.readFileSync(migrationPath, "utf-8");
-    db.exec(sql);
+  const migrationsDir = path.resolve(__dirname, "migrations");
+  if (!fs.existsSync(migrationsDir)) return;
+
+  const files = fs
+    .readdirSync(migrationsDir)
+    .filter((f) => f.endsWith(".sql"))
+    .sort();
+
+  for (const file of files) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), "utf-8");
+    for (const statement of sql.split(/;\s*\n/)) {
+      // Strip comment lines, then skip empty chunks (SQLite has no IF NOT EXISTS for ADD COLUMN
+      // during idempotent re-runs, so duplicate-column errors are tolerated below)
+      const cleaned = statement
+        .split("\n")
+        .filter((line) => !line.trim().startsWith("--"))
+        .join("\n")
+        .trim();
+      if (!cleaned) continue;
+      try {
+        db.exec(cleaned);
+      } catch (err: any) {
+        if (String(err?.message || "").includes("duplicate column name")) continue;
+        throw err;
+      }
+    }
   }
 }
 

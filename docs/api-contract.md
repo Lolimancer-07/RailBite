@@ -20,14 +20,17 @@ Passenger endpoints are unauthenticated but PNR-scoped.
 | POST | `/orders/:id/accept` | Picker | Body: `{captainId}` |
 | POST | `/orders/:id/reject` | Picker | Body: `{captainId}` |
 | POST | `/orders/:id/packing` | Picker | Body: `{captainId}` — ACCEPTED → PACKING (picker started packing) |
-| POST | `/orders/:id/pickup` | Picker | Body: `{captainId}` — PACKING → OUT_FOR_DELIVERY |
-| POST | `/orders/:id/deliver` | Picker | Body: `{captainId, cashPaise}` |
+| POST | `/orders/:id/pickup` | Picker | Body: `{captainId}` — PACKING → OUT_FOR_DELIVERY. Server generates a 4-digit delivery code 🔸PROTOTYPE |
+| POST | `/orders/:id/deliver` | Picker | Body: `{captainId, cashPaise?, deliveryCode}` — picker must repeat the passenger's delivery code; `403` on mismatch 🔸PROTOTYPE |
+| POST | `/orders/:id/feedback` | Passenger | Body: `{received, rating?, reasons?}` — FOT-style post-delivery feedback; only for DELIVERED orders, else `409` 🔸PROTOTYPE |
 | POST | `/orders/:id/confirm-cash` | None | Passenger confirms cash paid |
+| GET | `/orders/:id` | None | Passenger view includes `deliveryCode` + `feedback`; append `?role=picker` to strip the code |
 | POST | `/kitchen/:id/start` | Cook | Mark cooking started |
 | POST | `/kitchen/:id/ready` | Cook | Mark item ready |
 | POST | `/staff/login` | None | Returns session token |
 | POST | `/staff/:id/online` | Picker | Body: `{online:boolean}` — online/offline toggle 🔸PROTOTYPE |
-| GET | `/staff/:id/stats` | Picker | Today's orders delivered, cash collected, expected, confirmed 🔸PROTOTYPE |
+| GET | `/staff/:id/stats` | Picker | Today's orders delivered, cash collected, expected, confirmed, + `avgRating`/`feedbackCount` (passenger star feedback) 🔸PROTOTYPE |
+| GET | `/menu` | None | Active items; each includes `isVeg` (FOT-style veg/non-veg marker) |
 | POST | `/complaints` | None | Tier determined by type |
 | GET | `/ledger/summary` | Captain | Expected vs collected cash |
 | POST | `/sync/flush` | Admin | STRETCH: triggers outbox sync |

@@ -65,7 +65,7 @@ describe("RailBite Edge Server Core", () => {
     expect(res.statusCode).toBe(200);
     const items = JSON.parse(res.body);
     expect(Array.isArray(items)).toBe(true);
-    expect(items.length).toBe(15);
+    expect(items.length).toBe(16);
     expect(items[0]).toHaveProperty("mrpPaise");
     expect(items[0]).toHaveProperty("track");
   });
@@ -284,11 +284,22 @@ describe("RailBite Edge Server Core", () => {
     expect(pickupRes.statusCode).toBe(200);
     expect(JSON.parse(pickupRes.body).status).toBe("OUT_FOR_DELIVERY");
 
-    // 3. Captain delivers
+    // 3. Captain delivers — must repeat the passenger's delivery code (FOT handover)
+    const orderWithCode = JSON.parse(
+      (await app.inject({ method: "GET", url: `/orders/${orderId}` })).body,
+    );
+    // wrong code first -> 403
+    const wrongCodeRes = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/deliver`,
+      payload: { captainId: "c1", cashPaise: 3000, deliveryCode: "0000" },
+    });
+    expect(wrongCodeRes.statusCode).toBe(403);
+
     const deliverRes = await app.inject({
       method: "POST",
       url: `/orders/${orderId}/deliver`,
-      payload: { captainId: "c1", cashPaise: 3000 },
+      payload: { captainId: "c1", cashPaise: 3000, deliveryCode: orderWithCode.deliveryCode },
     });
     expect(deliverRes.statusCode).toBe(200);
     expect(JSON.parse(deliverRes.body).status).toBe("DELIVERED");

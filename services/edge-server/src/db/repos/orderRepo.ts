@@ -13,6 +13,7 @@ export interface OrderRow {
   total_paise: number;
   source: "WIFI" | "SMS" | "RELAY";
   verified: number;
+  delivery_code: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +39,47 @@ export interface AssignmentRow {
 
 export class OrderRepo {
   constructor(private db: Database.Database) {}
+
+  setDeliveryCode(orderId: string, code: string): void {
+    this.db.prepare("UPDATE orders SET delivery_code = ? WHERE id = ?").run(code, orderId);
+  }
+
+  getDeliveryCode(orderId: string): string | null {
+    const row = this.db.prepare("SELECT delivery_code FROM orders WHERE id = ?").get(orderId) as
+      | { delivery_code: string | null }
+      | undefined;
+    return row?.delivery_code ?? null;
+  }
+
+  upsertFeedback(
+    orderId: string,
+    feedback: { received: boolean; rating?: number; reasons?: string[]; now: string },
+  ): void {
+    this.db
+      .prepare(
+        `INSERT OR REPLACE INTO order_feedback (order_id, received, rating, reasons, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(
+        orderId,
+        feedback.received ? 1 : 0,
+        feedback.rating ?? null,
+        feedback.reasons ? JSON.stringify(feedback.reasons) : null,
+        feedback.now,
+      );
+  }
+
+  getFeedback(orderId: string): { received: boolean; rating: number | null; reasons: string[] } | null {
+    const row = this.db
+      .prepare("SELECT received, rating, reasons FROM order_feedback WHERE order_id = ?")
+      .get(orderId) as { received: number; rating: number | null; reasons: string | null } | undefined;
+    if (!row) return null;
+    return {
+      received: row.received === 1,
+      rating: row.rating ?? null,
+      reasons: row.reasons ? JSON.parse(row.reasons) : [],
+    };
+  }
 
   findById(id: string): (Order & { items: Array<{ itemId: string; qty: number; unitPricePaise: number; name?: string }> }) | null {
     const row = this.db.prepare("SELECT * FROM orders WHERE id = ?").get(id) as OrderRow | undefined;
@@ -66,6 +108,8 @@ export class OrderRepo {
       verified: row.verified,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
+      deliveryCode: row.delivery_code || undefined,
+      feedback: this.getFeedback(id) || undefined,
       items,
     };
   }

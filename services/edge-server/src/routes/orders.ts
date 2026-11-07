@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync } from "fastify";
-import { OrderCreateSchema } from "@railbite/shared";
-import { OrderService, StateTransitionError } from "../services/orderService.js";
+import { FeedbackCreateSchema, OrderCreateSchema } from "@railbite/shared";
+import { OrderService, StateTransitionError, DeliveryCodeError } from "../services/orderService.js";
 
 export function createOrderRoutes(orderService: OrderService): FastifyPluginAsync {
   return async (fastify) => {
@@ -29,12 +29,16 @@ export function createOrderRoutes(orderService: OrderService): FastifyPluginAsyn
       }
     });
 
-    // GET /orders/:id
+    // GET /orders/:id — passenger view includes the delivery code; ?role=picker strips it
     fastify.get("/orders/:id", async (request, reply) => {
       const { id } = request.params as { id: string };
       const order = orderService.getOrder(id);
       if (!order) {
         return reply.status(404).send({ error: "Order not found" });
+      }
+      const { role } = (request.query || {}) as { role?: string };
+      if (role === "picker") {
+        return { ...order, deliveryCode: undefined };
       }
       return order;
     });
@@ -127,12 +131,13 @@ export function createOrderRoutes(orderService: OrderService): FastifyPluginAsyn
       }
     });
 
-    // POST /orders/:id/deliver
+    // POST /orders/:id/deliver — requires the passenger's delivery code (FOT-style handover)
     fastify.post("/orders/:id/deliver", async (request, reply) => {
       const { id } = request.params as { id: string };
-      const { captainId, cashPaise } = (request.body || {}) as {
+      const { captainId, cashPaise, deliveryCode } = (request.body || {}) as {
         captainId: string;
         cashPaise?: number;
+        deliveryCode?: string;
       };
 
       if (!captainId) {
@@ -140,8 +145,33 @@ export function createOrderRoutes(orderService: OrderService): FastifyPluginAsyn
       }
 
       try {
-        const order = await orderService.deliver(id, captainId, cashPaise);
+        const order = await orderService.deliver(id, captainId, cashPaise, deliveryCode);
         return order;
+      } catch (err: any) {
+        if (err instanceof StateTransitionError) {
+          return reply.status(409).send({ error: err.message });
+        }
+        if (err instanceof DeliveryCodeError) {
+          return reply.status(403).send({ error: err.message });
+        }
+        return reply.status(400).send({ error: err.message });
+      }
+    });
+
+    // POST /orders/:id/feedback — "Did you receive this order?" + star rating (FOT-style)
+    fastify.post("/orders/:id/feedback", async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const parsed = FeedbackCreateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: "Invalid feedback data",
+          details: parsed.error.issues,
+        });
+      }
+
+      try {
+        const feedback = orderService.submitFeedback(id, parsed.data);
+        return { ok: true, orderId: id, feedback };
       } catch (err: any) {
         if (err instanceof StateTransitionError) {
           return reply.status(409).send({ error: err.message });
