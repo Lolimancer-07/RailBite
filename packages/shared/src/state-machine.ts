@@ -7,7 +7,8 @@ type StatusValue = OS[keyof OS];
 const READY_TRACK_TRANSITIONS: Array<[StatusValue, StatusValue]> = [
   [OrderStatus.PLACED, OrderStatus.ASSIGNED],
   [OrderStatus.ASSIGNED, OrderStatus.ACCEPTED],
-  [OrderStatus.ACCEPTED, OrderStatus.OUT_FOR_DELIVERY],
+  [OrderStatus.ACCEPTED, OrderStatus.PACKING],
+  [OrderStatus.PACKING, OrderStatus.OUT_FOR_DELIVERY],
   [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED],
   // exits
   [OrderStatus.PLACED, OrderStatus.CANCELLED],
@@ -20,7 +21,8 @@ const COOK_TRACK_TRANSITIONS: Array<[StatusValue, StatusValue]> = [
   [OrderStatus.COOKING, OrderStatus.READY],
   [OrderStatus.READY, OrderStatus.ASSIGNED],
   [OrderStatus.ASSIGNED, OrderStatus.ACCEPTED],
-  [OrderStatus.ACCEPTED, OrderStatus.OUT_FOR_DELIVERY],
+  [OrderStatus.ACCEPTED, OrderStatus.PACKING],
+  [OrderStatus.PACKING, OrderStatus.OUT_FOR_DELIVERY],
   [OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED],
   // exits
   [OrderStatus.PLACED, OrderStatus.CANCELLED],

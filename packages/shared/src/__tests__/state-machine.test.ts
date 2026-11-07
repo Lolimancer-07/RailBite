@@ -9,8 +9,14 @@ describe("READY track transitions", () => {
   it("allows ASSIGNED -> ACCEPTED", () => {
     expect(canTransition(OrderStatus.ASSIGNED, OrderStatus.ACCEPTED, Track.READY)).toBe(true);
   });
-  it("allows ACCEPTED -> OUT_FOR_DELIVERY", () => {
-    expect(canTransition(OrderStatus.ACCEPTED, OrderStatus.OUT_FOR_DELIVERY, Track.READY)).toBe(true);
+  it("allows ACCEPTED -> PACKING", () => {
+    expect(canTransition(OrderStatus.ACCEPTED, OrderStatus.PACKING, Track.READY)).toBe(true);
+  });
+  it("allows PACKING -> OUT_FOR_DELIVERY", () => {
+    expect(canTransition(OrderStatus.PACKING, OrderStatus.OUT_FOR_DELIVERY, Track.READY)).toBe(true);
+  });
+  it("rejects ACCEPTED -> OUT_FOR_DELIVERY (must pack first)", () => {
+    expect(canTransition(OrderStatus.ACCEPTED, OrderStatus.OUT_FOR_DELIVERY, Track.READY)).toBe(false);
   });
   it("allows OUT_FOR_DELIVERY -> DELIVERED", () => {
     expect(canTransition(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED, Track.READY)).toBe(true);
@@ -51,8 +57,14 @@ describe("COOK track transitions", () => {
   it("allows ASSIGNED -> ACCEPTED", () => {
     expect(canTransition(OrderStatus.ASSIGNED, OrderStatus.ACCEPTED, Track.COOK)).toBe(true);
   });
-  it("allows ACCEPTED -> OUT_FOR_DELIVERY", () => {
-    expect(canTransition(OrderStatus.ACCEPTED, OrderStatus.OUT_FOR_DELIVERY, Track.COOK)).toBe(true);
+  it("allows ACCEPTED -> PACKING", () => {
+    expect(canTransition(OrderStatus.ACCEPTED, OrderStatus.PACKING, Track.COOK)).toBe(true);
+  });
+  it("allows PACKING -> OUT_FOR_DELIVERY", () => {
+    expect(canTransition(OrderStatus.PACKING, OrderStatus.OUT_FOR_DELIVERY, Track.COOK)).toBe(true);
+  });
+  it("rejects ACCEPTED -> OUT_FOR_DELIVERY (must pack first)", () => {
+    expect(canTransition(OrderStatus.ACCEPTED, OrderStatus.OUT_FOR_DELIVERY, Track.COOK)).toBe(false);
   });
   it("allows OUT_FOR_DELIVERY -> DELIVERED", () => {
     expect(canTransition(OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED, Track.COOK)).toBe(true);
