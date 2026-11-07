@@ -45,6 +45,10 @@ describe("Phase 6 (Kitchen & Cash) and Phase 7 (Complaints) End-to-End", () => {
 
   it("Phase 6 Done-When: Veg Thali ordered -> Kitchen sees it -> Mark Ready pings captain -> Delivery & cash confirmed", async () => {
     const orderId = crypto.randomUUID();
+    // The prototype seed ships no COOK items (all instant) — plant one for the kitchen pipeline test
+    db.prepare(
+      "UPDATE menu_items SET track = 'COOK', prep_minutes = 12, mrp_paise = 8000, name = 'Standard Veg Thali' WHERE id = '10000000-0000-0000-0000-000000000007'",
+    ).run();
     const thaliId = "10000000-0000-0000-0000-000000000007"; // Standard Veg Thali (COOK track, ₹80)
 
     const kitchenQueueMessages: any[] = [];
@@ -121,7 +125,16 @@ describe("Phase 6 (Kitchen & Cash) and Phase 7 (Complaints) End-to-End", () => {
     });
     expect(acceptRes.statusCode).toBe(200);
 
-    // 5. Captain picks up
+    // 5. Captain starts packing (PACKING status shown to customer)
+    const packingRes = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/packing`,
+      payload: { captainId: "c1" },
+    });
+    expect(packingRes.statusCode).toBe(200);
+    expect(JSON.parse(packingRes.body).status).toBe("PACKING");
+
+    // 5b. Captain picks up
     const pickupRes = await app.inject({
       method: "POST",
       url: `/orders/${orderId}/pickup`,

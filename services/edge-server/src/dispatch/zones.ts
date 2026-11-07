@@ -40,21 +40,19 @@ export function findBestCaptain(
   captains: Staff[],
   excludeCaptainIds: string[] = [],
 ): Staff | null {
-  const candidates = captains.filter((c) => !excludeCaptainIds.includes(c.id));
+  // Prototype rule: only ONLINE pickers receive orders
+  const candidates = captains.filter(
+    (c) => c.online && !excludeCaptainIds.includes(c.id),
+  );
   if (candidates.length === 0) return null;
 
-  // 1. Direct match: online captain whose zone covers this coach
+  // 1. Online captain whose zone covers this coach
   const direct = candidates.find(
-    (c) => c.online && c.zoneCoaches.map((z) => z.toUpperCase()).includes(orderCoach.toUpperCase()),
+    (c) => c.zoneCoaches.map((z) => z.toUpperCase()).includes(orderCoach.toUpperCase()),
   );
   if (direct) return direct;
 
-  // 2. Any captain whose zone covers this coach (even if currently marked offline, fallback)
-  const directAny = candidates.find((c) =>
-    c.zoneCoaches.map((z) => z.toUpperCase()).includes(orderCoach.toUpperCase()),
-  );
-
-  // 3. Nearest captain by distance to any coach in captain's zone (prefer online)
+  // 2. Nearest online captain by distance to any coach in their zone
   let bestCaptain: Staff | null = null;
   let bestScore = Infinity;
 
@@ -64,14 +62,12 @@ export function findBestCaptain(
       const d = coachDistance(orderCoach, zc);
       if (d < minDistanceToZone) minDistanceToZone = d;
     }
-    // Give heavy preference to online captains (subtract 1000 from score or add 1000 penalty for offline)
-    const score = minDistanceToZone + (c.online ? 0 : 1000);
-    if (score < bestScore) {
-      bestScore = score;
+    if (minDistanceToZone < bestScore) {
+      bestScore = minDistanceToZone;
       bestCaptain = c;
     }
   }
 
-  return bestCaptain || directAny || candidates[0] || null;
+  return bestCaptain || candidates[0] || null;
 }
 

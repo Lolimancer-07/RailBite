@@ -234,6 +234,11 @@ export class OrderService {
     return this.transition(orderId, OrderStatus.OUT_FOR_DELIVERY, { captainId });
   }
 
+  async startPacking(orderId: string, captainId?: string): Promise<Order> {
+    const order = await this.transition(orderId, OrderStatus.PACKING, captainId ? { captainId } : undefined);
+    return order;
+  }
+
   async reject(orderId: string, captainId: string): Promise<void> {
     const now = new Date().toISOString();
     this.orderRepo.updateAssignmentRejected(orderId, captainId, now);

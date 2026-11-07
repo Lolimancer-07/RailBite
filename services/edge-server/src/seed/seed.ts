@@ -3,6 +3,12 @@ import type Database from "better-sqlite3";
 import { getDb } from "../db/connection.js";
 import { config } from "../config.js";
 
+/**
+ * Prototype seed: quick-commerce demo.
+ * - 15 instant (READY) products across 5 categories, believable MRPs, plenty of stock.
+ * - 4 pickers (c1..c4, PIN 1234) + 1 cook kept only for kitchen plumbing/tests.
+ * - 120-passenger manifest: PNRs 8492000001..8492000120, coaches B1..B4 & S1..S4, berths 1..15.
+ */
 export function seed(target?: Database.Database | string) {
   const db: Database.Database =
     typeof target === "object" && target !== null
@@ -16,46 +22,50 @@ export function seed(target?: Database.Database | string) {
   const now = new Date().toISOString();
   tripStmt.run(config.tripId, "12951", "2026-11-06", config.hmacSecret, now);
 
-  // 2. Seed Menu Items (15 items: 6 READY, 9 COOK)
+  // 2. Seed Menu Items (15 instant READY items across 5 categories)
   const menuStmt = db.prepare(
     `INSERT OR REPLACE INTO menu_items (id, name, category, track, mrp_paise, stock, prep_minutes, active)
      VALUES (?, ?, ?, ?, ?, ?, ?, 1)`,
   );
 
   const menuItems = [
-    // 6 READY items
-    { id: "10000000-0000-0000-0000-000000000001", name: "Masala Chai", category: "BEVERAGE", track: "READY", mrpPaise: 1500, stock: 150, prep: 0 },
-    { id: "10000000-0000-0000-0000-000000000002", name: "Filter Coffee", category: "BEVERAGE", track: "READY", mrpPaise: 2000, stock: 100, prep: 0 },
-    { id: "10000000-0000-0000-0000-000000000003", name: "Parle-G Biscuits", category: "SNACKS", track: "READY", mrpPaise: 1000, stock: 80, prep: 0 },
-    { id: "10000000-0000-0000-0000-000000000004", name: "Potato Chips", category: "SNACKS", track: "READY", mrpPaise: 2000, stock: 60, prep: 0 },
-    { id: "10000000-0000-0000-0000-000000000005", name: "Rail Neer Water (1L)", category: "BEVERAGE", track: "READY", mrpPaise: 1500, stock: 250, prep: 0 },
-    { id: "10000000-0000-0000-0000-000000000006", name: "Samosa (2 pcs)", category: "SNACKS", track: "READY", mrpPaise: 3000, stock: 75, prep: 0 },
-    // 9 COOK items
-    { id: "10000000-0000-0000-0000-000000000007", name: "Standard Veg Thali", category: "MEALS", track: "COOK", mrpPaise: 8000, stock: 50, prep: 12 },
-    { id: "10000000-0000-0000-0000-000000000008", name: "Non-Veg Chicken Thali", category: "MEALS", track: "COOK", mrpPaise: 13000, stock: 40, prep: 15 },
-    { id: "10000000-0000-0000-0000-000000000009", name: "Egg Curry Thali", category: "MEALS", track: "COOK", mrpPaise: 10000, stock: 35, prep: 12 },
-    { id: "10000000-0000-0000-0000-000000000010", name: "Aloo Paratha with Curd", category: "BREAKFAST", track: "COOK", mrpPaise: 5000, stock: 45, prep: 10 },
-    { id: "10000000-0000-0000-0000-000000000011", name: "Paneer Paratha", category: "BREAKFAST", track: "COOK", mrpPaise: 7000, stock: 40, prep: 10 },
-    { id: "10000000-0000-0000-0000-000000000012", name: "Bread Omelette", category: "BREAKFAST", track: "COOK", mrpPaise: 4500, stock: 50, prep: 8 },
-    { id: "10000000-0000-0000-0000-000000000013", name: "Plain Omelette", category: "BREAKFAST", track: "COOK", mrpPaise: 3500, stock: 50, prep: 6 },
-    { id: "10000000-0000-0000-0000-000000000014", name: "Veg Biryani", category: "MEALS", track: "COOK", mrpPaise: 9000, stock: 40, prep: 15 },
-    { id: "10000000-0000-0000-0000-000000000015", name: "Chicken Biryani", category: "MEALS", track: "COOK", mrpPaise: 14000, stock: 35, prep: 15 },
+    // BEVERAGES
+    { id: "10000000-0000-0000-0000-000000000001", name: "Masala Chai", category: "BEVERAGES", mrpPaise: 1500, stock: 200 },
+    { id: "10000000-0000-0000-0000-000000000002", name: "Filter Coffee", category: "BEVERAGES", mrpPaise: 2000, stock: 200 },
+    { id: "10000000-0000-0000-0000-000000000011", name: "Cola Can (330ml)", category: "BEVERAGES", mrpPaise: 4000, stock: 120 },
+    { id: "10000000-0000-0000-0000-000000000012", name: "Masala Buttermilk", category: "BEVERAGES", mrpPaise: 1500, stock: 100 },
+    // WATER
+    { id: "10000000-0000-0000-0000-000000000005", name: "Rail Neer Water (1L)", category: "WATER", mrpPaise: 1500, stock: 250 },
+    { id: "10000000-0000-0000-0000-000000000013", name: "Packaged Water (500ml)", category: "WATER", mrpPaise: 1000, stock: 250 },
+    // SNACKS
+    { id: "10000000-0000-0000-0000-000000000003", name: "Parle-G Biscuits", category: "SNACKS", mrpPaise: 1000, stock: 150 },
+    { id: "10000000-0000-0000-0000-000000000004", name: "Potato Chips", category: "SNACKS", mrpPaise: 2000, stock: 150 },
+    { id: "10000000-0000-0000-0000-000000000006", name: "Samosa (2 pcs)", category: "SNACKS", mrpPaise: 3000, stock: 120 },
+    { id: "10000000-0000-0000-0000-000000000010", name: "Veg Puff", category: "SNACKS", mrpPaise: 1500, stock: 120 },
+    // MEALS
+    { id: "10000000-0000-0000-0000-000000000007", name: "Veg Grilled Sandwich", category: "MEALS", mrpPaise: 4500, stock: 100 },
+    { id: "10000000-0000-0000-0000-000000000008", name: "Packed Veg Biryani", category: "MEALS", mrpPaise: 9000, stock: 120 },
+    { id: "10000000-0000-0000-0000-000000000009", name: "Cup Noodles", category: "MEALS", mrpPaise: 5500, stock: 80 },
+    // BREAKFAST
+    { id: "10000000-0000-0000-0000-000000000014", name: "Aloo Bonda (2 pcs)", category: "BREAKFAST", mrpPaise: 2500, stock: 80 },
+    { id: "10000000-0000-0000-0000-000000000015", name: "Honey Cake Slice", category: "BREAKFAST", mrpPaise: 2000, stock: 80 },
   ];
 
   for (const item of menuItems) {
-    menuStmt.run(item.id, item.name, item.category, item.track, item.mrpPaise, item.stock, item.prep);
+    // All items are instant ready-to-serve in the prototype (no kitchen required)
+    menuStmt.run(item.id, item.name, item.category, "READY", item.mrpPaise, item.stock, 0);
   }
 
-  // 3. Seed Staff (4 Captains with zones, 1 Cook)
+  // 3. Seed Staff (4 Pickers with zones, 1 Cook retained for kitchen plumbing)
   const pinHash = crypto.createHash("sha256").update("1234").digest("hex");
   const staffStmt = db.prepare(
     "INSERT OR REPLACE INTO staff (id, name, role, zone_coaches, pin_hash, online) VALUES (?, ?, ?, ?, ?, ?)",
   );
 
-  staffStmt.run("c1", "Ramesh Kumar (Captain B1-B2)", "CAPTAIN", JSON.stringify(["B1", "B2"]), pinHash, 1);
-  staffStmt.run("c2", "Suresh Sharma (Captain B3-B4)", "CAPTAIN", JSON.stringify(["B3", "B4"]), pinHash, 1);
-  staffStmt.run("c3", "Amit Verma (Captain S1-S2)", "CAPTAIN", JSON.stringify(["S1", "S2"]), pinHash, 1);
-  staffStmt.run("c4", "Deepak Patel (Captain S3-S4)", "CAPTAIN", JSON.stringify(["S3", "S4"]), pinHash, 1);
+  staffStmt.run("c1", "Ramesh Kumar (Picker B1-B2)", "CAPTAIN", JSON.stringify(["B1", "B2"]), pinHash, 1);
+  staffStmt.run("c2", "Suresh Sharma (Picker B3-B4)", "CAPTAIN", JSON.stringify(["B3", "B4"]), pinHash, 1);
+  staffStmt.run("c3", "Amit Verma (Picker S1-S2)", "CAPTAIN", JSON.stringify(["S1", "S2"]), pinHash, 1);
+  staffStmt.run("c4", "Deepak Patel (Picker S3-S4)", "CAPTAIN", JSON.stringify(["S3", "S4"]), pinHash, 1);
   staffStmt.run("k1", "Chef Rajesh (Head Cook)", "COOK", JSON.stringify(["PANTRY"]), pinHash, 1);
 
   // 4. Seed Manifest (120 fake passengers across B1-B4 and S1-S4)
@@ -74,7 +84,9 @@ export function seed(target?: Database.Database | string) {
     }
   }
 
-  console.log("Seeding complete: 1 Trip, 15 Menu Items, 5 Staff (4 captains, 1 cook), 120 Passengers.");
+  console.log(
+    "Seeding complete: 1 Trip, 15 instant Menu Items (5 categories), 5 Staff (4 pickers c1-c4 PIN=1234, 1 cook), 120 Passengers (PNR 8492000001-8492000120).",
+  );
 }
 
 // Run if called directly

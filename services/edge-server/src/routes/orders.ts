@@ -96,6 +96,21 @@ export function createOrderRoutes(orderService: OrderService): FastifyPluginAsyn
       }
     });
 
+    // POST /orders/:id/packing — picker started packing (PACKING status)
+    fastify.post("/orders/:id/packing", async (request, reply) => {
+      const { id } = request.params as { id: string };
+      const { captainId } = (request.body || {}) as { captainId?: string };
+      try {
+        const order = await orderService.startPacking(id, captainId);
+        return order;
+      } catch (err: any) {
+        if (err instanceof StateTransitionError) {
+          return reply.status(409).send({ error: err.message });
+        }
+        return reply.status(400).send({ error: err.message });
+      }
+    });
+
     // POST /orders/:id/reject
     fastify.post("/orders/:id/reject", async (request, reply) => {
       const { id } = request.params as { id: string };

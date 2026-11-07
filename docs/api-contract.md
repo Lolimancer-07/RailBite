@@ -17,13 +17,17 @@ Passenger endpoints are unauthenticated but PNR-scoped.
 | GET | `/orders/:id` | None | Single order with items |
 | GET | `/orders?pnr=...` | None | Passenger's orders |
 | POST | `/orders/:id/cancel` | None | Only before ACCEPTED/COOKING |
-| POST | `/orders/:id/accept` | Captain | Body: `{captainId}` |
-| POST | `/orders/:id/reject` | Captain | Body: `{captainId}` |
-| POST | `/orders/:id/deliver` | Captain | Body: `{captainId, cashPaise}` |
+| POST | `/orders/:id/accept` | Picker | Body: `{captainId}` |
+| POST | `/orders/:id/reject` | Picker | Body: `{captainId}` |
+| POST | `/orders/:id/packing` | Picker | Body: `{captainId}` — ACCEPTED → PACKING (picker started packing) |
+| POST | `/orders/:id/pickup` | Picker | Body: `{captainId}` — PACKING → OUT_FOR_DELIVERY |
+| POST | `/orders/:id/deliver` | Picker | Body: `{captainId, cashPaise}` |
 | POST | `/orders/:id/confirm-cash` | None | Passenger confirms cash paid |
 | POST | `/kitchen/:id/start` | Cook | Mark cooking started |
 | POST | `/kitchen/:id/ready` | Cook | Mark item ready |
 | POST | `/staff/login` | None | Returns session token |
+| POST | `/staff/:id/online` | Picker | Body: `{online:boolean}` — online/offline toggle 🔸PROTOTYPE |
+| GET | `/staff/:id/stats` | Picker | Today's orders delivered, cash collected, expected, confirmed 🔸PROTOTYPE |
 | POST | `/complaints` | None | Tier determined by type |
 | GET | `/ledger/summary` | Captain | Expected vs collected cash |
 | POST | `/sync/flush` | Admin | STRETCH: triggers outbox sync |

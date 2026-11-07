@@ -1,46 +1,48 @@
 # Order State Machine
 
-## READY Track
+## READY Track (Prototype default)
 
-For orders containing only READY track items (chai, coffee, biscuits, chips, water, samosa, packed biryani).
+In the prototype every item is instant ready-to-serve, so every order runs the READY track:
 
 ```
-PLACED → ASSIGNED → ACCEPTED → OUT_FOR_DELIVERY → DELIVERED
+PLACED → ASSIGNED → ACCEPTED → PACKING → OUT_FOR_DELIVERY → DELIVERED
    ↓          ↓
 CANCELLED  CANCELLED
               ↓
            EXPIRED
 ```
 
-**Timing:**
-- PLACED → ASSIGNED: immediate on order creation
-- Captain has 60s to accept before re-broadcast
-- After 3 failed attempts (10 min total): EXPIRED
+Simplest demo variant: PLACED → ASSIGNED → ACCEPTED → PACKING → OUT_FOR_DELIVERY → DELIVERED. §Kitchen/COOK plumbing below stays unchanged but has no seeded items.
 
 ## COOK Track
 
-For orders containing any COOK track items (thali, paratha, omelette). Mixed orders default to COOK track.
+For orders containing any COOK track items (thali, paratha, omelette). Mixed orders default to COOK track. No COOK items are seeded in the prototype; editor must set the seed flag for kitchen in the test suite:
 
 ```
-PLACED → COOKING → READY → ASSIGNED → ACCEPTED → OUT_FOR_DELIVERY → DELIVERED
-   ↓                           ↓          
-CANCELLED                   CANCELLED
-                                ↓
-                             EXPIRED
+PLACED → COOKING → READY → ASSIGNED → ACCEPTED → PACKING → OUT_FOR_DELIVERY → DELIVERED
+   ↓                                  ↓        
+CANCELLED                          CANCELLED
+                                       ↓
+                                    EXPIRED
 ```
 
 **Timing:**
 - PLACED → COOKING: immediate (kitchen display receives notification)
-- Batching: up to 90s or 4 orders per coach before assigning captain
-- Captain has 60s to accept before re-broadcast
+- Batching: up to 90s or 4 orders per coach before assigning picker
+- Picker has 60s to accept before re-broadcast
 
 ## Terminal States
 
 - **DELIVERED**: Order complete, cash collected
 - **CANCELLED**: Passenger cancelled (only before ACCEPTED/COOKING)
-- **EXPIRED**: No captain accepted after 3 re-broadcasts (10 min)
+- **EXPIRED**: No picker accepted after 3 re-broadcasts (10 min)
 
 ## Implementation
 
 The `canTransition(from, to, track)` function in `packages/shared/src/state-machine.ts` enforces all transitions. The edge server returns HTTP 409 for illegal transitions.
+
+Routing/HTTP map:
+- ACCEPTED → PACKING: `POST /orders/:id/packing`
+- PACKING → OUT_FOR_DELIVERY: `POST /orders/:id/pickup`
+- OUT_FOR_DELIVERY → DELIVERED: `POST /orders/:id/deliver`
 

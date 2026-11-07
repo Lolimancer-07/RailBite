@@ -81,7 +81,7 @@ export async function createApp(deps: AppDependencies): Promise<{
   // Register Routes
   await app.register(healthRoutes);
   await app.register(createMenuRoutes(menuRepo));
-  await app.register(createStaffRoutes(staffRepo));
+  await app.register(createStaffRoutes(staffRepo, ledgerRepo));
   await app.register(createOrderRoutes(orderService));
   await app.register(createKitchenRoutes(orderService));
   await app.register(createComplaintRoutes(complaintService));

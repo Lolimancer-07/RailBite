@@ -205,6 +205,13 @@ describe("Phase 8: Simulator & Performance Metrics", () => {
     });
     expect(acceptRes.statusCode).toBe(200);
 
+    const packingRes = await app.inject({
+      method: "POST",
+      url: `/orders/${firstOrder.id}/packing`,
+      payload: { captainId: "c1" },
+    });
+    expect(packingRes.statusCode).toBe(200);
+
     const pickupRes = await app.inject({
       method: "POST",
       url: `/orders/${firstOrder.id}/pickup`,

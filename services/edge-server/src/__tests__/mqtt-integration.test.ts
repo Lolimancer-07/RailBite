@@ -109,7 +109,7 @@ describe("Phase 2 Done-When End-to-End Verification", () => {
     // Verify status update was published to MQTT (retained = true)
     const acceptedStatus = publishedStatuses.find((s) => s.payload.status === "ACCEPTED");
     expect(acceptedStatus).toBeDefined();
-    expect(acceptedStatus?.payload.captainName).toContain("Captain B1-B2");
+    expect(acceptedStatus?.payload.captainName).toContain("Picker B1-B2");
     expect(acceptedStatus?.retain).toBe(true);
   });
 });

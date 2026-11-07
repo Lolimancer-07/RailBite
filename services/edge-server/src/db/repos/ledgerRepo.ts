@@ -64,5 +64,41 @@ export class LedgerRepo {
       mismatch: Number(r.expectedPaise) !== Number(r.collectedPaise) || Number(r.collectedPaise) !== Number(r.passengerConfirmedPaise),
     }));
   }
+
+  /** Today's stats for a single staff member (UTC day) */
+  getStaffStats(staffId: string, staffName: string): {
+    staffId: string;
+    staffName: string;
+    date: string;
+    ordersDelivered: number;
+    expectedPaise: number;
+    collectedPaise: number;
+    passengerConfirmedPaise: number;
+  } {
+    const todayPrefix = new Date().toISOString().slice(0, 10);
+
+    const row = this.db
+      .prepare(
+        `SELECT
+          COUNT(*) as ordersDelivered,
+          COALESCE(SUM(o.total_paise), 0) as expectedPaise,
+          COALESCE(SUM(l.amount_paise), 0) as collectedPaise,
+          COALESCE(SUM(CASE WHEN l.passenger_confirmed = 1 THEN l.amount_paise ELSE 0 END), 0) as confirmedPaise
+         FROM cash_ledger l
+         JOIN orders o ON o.id = l.order_id
+         WHERE l.captain_id = ? AND l.ts LIKE ? || '%'`,
+      )
+      .get(staffId, todayPrefix) as any;
+
+    return {
+      staffId,
+      staffName,
+      date: todayPrefix,
+      ordersDelivered: Number(row?.ordersDelivered || 0),
+      expectedPaise: Number(row?.expectedPaise || 0),
+      collectedPaise: Number(row?.collectedPaise || 0),
+      passengerConfirmedPaise: Number(row?.confirmedPaise || 0),
+    };
+  }
 }
 

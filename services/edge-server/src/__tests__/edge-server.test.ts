@@ -249,7 +249,33 @@ describe("RailBite Edge Server Core", () => {
     expect(acceptRes.statusCode).toBe(200);
     expect(JSON.parse(acceptRes.body).status).toBe("ACCEPTED");
 
-    // 2b. Captain picks up (out for delivery)
+    // 2b. Captain picks up (out for delivery) — must now be REJECTED: packing comes first
+    const earlyPickupRes = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/pickup`,
+      payload: { captainId: "c1" },
+    });
+    expect(earlyPickupRes.statusCode).toBe(409);
+    expect(JSON.parse(earlyPickupRes.body).error).toContain("Illegal transition");
+
+    // 2c. Captain starts packing (PACKING status shown to customer)
+    const packingRes = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/packing`,
+      payload: { captainId: "c1" },
+    });
+    expect(packingRes.statusCode).toBe(200);
+    expect(JSON.parse(packingRes.body).status).toBe("PACKING");
+
+    // 2d. Packing again (repeat request) is illegal
+    const packingAgainRes = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/packing`,
+      payload: { captainId: "c1" },
+    });
+    expect(packingAgainRes.statusCode).toBe(409);
+
+    // 2e. Captain picks up (out for delivery) after packing
     const pickupRes = await app.inject({
       method: "POST",
       url: `/orders/${orderId}/pickup`,
