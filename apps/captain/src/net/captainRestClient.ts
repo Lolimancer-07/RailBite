@@ -1,6 +1,5 @@
 import { getApiBaseUrl, captainNetConfig } from "./config.js";
 import type { Order, StaffLogin } from "@railbite/shared";
-
 async function fetchWithTimeout(url: string, options: RequestInit = {}): Promise<Response> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), captainNetConfig.timeoutMs);
@@ -99,6 +98,61 @@ export async function getComplaints(): Promise<any[]> {
   const res = await fetchWithTimeout(url);
   if (!res.ok) {
     throw new Error(`Failed to get complaints: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function getOrderById(orderId: string): Promise<Order & { items?: any[] }> {
+  const url = `${getApiBaseUrl()}/orders/${orderId}`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch order: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function startPacking(orderId: string, captainId: string): Promise<Order> {
+  const url = `${getApiBaseUrl()}/orders/${orderId}/packing`;
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ captainId }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Start packing failed: ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function setPickerOnline(staffId: string, online: boolean): Promise<void> {
+  const url = `${getApiBaseUrl()}/staff/${staffId}/online`;
+  const res = await fetchWithTimeout(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ online }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `Failed to set online: ${res.statusText}`);
+  }
+}
+
+export interface PickerStats {
+  staffId: string;
+  staffName: string;
+  date: string;
+  ordersDelivered: number;
+  expectedPaise: number;
+  collectedPaise: number;
+  passengerConfirmedPaise: number;
+}
+
+export async function getPickerStats(staffId: string): Promise<PickerStats> {
+  const url = `${getApiBaseUrl()}/staff/${staffId}/stats`;
+  const res = await fetchWithTimeout(url);
+  if (!res.ok) {
+    throw new Error(`Failed to get picker stats: ${res.statusText}`);
   }
   return res.json();
 }

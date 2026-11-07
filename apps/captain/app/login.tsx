@@ -12,6 +12,10 @@ import { useRouter } from "expo-router";
 import { loginStaff } from "../src/net/captainRestClient.js";
 import { useAuthStore } from "../src/store/auth.js";
 import { captainMqtt } from "../src/net/captainMqttClient.js";
+import { getApiBaseUrl, setCustomApiUrl } from "../src/net/config.js";
+import { setSetting } from "../src/db/kv.js";
+
+const SERVER_URL_KEY = "server_url";
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -19,7 +23,14 @@ export default function LoginScreen() {
 
   const [staffId, setStaffId] = useState("c1");
   const [pin, setPin] = useState("1234");
+  const [serverUrl, setServerUrl] = useState(getApiBaseUrl());
   const [loading, setLoading] = useState(false);
+
+  const normalizeUrl = (raw: string): string => {
+    const trimmed = raw.trim().replace(/\/+$/, "");
+    if (!trimmed) return getApiBaseUrl();
+    return /^https?:\/\//.test(trimmed) ? trimmed : `http://${trimmed}`;
+  };
 
   const handleLogin = async (idToUse?: string, pinToUse?: string) => {
     const id = (idToUse || staffId).trim();
@@ -32,6 +43,11 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
+      // Apply (and persist) the server URL before logging in
+      const finalUrl = normalizeUrl(serverUrl);
+      setCustomApiUrl(finalUrl);
+      setSetting(SERVER_URL_KEY, finalUrl);
+
       const session = await loginStaff({ staffId: id, pin: p });
       setStaff({
         staffId: session.staffId,
@@ -41,7 +57,7 @@ export default function LoginScreen() {
         token: session.token,
       });
 
-      // Connect MQTT for incoming orders in assigned zone
+      // Connect MQTT for incoming order alerts in assigned zone
       captainMqtt.connect(session.staffId);
 
       router.replace("/active");
@@ -54,11 +70,23 @@ export default function LoginScreen() {
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.badge}>IRCTC PANTRY CREW</Text>
-      <Text style={styles.title}>Captain App</Text>
-      <Text style={styles.subtitle}>Log in to receive loud instant alerts for your coach zone.</Text>
+      <Text style={styles.badge}>RAILBITE PANTRY CREW</Text>
+      <Text style={styles.title}>Picker App</Text>
+      <Text style={styles.subtitle}>
+        Log in to get loud instant alerts when a passenger order lands in your zone.
+      </Text>
 
       <View style={styles.card}>
+        <Text style={styles.label}>Edge server URL</Text>
+        <TextInput
+          style={styles.inputSmall}
+          placeholder="http://192.168.1.7:8080"
+          autoCapitalize="none"
+          autoCorrect={false}
+          value={serverUrl}
+          onChangeText={setServerUrl}
+        />
+
         <Text style={styles.label}>Staff ID</Text>
         <TextInput
           style={styles.input}
@@ -68,7 +96,7 @@ export default function LoginScreen() {
           onChangeText={setStaffId}
         />
 
-        <Text style={styles.label}>Security PIN</Text>
+        <Text style={styles.label}>4-digit PIN</Text>
         <TextInput
           style={styles.input}
           placeholder="••••"
@@ -89,7 +117,7 @@ export default function LoginScreen() {
       </View>
 
       {/* Quick Switch for Demo Testing */}
-      <Text style={styles.quickLabel}>Quick Demo Profiles:</Text>
+      <Text style={styles.quickLabel}>Quick demo profiles (PIN 1234):</Text>
       <View style={styles.quickGrid}>
         <TouchableOpacity
           style={styles.quickBtn}
@@ -99,7 +127,7 @@ export default function LoginScreen() {
             handleLogin("c1", "1234");
           }}
         >
-          <Text style={styles.quickBtnText}>Captain C1 (Coaches B1-B2)</Text>
+          <Text style={styles.quickBtnText}>Picker C1 (B1-B2)</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -110,7 +138,7 @@ export default function LoginScreen() {
             handleLogin("c2", "1234");
           }}
         >
-          <Text style={styles.quickBtnText}>Captain C2 (Coaches B3-B4)</Text>
+          <Text style={styles.quickBtnText}>Picker C2 (B3-B4)</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -121,7 +149,7 @@ export default function LoginScreen() {
             handleLogin("c3", "1234");
           }}
         >
-          <Text style={styles.quickBtnText}>Captain C3 (Coaches S1-S2)</Text>
+          <Text style={styles.quickBtnText}>Picker C3 (S1-S2)</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -132,7 +160,7 @@ export default function LoginScreen() {
             handleLogin("c4", "1234");
           }}
         >
-          <Text style={styles.quickBtnText}>Captain C4 (Coaches S3-S4)</Text>
+          <Text style={styles.quickBtnText}>Picker C4 (S3-S4)</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -142,7 +170,7 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     padding: 24,
-    backgroundColor: "#064e3b",
+    backgroundColor: "#0b6b3a",
     flexGrow: 1,
     justifyContent: "center",
   },
@@ -185,39 +213,48 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 16,
   },
-  loginBtn: {
-    backgroundColor: "#059669",
-    padding: 16,
+  inputSmall: {
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
     borderRadius: 8,
+    padding: 10,
+    fontSize: 13,
+    marginBottom: 16,
+  },
+  loginBtn: {
+    backgroundColor: "#0f8a4b",
+    padding: 16,
+    borderRadius: 10,
     alignItems: "center",
-    marginTop: 8,
   },
   loginBtnText: {
     color: "#ffffff",
-    fontSize: 16,
     fontWeight: "bold",
+    fontSize: 16,
   },
   quickLabel: {
     color: "#a7f3d0",
     fontSize: 12,
     fontWeight: "bold",
-    marginBottom: 10,
     textTransform: "uppercase",
+    marginBottom: 8,
   },
   quickGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: 8,
   },
   quickBtn: {
     backgroundColor: "#065f46",
-    padding: 12,
-    borderRadius: 6,
     borderWidth: 1,
-    borderColor: "#047857",
+    borderColor: "#10b981",
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
   },
   quickBtnText: {
-    color: "#ffffff",
-    fontSize: 13,
+    color: "#d1fae5",
+    fontSize: 12,
     fontWeight: "600",
   },
 });
-

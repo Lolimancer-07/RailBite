@@ -1,6 +1,6 @@
 import mqtt from "mqtt";
 import { topics, type MqttOrderAlert } from "@railbite/shared";
-import { captainNetConfig } from "./config.js";
+import { getMqttWsUrl, captainNetConfig } from "./config.js";
 import { useAlertsStore } from "../store/alerts.js";
 import { triggerForegroundAlert } from "../../modules/alert-foreground-service/index.js";
 
@@ -13,7 +13,7 @@ class CaptainMqttClient {
     this.currentStaffId = staffId;
 
     try {
-      this.client = mqtt.connect(captainNetConfig.mqttWsUrl, {
+      this.client = mqtt.connect(getMqttWsUrl(), {
         clientId: `c-${staffId}`,
         reconnectPeriod: 2000,
         connectTimeout: 5000,
