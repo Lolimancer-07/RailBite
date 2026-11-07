@@ -1,0 +1,16 @@
+/** RailBite quick-commerce palette (prototype) */
+export const colors = {
+  primary: "#0f8a4b",
+  primaryDark: "#0b6b3a",
+  primarySoft: "#e7f6ee",
+  ink: "#16232f",
+  inkSoft: "#5b6b7a",
+  bg: "#f5f7fa",
+  card: "#ffffff",
+  border: "#e5eaf0",
+  amber: "#f59e0b",
+  amberSoft: "#fef3c7",
+  danger: "#dc2626",
+  dangerSoft: "#fee2e2",
+  info: "#2563eb",
+};

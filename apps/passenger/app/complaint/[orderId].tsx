@@ -13,14 +13,13 @@ import { getTier, type ComplaintType, type ComplaintCreate } from "@railbite/sha
 import { queueAction } from "../../src/db/queries.js";
 import { processQueue } from "../../src/sync/queueWorker.js";
 
+// Prototype: only Tier 1 "Report a problem" (operational replacement) flows.
+// Tier 2 regulatory escalation + photo evidence is intentionally hidden.
 const COMPLAINT_TYPES: Array<{ key: string; label: string; tier: 1 | 2 }> = [
-  { key: "COLD_FOOD", label: "Cold Food (Tier 1 - Replacement)", tier: 1 },
-  { key: "MISSING_ITEM", label: "Missing Item (Tier 1 - Replacement)", tier: 1 },
-  { key: "BAD_TASTE", label: "Bad Taste (Tier 1 - Replacement)", tier: 1 },
-  { key: "WRONG_ITEM", label: "Wrong Item Delivered (Tier 1 - Replacement)", tier: 1 },
-  { key: "OVERCHARGED", label: "Charged above MRP (Tier 2 - Regulatory)", tier: 2 },
-  { key: "STALE_FOOD", label: "Stale / Spoiled Food (Tier 2 - Regulatory)", tier: 2 },
-  { key: "HYGIENE", label: "Hygiene Issue / Foreign Object (Tier 2)", tier: 2 },
+  { key: "COLD_FOOD", label: "Cold food", tier: 1 },
+  { key: "MISSING_ITEM", label: "Missing item", tier: 1 },
+  { key: "BAD_TASTE", label: "Bad taste", tier: 1 },
+  { key: "WRONG_ITEM", label: "Wrong item delivered", tier: 1 },
 ];
 
 function generateUUID(): string {
@@ -71,20 +70,18 @@ export default function ComplaintScreen() {
     processQueue();
 
     Alert.alert(
-      "Complaint Filed",
-      selectedTier === 1
-        ? "Your replacement request has been sent to the pantry manager and captain. Target resolution: 15 mins."
-        : "Your complaint has been queued with digital evidence hash and will be escalated to IRCTC/RailMadad.",
+      "Problem reported",
+      "Our pantry team has your report. A replacement will reach your seat within 15 mins.",
       [{ text: "OK", onPress: () => router.back() }],
     );
   };
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={{ padding: 16 }}>
-      <Text style={styles.title}>File a Food / Service Complaint</Text>
+      <Text style={styles.title}>Report a problem</Text>
       <Text style={styles.subtitle}>Order Reference: #{orderId.slice(0, 8)}</Text>
 
-      <Text style={styles.sectionHeader}>Select Issue Category</Text>
+      <Text style={styles.sectionHeader}>What went wrong?</Text>
       {COMPLAINT_TYPES.map((type) => (
         <TouchableOpacity
           key={type.key}
@@ -105,23 +102,7 @@ export default function ComplaintScreen() {
         </TouchableOpacity>
       ))}
 
-      {/* Tier 2 Photo Upload Proof */}
-      {selectedTier === 2 ? (
-        <View style={styles.photoContainer}>
-          <Text style={styles.photoHeader}>Photographic Evidence (Mandatory for Tier 2)</Text>
-          <Text style={styles.photoSub}>
-            Photo is hashed with SHA-256 and timestamped to prevent tampering.
-          </Text>
-          <TouchableOpacity
-            style={[styles.photoBtn, photoAdded && styles.photoBtnDone]}
-            onPress={() => setPhotoAdded(!photoAdded)}
-          >
-            <Text style={styles.photoBtnText}>
-              {photoAdded ? "✓ Photo Attached (evidence_sample.jpg)" : "📷 Take or Attach Photo"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
+      {/* Tier 2 photo flow hidden in prototype */}
 
       <Text style={styles.sectionHeader}>Additional Details</Text>
       <TextInput

@@ -1,13 +1,20 @@
 import React, { useEffect } from "react";
-import { Stack } from "expo-router";
 import { SafeAreaView, StatusBar, StyleSheet } from "react-native";
+import { Stack } from "expo-router";
 import { ConnectionBanner } from "../src/components/ConnectionBanner.js";
 import { startQueueWorker, stopQueueWorker } from "../src/sync/queueWorker.js";
 import { passengerMqtt } from "../src/net/mqttClient.js";
+import { loadSavedServerUrl } from "../src/net/server-url.js";
+import { useSessionStore } from "../src/store/session.js";
+import { colors } from "../src/ui/theme.js";
 
 export default function RootLayout() {
   useEffect(() => {
-    // Start background queue processing & MQTT
+    // 1. Hydrate saved seat/session and saved server URL before connecting
+    useSessionStore.getState().hydrate();
+    loadSavedServerUrl();
+
+    // 2. Start background queue processing & MQTT
     startQueueWorker();
     passengerMqtt.connect();
 
@@ -23,18 +30,17 @@ export default function RootLayout() {
       <ConnectionBanner />
       <Stack
         screenOptions={{
-          headerStyle: { backgroundColor: "#1e3a8a" },
-          headerTintColor: "#ffffff",
-          headerTitleStyle: { fontWeight: "bold" },
+          headerShown: false,
+          contentStyle: { backgroundColor: colors.bg },
         }}
       >
-        <Stack.Screen name="index" options={{ title: "RailBite" }} />
-        <Stack.Screen name="onboarding" options={{ title: "Your Seat Details" }} />
-        <Stack.Screen name="menu" options={{ title: "Pantry Menu (MRP)" }} />
-        <Stack.Screen name="cart" options={{ title: "Your Tray" }} />
-        <Stack.Screen name="orders/index" options={{ title: "Your Orders" }} />
-        <Stack.Screen name="orders/[id]" options={{ title: "Order Details" }} />
-        <Stack.Screen name="complaint/[orderId]" options={{ title: "File Complaint" }} />
+        <Stack.Screen name="index" />
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="onboarding" />
+        <Stack.Screen name="settings" />
+        <Stack.Screen name="cart" options={{ presentation: "modal" }} />
+        <Stack.Screen name="orders/[id]" />
+        <Stack.Screen name="complaint/[orderId]" />
       </Stack>
     </SafeAreaView>
   );
@@ -43,7 +49,6 @@ export default function RootLayout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f8fafc",
+    backgroundColor: colors.bg,
   },
 });
-

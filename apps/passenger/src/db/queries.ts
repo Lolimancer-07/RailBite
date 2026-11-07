@@ -220,3 +220,25 @@ export function countPendingActions(): number {
   return memoryStore.pendingActions.size;
 }
 
+// --- Settings KV (server URL, saved seat/session) ---
+
+const memorySettings = new Map<string, string>();
+
+export function setSetting(key: string, value: string): void {
+  const db = getLocalDb();
+  if (db) {
+    db.runSync("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", [key, value]);
+  } else {
+    memorySettings.set(key, value);
+  }
+}
+
+export function getSetting(key: string): string | null {
+  const db = getLocalDb();
+  if (db) {
+    const row = db.getFirstSync("SELECT value FROM settings WHERE key = ?", [key]) as any;
+    return row?.value ?? null;
+  }
+  return memorySettings.get(key) ?? null;
+}
+

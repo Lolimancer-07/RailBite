@@ -35,5 +35,10 @@ CREATE TABLE IF NOT EXISTS pending_actions (
   next_try_at TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
 `;
 

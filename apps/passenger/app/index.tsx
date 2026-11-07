@@ -2,28 +2,36 @@ import React, { useEffect } from "react";
 import { View, Text, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { useSessionStore } from "../src/store/session.js";
+import { colors } from "../src/ui/theme.js";
 
 export default function IndexScreen() {
   const router = useRouter();
   const session = useSessionStore((s) => s.session);
+  const hydrate = useSessionStore((s) => s.hydrate);
+  const hydrated = useSessionStore((s) => s.hydrated);
 
   useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  useEffect(() => {
+    if (!hydrated) return;
     const timer = setTimeout(() => {
       if (session && session.pnr) {
-        router.replace("/menu");
+        router.replace("/(tabs)/home");
       } else {
         router.replace("/onboarding");
       }
-    }, 500);
+    }, 300);
 
     return () => clearTimeout(timer);
-  }, [session, router]);
+  }, [hydrated, session, router]);
 
   return (
     <View style={styles.container}>
       <Text style={styles.logo}>🚆 RailBite</Text>
-      <Text style={styles.tagline}>Official Pantry Car Ordering</Text>
-      <ActivityIndicator size="large" color="#1e3a8a" style={styles.spinner} />
+      <Text style={styles.tagline}>Fresh food to your train seat in ~10 mins</Text>
+      <ActivityIndicator size="large" color={colors.primary} style={styles.spinner} />
     </View>
   );
 }
@@ -33,20 +41,19 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#ffffff",
   },
   logo: {
-    fontSize: 32,
+    fontSize: 34,
     fontWeight: "bold",
-    color: "#1e3a8a",
+    color: colors.primary,
   },
   tagline: {
-    fontSize: 16,
-    color: "#64748b",
+    fontSize: 14,
+    color: colors.inkSoft,
     marginTop: 8,
   },
   spinner: {
     marginTop: 24,
   },
 });
-

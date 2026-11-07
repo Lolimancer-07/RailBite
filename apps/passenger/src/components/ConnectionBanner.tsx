@@ -1,20 +1,20 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { useConnectionStore } from "../store/connection.js";
+import { colors } from "../ui/theme.js";
 
 export function ConnectionBanner() {
   const { status, queuedCount } = useConnectionStore();
 
-  let bgColor = "#2e7d32"; // green
-  let text = "Pantry Wi-Fi Connected";
+  const connected = status === "Connected";
+  const searching = status === "Searching";
 
-  if (status === "Searching") {
-    bgColor = "#ef6c00"; // orange
-    text = "Searching for Pantry Wi-Fi...";
-  } else if (status === "Offline") {
-    bgColor = "#c62828"; // red
-    text = queuedCount > 0 ? `Offline — ${queuedCount} order/action queued` : "Offline — No connection";
-  }
+  const bgColor = connected ? colors.primary : searching ? colors.amber : colors.danger;
+  const text = connected
+    ? "● Connected"
+    : searching
+      ? "● Connecting to server..."
+      : "● Cannot reach server" + (queuedCount > 0 ? ` — ${queuedCount} queued` : "");
 
   return (
     <View style={[styles.banner, { backgroundColor: bgColor }]}>
@@ -25,15 +25,14 @@ export function ConnectionBanner() {
 
 const styles = StyleSheet.create({
   banner: {
-    paddingVertical: 6,
+    paddingVertical: 5,
     paddingHorizontal: 12,
     alignItems: "center",
     justifyContent: "center",
   },
   text: {
     color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "bold",
+    fontSize: 11,
+    fontWeight: "600",
   },
 });
-

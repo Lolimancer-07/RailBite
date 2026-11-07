@@ -6,19 +6,20 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSessionStore } from "../src/store/session.js";
+import { colors } from "../src/ui/theme.js";
 
 export default function OnboardingScreen() {
   const router = useRouter();
+  const session = useSessionStore((s) => s.session);
   const setSession = useSessionStore((s) => s.setSession);
 
-  const [pnr, setPnr] = useState("8492000001");
-  const [coach, setCoach] = useState("B1");
-  const [berth, setBerth] = useState("1");
-  const [diners, setDiners] = useState("1");
+  const [pnr, setPnr] = useState(session?.pnr || "8492000001");
+  const [coach, setCoach] = useState(session?.coach || "B1");
+  const [berth, setBerth] = useState(session ? String(session.berth) : "1");
+  const [diners, setDiners] = useState(session ? String(session.diners) : "1");
   const [error, setError] = useState("");
 
   const handleContinue = () => {
@@ -55,23 +56,24 @@ export default function OnboardingScreen() {
       diners: dinersNum,
     });
 
-    router.replace("/menu");
+    router.replace("/(tabs)/home");
   };
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.title}>Welcome to RailBite</Text>
+      <Text style={styles.title}>Where should we deliver?</Text>
       <Text style={styles.subtitle}>
-        Please enter your seat details so pantry car staff can deliver directly to your berth.
+        Enter your seat details so our picker brings food straight to your berth.
       </Text>
 
       {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
       <View style={styles.fieldGroup}>
-        <Text style={styles.label}>10-Digit PNR Number</Text>
+        <Text style={styles.label}>10-digit PNR number</Text>
         <TextInput
           style={styles.input}
           placeholder="e.g. 8492000001"
+          placeholderTextColor={colors.inkSoft}
           keyboardType="numeric"
           maxLength={10}
           value={pnr}
@@ -81,10 +83,11 @@ export default function OnboardingScreen() {
 
       <View style={styles.row}>
         <View style={[styles.fieldGroup, { flex: 1, marginRight: 8 }]}>
-          <Text style={styles.label}>Coach (e.g. B1, S2)</Text>
+          <Text style={styles.label}>Coach</Text>
           <TextInput
             style={styles.input}
             placeholder="B1"
+            placeholderTextColor={colors.inkSoft}
             autoCapitalize="characters"
             maxLength={4}
             value={coach}
@@ -93,10 +96,11 @@ export default function OnboardingScreen() {
         </View>
 
         <View style={[styles.fieldGroup, { flex: 1, marginLeft: 8 }]}>
-          <Text style={styles.label}>Berth Number</Text>
+          <Text style={styles.label}>Seat / berth</Text>
           <TextInput
             style={styles.input}
             placeholder="1"
+            placeholderTextColor={colors.inkSoft}
             keyboardType="numeric"
             maxLength={3}
             value={berth}
@@ -105,11 +109,11 @@ export default function OnboardingScreen() {
         </View>
       </View>
 
-      <View style={styles.fieldGroup}>
-        <Text style={styles.label}>Number of Diners</Text>
+      {/* Diners kept out of the way, default 1 */}
+      <View style={styles.optionalRow}>
+        <Text style={styles.optionalLabel}>Diners (default 1)</Text>
         <TextInput
-          style={styles.input}
-          placeholder="1"
+          style={styles.optionalInput}
           keyboardType="numeric"
           maxLength={1}
           value={diners}
@@ -118,35 +122,40 @@ export default function OnboardingScreen() {
       </View>
 
       <TouchableOpacity style={styles.button} onPress={handleContinue}>
-        <Text style={styles.buttonText}>View Pantry Menu →</Text>
+        <Text style={styles.buttonText}>Save & start ordering →</Text>
       </TouchableOpacity>
+
+      <Text style={styles.demoHint}>
+        Demo tip: use PNR 8492000001, Coach B1, Seat 1 (seeded on the server).
+      </Text>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    padding: 20,
+    padding: 24,
     backgroundColor: "#ffffff",
     flexGrow: 1,
+    justifyContent: "center",
   },
   title: {
-    fontSize: 24,
+    fontSize: 26,
     fontWeight: "bold",
-    color: "#0f172a",
+    color: colors.ink,
     marginBottom: 8,
   },
   subtitle: {
     fontSize: 14,
-    color: "#64748b",
-    marginBottom: 20,
+    color: colors.inkSoft,
+    marginBottom: 24,
     lineHeight: 20,
   },
   errorText: {
-    color: "#dc2626",
-    backgroundColor: "#fee2e2",
+    color: colors.danger,
+    backgroundColor: colors.dangerSoft,
     padding: 10,
-    borderRadius: 6,
+    borderRadius: 8,
     marginBottom: 16,
     fontWeight: "600",
   },
@@ -157,30 +166,54 @@ const styles = StyleSheet.create({
     flexDirection: "row",
   },
   label: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
-    color: "#334155",
+    color: colors.ink,
     marginBottom: 6,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#cbd5e1",
-    borderRadius: 8,
-    padding: 12,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 14,
     fontSize: 16,
-    backgroundColor: "#f8fafc",
+    color: colors.ink,
+  },
+  optionalRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+    marginBottom: 20,
+    opacity: 0.8,
+  },
+  optionalLabel: { fontSize: 12, color: colors.inkSoft },
+  optionalInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    fontSize: 14,
+    color: colors.ink,
+    width: 46,
+    textAlign: "center",
   },
   button: {
-    backgroundColor: "#1e3a8a",
+    backgroundColor: colors.primary,
     padding: 16,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: "center",
-    marginTop: 20,
   },
   buttonText: {
     color: "#ffffff",
-    fontSize: 16,
     fontWeight: "bold",
+    fontSize: 16,
+  },
+  demoHint: {
+    fontSize: 12,
+    color: colors.inkSoft,
+    textAlign: "center",
+    marginTop: 16,
   },
 });
-
