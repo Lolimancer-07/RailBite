@@ -1,0 +1,34 @@
+package com.railbite.core.util
+
+import java.text.DecimalFormat
+
+/**
+ * Money helpers. The server stores everything in integer paise (1 INR = 100 paise);
+ * the UI divides by 100. Never floats in models.
+ */
+object Money {
+
+    /** 1500 -> "₹15", 1550 -> "₹15.50" */
+    fun rupees(paise: Int): String {
+        val whole = paise / 100
+        val frac = paise % 100
+        return if (frac == 0) "₹$whole" else "₹$whole.${DecimalFormat("00").format(frac)}"
+    }
+
+    fun rupeesLong(paise: Int): String {
+        val whole = paise / 100
+        val frac = paise % 100
+        return "₹" + DecimalFormat("#,##0.##").format(whole + frac / 100.0)
+    }
+}
+
+/** Simple validation shared by both apps. */
+object Validators {
+    private val PNR_REGEX = Regex("""^\d{10}$""")
+    private val COACH_REGEX = Regex("""^[A-Za-z]{1,2}\d{1,2}$""")
+
+    fun isValidPnr(pnr: String): Boolean = PNR_REGEX.matches(pnr.trim())
+    fun isValidCoach(coach: String): Boolean = COACH_REGEX.matches(coach.trim())
+    fun isValidBerth(berth: Int): Boolean = berth in 1..100
+    fun isValidDiners(diners: Int): Boolean = diners in 1..8
+}

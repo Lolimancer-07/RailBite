@@ -1,0 +1,21 @@
+# Gradle
+.gradle/
+build/
+local.properties
+
+# IDE
+.idea/
+*.iml
+.DS_Store
+
+# Keystore & signing (kept out of git)
+keystore/
+keystore.properties
+
+# Release APKs (copied to /release at repo root)
+*.apk
+*.aab
+
+# Misc
+captures/
+.cxx/
