@@ -315,3 +315,23 @@
 - Delivery code is visible to anyone who can GET `/orders/:id` as passenger role (same endpoint the passenger uses); no online payments; coupons/slots intentionally not ported from FOT.
 - Expo apps pass `tsc` but have not been device-tested; no unit tests for app UI.
 - Named-picker status subtext only appears after a live MQTT update (which carries `captainName` from the pickup transition); the REST response doesn't include `captainName`.
+
+---
+
+## Phase 14: Standalone Release APKs & Native Module Assembly ✅
+
+**Completed:** 2026-11-13  
+**Artifacts Generated:**
+- `release/railbite-passenger.apk` (~82 MB, package `com.railbite.passenger`, versionCode 1, versionName 1.0.0)
+- `release/railbite-picker.apk` (~82 MB, package `com.railbite.picker`, versionCode 1, versionName 1.0.0)
+
+**What works:**
+- **Standalone Offline-Embedded Builds**: Both APKs package full JavaScript bundles and compiled Hermes bytecode. No Metro bundler or dev server is needed at runtime.
+- **Expo SDK 51 & Gradle 8.8 Alignment**: Local Gradle assembly configured using Eclipse Temurin JDK 17 (`JAVA_HOME`) and Android SDK (compileSdk 34, minSdk 29, targetSdk 34).
+- **Native Modules Preserved & Autolinked**:
+  - `alert-foreground-service`: Foreground notification service with wake lock, continuous loud chime/vibration, and full-screen intent for urgent coach order dispatch. Kotlin return types updated to `Boolean` to resolve reified type inference in Expo Modules DSL.
+  - `wifi-binder`: Custom `bindProcessToNetwork` module for binding low-level sockets directly to the pantry Wi-Fi without internet connectivity.
+- **Cleartext HTTP/WS Traffic**: Enabled via `expo-build-properties` (`usesCleartextTraffic = true`) allowing connection to local prototype server endpoints (`http://` and `ws://`).
+- **Dynamic LAN Configuration**: Both apps allow changing the server host and port via in-app UI (Settings screen on passenger app, Login screen on picker app) with fallback to `EXPO_PUBLIC_SERVER_URL`.
+- **All Monorepo Unit & Integration Tests Passing**: 83/83 automated tests passed across all services and packages (`pnpm -r test`).
+

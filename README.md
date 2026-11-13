@@ -69,23 +69,126 @@ ifconfig | grep "inet "            # macOS
 
 Verify from a phone browser: `http://<LAPTOP_IP>:8080/health` → `{"ok":true,...}`
 
-### 2. Build & install the two Android apps
+---
 
-Both apps read the default server URL from `EXPO_PUBLIC_SERVER_URL` (set in each app's `.env` or at build time), and both have a Settings/"server URL" field in-app that overrides it locally.
+## Build and install the APKs
+
+RailBite provides two standalone release APKs that run completely independently with embedded JavaScript bundles (no Metro server, no dev client, no Expo Go required):
+1. **RailBite (Passenger app)**: `release/railbite-passenger.apk` (`com.railbite.passenger`, v1.0.0)
+2. **RailBite Picker (Vendor app)**: `release/railbite-picker.apk` (`com.railbite.picker`, v1.0.0)
+
+### 1. Build the APKs locally
+
+Ensure Android SDK and JDK 17 are installed on your machine:
 
 ```bash
-# Customer app (apps/passenger)
-cd apps/passenger
-npx expo prebuild --platform android   # first time only
-npx expo run:android                   # build + install on the customer phone
+# 1. Install root dependencies and build shared packages
+pnpm install
+pnpm --filter @railbite/shared build
 
-# Picker app (apps/captain) — build on the second phone
-cd ../captain
-npx expo prebuild --platform android   # first time only
-npx expo run:android
+# 2. Build Passenger Release APK
+cd apps/passenger/android
+export ANDROID_HOME=$HOME/Android/Sdk
+export JAVA_HOME=$HOME/.jdks/jdk-17.0.21+9   # Path to JDK 17
+export PATH=$JAVA_HOME/bin:$PATH
+./gradlew assembleRelease --console=plain
+mkdir -p ../../../release
+cp app/build/outputs/apk/release/app-release.apk ../../../release/railbite-passenger.apk
+cd ../../..
+
+# 3. Build Picker Release APK (includes custom Kotlin alert-foreground-service & wifi-binder)
+cd apps/captain/android
+export ANDROID_HOME=$HOME/Android/Sdk
+export JAVA_HOME=$HOME/.jdks/jdk-17.0.21+9   # Path to JDK 17
+export PATH=$JAVA_HOME/bin:$PATH
+./gradlew assembleRelease --console=plain
+cp app/build/outputs/apk/release/app-release.apk ../../../release/railbite-picker.apk
+cd ../../..
 ```
 
-> Tip: run `npx expo start` from each app folder with the phone connected via `adb`, or set `EXPO_PUBLIC_SERVER_URL=http://<LAPTOP_IP>:8080` in a `.env` next to the app.json so the dev client starts connected.
+*(Alternatively, use EAS Cloud Build: `npx eas-cli build --platform android --profile preview` from each app folder).*
+
+### 2. Install on Android phones
+
+Both apps have unique package IDs and can be installed concurrently on the same device.
+
+#### Via ADB (connected with USB debugging enabled):
+```bash
+adb install -r release/railbite-passenger.apk
+adb install -r release/railbite-picker.apk
+```
+
+#### Via direct phone copy (sideload):
+1. Copy `railbite-passenger.apk` and `railbite-picker.apk` to the phone (via USB, cloud, or messaging).
+2. Go to **Settings → Apps → Special app access → Install unknown apps** on the phone and toggle permission for your file manager or browser.
+3. Tap each APK file to install directly.
+
+---
+
+## Run the server for the APKs
+
+The standalone APKs communicate with the RailBite Edge Server running on your laptop over the local Wi-Fi network (or laptop Wi-Fi hotspot).
+
+### 1. Connect phone and laptop to the same network
+Make sure the Android phone(s) and your laptop are connected to the **same local Wi-Fi network** (e.g., your home Wi-Fi or travel router). Alternatively, turn on your laptop's Wi-Fi hotspot and connect your phone to it.
+
+### 2. Find your laptop's LAN IP address
+- **Linux:**
+  ```bash
+  hostname -I | awk '{print $1}'
+  # or: ip addr show | grep "inet " (e.g. 192.168.1.45)
+  ```
+- **macOS:**
+  ```bash
+  ipconfig getifaddr en0
+  # or: ifconfig | grep "inet "
+  ```
+- **Windows (PowerShell / Command Prompt):**
+  ```cmd
+  ipconfig
+  :: Look for "IPv4 Address" under your active Wi-Fi adapter (e.g. 192.168.1.45)
+  ```
+
+### 3. Allow ports through the firewall
+The Edge Server listens on HTTP port `8080`, MQTT TCP port `1883`, and MQTT WebSocket port `8883`. Allow these incoming ports:
+- **Linux (`ufw` or `iptables`):**
+  ```bash
+  sudo ufw allow 8080/tcp
+  sudo ufw allow 1883/tcp
+  sudo ufw allow 8883/tcp
+  ```
+- **macOS:**
+  Allow Node when prompted by macOS Application Firewall, or configure in **System Settings → Network → Firewall**.
+- **Windows:**
+  In **Windows Defender Firewall with Advanced Security**, add an Inbound Rule allowing TCP ports `8080`, `1883`, and `8883`.
+
+### 4. Start the Edge Server
+```bash
+# Seed demo trip, inventory, and picker accounts (if not already seeded)
+cd services/edge-server && pnpm seed && cd ../..
+
+# Start Edge Server
+pnpm --filter @railbite/edge-server dev
+```
+
+**Expected terminal output:**
+```
+[MQTT] TCP broker listening on 0.0.0.0:1883
+[MQTT] WebSocket broker listening on 0.0.0.0:8883
+[HTTP] REST API listening on http://0.0.0.0:8080
+```
+
+Verify reachability from your phone's Chrome/browser:
+```
+http://<LAPTOP_IP>:8080/health
+# Response: {"ok":true,"service":"railbite-edge-server","time":...}
+```
+
+### 5. Type the IP into both apps
+- **Passenger App**: Tap the **Settings (gear)** icon in the top header → type `http://<LAPTOP_IP>:8080` (e.g. `http://192.168.1.45:8080`) → Save. The header badge will show **"Connected"**.
+- **Picker App**: On the initial Login screen, enter the server URL: `http://<LAPTOP_IP>:8080` → enter Staff ID (`c1`) and PIN (`1234`) → Login.
+
+---
 
 ### 3. Demo walkthrough
 
