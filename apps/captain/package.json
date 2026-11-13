@@ -21,6 +21,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@react-native/gradle-plugin": "^0.74.81",
     "@types/react": "~18.2.0",
     "typescript": "^5.5.0"
   }

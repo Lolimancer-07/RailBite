@@ -50,3 +50,4 @@ npx eas-cli build --platform android --profile preview
 ```
 
 After the build finishes, download the `.apk` link from the EAS Build page and copy it here as `railbite-passenger.apk` / `railbite-picker.apk`.
+

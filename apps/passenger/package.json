@@ -6,7 +6,8 @@
     "start": "expo start",
     "android": "expo run:android",
     "build": "echo 'Expo apps built with EAS Build - run: npx expo prebuild'",
-    "lint": "eslint app src"
+    "lint": "eslint app src",
+    "ios": "expo run:ios"
   },
   "dependencies": {
     "@railbite/shared": "workspace:*",
@@ -21,6 +22,7 @@
     "zustand": "^4.5.0"
   },
   "devDependencies": {
+    "@react-native/gradle-plugin": "^0.74.81",
     "@types/react": "~18.2.0",
     "typescript": "^5.5.0"
   }
