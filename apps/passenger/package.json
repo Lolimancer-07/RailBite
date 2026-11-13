@@ -11,6 +11,9 @@
   "dependencies": {
     "@railbite/shared": "workspace:*",
     "expo": "~51.0.0",
+    "expo-build-properties": "^58.0.12",
+    "expo-haptics": "^58.0.8",
+    "expo-notifications": "^58.1.9",
     "expo-router": "~3.5.0",
     "expo-sqlite": "~14.0.0",
     "react": "18.2.0",
@@ -22,4 +25,3 @@
     "typescript": "^5.5.0"
   }
 }
-

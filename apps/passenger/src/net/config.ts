@@ -10,7 +10,9 @@
 function defaultServerUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_SERVER_URL;
   if (envUrl && /^(http|ws):\/\//.test(envUrl)) return envUrl;
-  return "http://192.168.50.1:8080";
+  // TODO: Replace with your laptop's LAN IP, e.g. http://192.168.1.45:8080
+  // Find it with: ipconfig getifaddr en0 (macOS) or hostname -I (Linux)
+  return "http://192.168.1.100:8080";
 }
 
 const DEFAULT_API_BASE_URL = defaultServerUrl();
