@@ -42,6 +42,69 @@ pnpm --filter @railbite/relay-sim start
 
 ---
 
+## Native Android apps (Kotlin + Jetpack Compose)
+
+The demo prototype ships as two **native Kotlin** apps under `android/` (they supersede the older
+Expo builds in `apps/passenger` and `apps/captain`, which are kept only as reference):
+
+| App | Module | Package | Role |
+|---|---|---|---|
+| **RailBite** | `android/customer` | `com.railbite.customer` | Passenger: PNR/coach/seat onboarding, quick-commerce menu with ADD steppers + sold-out states, floating cart bar, COD order with UUID idempotency, live status timeline over MQTT, "Did you pay ₹X?" confirm dialog, Tier-1 report sheet |
+| **RailBite Picker** | `android/picker` | `com.railbite.picker` | Pantry staff: staff ID/PIN login, big ONLINE toggle driving a foreground service, loud full-screen order alerts that work over the lock screen, 60 s countdown (timeout = re-dispatch), picking checklist, 4-digit delivery-code handover, cash summary (expected vs collected vs confirmed) |
+
+Both install side by side and share `android/core` (models mirroring the server JSON, Retrofit/OkHttp
+client, HiveMQ MQTT wrapper with auto-reconnect, DataStore settings, Compose theme, integer-paise
+money helpers). Server contract details: `docs/android-plan.md`.
+
+### Prerequisites
+
+- JDK 17+ and the Android SDK (platform `android-35`, build-tools 34+); `sdk.dir` lives in the
+  gitignored `android/local.properties`. The checked-in `org.gradle.java.home` points at a local
+  JDK 17 tarball — on other machines just delete that line or point it at your JDK.
+- Release signing uses the machine-local `android/keystore.properties` +
+  `android/keystore/railbite-release.jks` (both gitignored). To recreate:
+  ```bash
+  keytool -genkeypair -v -keystore android/keystore/railbite-release.jks -alias railbite \
+    -keyalg RSA -keysize 2048 -validity 10000 -storepass railbite-demo -keypass railbite-demo \
+    -dname "CN=RailBite, OU=Prototype, O=RailBite, C=IN"
+  ```
+
+### Build & install
+
+```bash
+cd android
+./gradlew :customer:assembleRelease :picker:assembleRelease   # R8-minified, signed (~5 MB each)
+./scripts/copy-release.sh                                     # copies to release/railbite-*.apk
+adb install -r ../release/railbite-customer.apk
+adb install -r ../release/railbite-picker.apk
+```
+
+Debug builds for development: `./gradlew :customer:assembleDebug :picker:assembleDebug`.
+R8 keeps `org.jctools.**` / `io.netty.**` / `com.hivemq.**` intact and runs with full mode off —
+full mode's class merging broke HiveMQ's reflective field lookups (`NoSuchFieldException:
+consumerIndex` on first connect); see `docs/android-plan.md`.
+
+### Connect both phones to the edge server
+
+1. Laptop: `cd services/edge-server && pnpm seed && cd ../.. && pnpm --filter @railbite/edge-server dev`
+   (HTTP `:8080`, MQTT TCP `:1883`, MQTT WebSocket `:8883` — allow all three through the firewall,
+   phone + laptop on the same Wi-Fi).
+2. **RailBite (customer)**: enter `http://<LAPTOP_IP>:8080` → "Connected" → PNR `8492000001`,
+   Coach `B1`, Seat `1` → Start ordering → add items → View cart → Place order (Cash on delivery).
+3. **RailBite Picker**: sign in `c1` / PIN `1234` → grant the three alert permissions
+   (notifications, full-screen alerts, battery exemption) → flip **ONLINE** → when the customer
+   orders, a loud full-screen alert rings (even locked) → **ACCEPT** → tick every item in the
+   picking checklist → *All picked — start delivery* → ask the passenger for the 4-digit code
+   shown in their app → *Mark delivered*.
+4. The customer sees the timeline live (Placed → Accepted → Packing → Out for delivery →
+   Delivered), reveals their delivery code at handover, then confirms the cash paid.
+
+Demo accounts: pickers `c1`–`c4` with PIN `1234` (zones B1–B2, B3–B4, S1–S2, S3–S4); test PNRs
+`8492000001`–`8492000120`. Rejecting an alert or missing the 60 s countdown re-dispatches the
+order to the next picker.
+
+---
+
 ## Run the Prototype (Customer + Picker demo)
 
 The prototype turns RailBite into a quick-commerce-style demo: a **Customer app** (passenger) and a **Picker app** (vendor/staff). The edge server runs on your laptop; both phones connect over the same Wi-Fi/LAN. Kitchen display, SMS fallback, BLE relay, cloud sync and the admin dashboard are left in the repo but are not needed for the demo.
@@ -72,6 +135,9 @@ Verify from a phone browser: `http://<LAPTOP_IP>:8080/health` → `{"ok":true,..
 ---
 
 ## Build and install the APKs
+
+> **Historical (Expo).** These Expo-based builds are superseded by the native Kotlin apps in
+> `android/` — see "Native Android apps" above for the current build & install flow.
 
 RailBite provides two standalone release APKs that run completely independently with embedded JavaScript bundles (no Metro server, no dev client, no Expo Go required):
 1. **RailBite (Passenger app)**: `release/railbite-passenger.apk` (`com.railbite.passenger`, v1.0.0)

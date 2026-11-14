@@ -20,7 +20,7 @@ object Statuses {
     /** Step index for the 5-step passenger timeline; -1 for terminal failure states. */
     fun timelineStep(status: String): Int = when (status) {
         PLACED -> 0
-        ASSIGNED -> 1
+        ASSIGNED -> 0
         ACCEPTED -> 1
         PACKING -> 2
         OUT_FOR_DELIVERY -> 3

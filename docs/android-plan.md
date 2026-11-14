@@ -31,7 +31,11 @@ edge server (`services/edge-server`) is reused as-is; `apps/passenger`, `apps/ca
 minSdk 29, compileSdk/targetSdk 35, Java 17 toolchain, Kotlin 2.0.21 + Compose compiler plugin,
 Retrofit 2.11 + OkHttp 4.12 + kotlinx-serialization 1.7.x, HiveMQ MQTT client 1.3.5, Navigation
 Compose, ViewModel + StateFlow, DataStore Preferences. No DI framework (manual singletons), no Coil
-(emoji/Compose-drawn icons only), no minify for the prototype (R8 disabled to avoid runtime risk).
+(emoji/Compose-drawn icons only). R8 minify is enabled for release builds with full mode disabled:
+full mode's class merging breaks the reflective field lookups inside jctools queues used by the
+HiveMQ MQTT client (`NoSuchFieldException: consumerIndex` on first connect), so
+`org.jctools.**`, `io.netty.**` and `com.hivemq.**` are kept by name in `proguard-rules.pro`
+and `android.enableR8.fullMode=false`. Minified releases were verified end-to-end on an emulator.
 
 ## Server contract (already exists — verified against source)
 

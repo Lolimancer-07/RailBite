@@ -1,74 +1,50 @@
 # RailBite — Release APKs
 
-> **.apk files are NOT committed to git.** They are built locally using Android SDK / JDK 17 (or EAS Build) and output to this folder.
+> **.apk files are NOT committed to git.** They are built locally with
+> `cd android && ./gradlew :customer:assembleRelease :picker:assembleRelease`
+> and copied here by `android/scripts/copy-release.sh`.
 
-## Generated APK Files
+## Native Kotlin apps (current)
 
-| File | App | Package Name | Version | Size | SHA-256 Checksum |
-|------|-----|--------------|---------|------|------------------|
-| `railbite-passenger.apk` | RailBite (Passenger) | `com.railbite.passenger` | 1.0.0 (1) | ~82 MB | `708a1abc53436437ea21eee554bdf5d5e49c554ff8c756fa7de8d870ff10225c` |
-| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.0.0 (1) | ~82 MB | `51611c8dee72f3918e049c7f518eed7524afdc2803d653ff85e95f2d2efdd520` |
+| File | App | Package | Version | Min SDK | Target SDK | Size | SHA-256 |
+|------|-----|---------|---------|---------|-----------|------|---------|
+| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.0.0 (1) | 29 | 35 | 6,921,086 B (~6.6 MB) | `baddf60f218e67fa81c8ac0548f17148f6da9223cbcc465899a5300e61b3a9da` |
+| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.0.0 (1) | 29 | 35 | 6,821,682 B (~6.5 MB) | `b75612599aad109a5e078b42725767e54207af5925ccc1e5c2a52f9224190236` |
 
-Both APKs have distinct package names and can be installed concurrently on the same Android device.
+Native Kotlin + Jetpack Compose builds, R8-minified and signed with the prototype
+keystore (`android/keystore.properties`; store/key pass `railbite-demo`, alias `railbite`).
+Distinct package names — both install side by side. Build & connect instructions:
+[`README.md` → "Native Android apps"](../README.md#native-android-apps-kotlin--jetpack-compose).
+
+> Release builds keep `org.jctools.**`, `io.netty.**` and `com.hivemq.**` unobfuscated
+> (HiveMQ's MQTT client reflects on its own queue fields) and run with R8 full mode off.
+
+### Install via ADB
+
+```bash
+adb install -r railbite-customer.apk
+adb install -r railbite-picker.apk
+```
+
+### Direct phone installation
+
+1. Copy both APKs to the phone (USB, Drive, etc.).
+2. Settings → Apps → Special app access → Install unknown apps → allow your file manager.
+3. Tap each APK and confirm **Install**.
+
+### Demo credentials
+
+- Passenger: any PNR from the seeded manifest `8492000001`–`8492000120` (coach/seat from the manifest, e.g. `B1` / seat `1`).
+- Picker: staff IDs `c1`–`c4`, PIN `1234` (zones B1–B2, B3–B4, S1–S2, S3–S4).
+- Edge server: `http://<laptop-ip>:8080` (HTTP), MQTT `:1883` TCP / `:8883` WS.
 
 ---
 
-## Direct Phone Installation
+## Historical (Expo builds, superseded)
 
-### Method 1: Sideload via USB / File Sharing
-1. Copy `railbite-passenger.apk` and `railbite-picker.apk` to your phone via USB cable, Google Drive, WhatsApp, or local share.
-2. On your phone: **Settings → Apps → Special app access → Install unknown apps**, and allow your file manager / browser.
-3. Tap each `.apk` file and confirm **Install**.
-
-### Method 2: Install via ADB (USB Debugging)
-With your Android phone connected with USB debugging enabled:
-```bash
-adb install -r release/railbite-passenger.apk
-adb install -r release/railbite-picker.apk
-```
-
----
-
-## Local Build Instructions (How these APKs were built)
-
-These APKs are release-style standalone builds with embedded JavaScript bundles and compiled Hermes bytecode (no Metro bundler or dev server needed).
-
-### Prerequisites
-- Android SDK installed (`minSdk 29`, `compileSdk 34`, `targetSdk 34`)
-- JDK 17 (e.g. Eclipse Temurin 17)
-- Node.js 20+ & pnpm
-
-### Build Passenger APK
-```bash
-cd apps/passenger/android
-export ANDROID_HOME=$HOME/Android/Sdk
-export JAVA_HOME=$HOME/.jdks/jdk-17.0.21+9   # Path to JDK 17
-export PATH=$JAVA_HOME/bin:$PATH
-./gradlew assembleRelease --console=plain
-cp app/build/outputs/apk/release/app-release.apk ../../../release/railbite-passenger.apk
-```
-
-### Build Picker APK
-```bash
-cd apps/captain/android
-export ANDROID_HOME=$HOME/Android/Sdk
-export JAVA_HOME=$HOME/.jdks/jdk-17.0.21+9   # Path to JDK 17
-export PATH=$JAVA_HOME/bin:$PATH
-./gradlew assembleRelease --console=plain
-cp app/build/outputs/apk/release/app-release.apk ../../../release/railbite-picker.apk
-```
-
----
-
-## Verification Badging & Permissions
-
-```bash
-# Verify passenger APK
-aapt dump badging release/railbite-passenger.apk | grep -E "package|launchable-activity|uses-permission"
-
-# Verify picker APK
-aapt dump badging release/railbite-picker.apk | grep -E "package|launchable-activity|uses-permission"
-```
-
-- **Passenger permissions:** `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`, `VIBRATE`, `POST_NOTIFICATIONS`
-- **Picker permissions:** `INTERNET`, `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE`, `CHANGE_WIFI_STATE`, `CHANGE_NETWORK_STATE`, `VIBRATE`, `POST_NOTIFICATIONS`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`, `WAKE_LOCK`, `USE_FULL_SCREEN_INTENT`
+The first prototype shipped as ~85 MB Expo JS-bundle APKs (`railbite-passenger.apk`,
+`railbite-picker.apk`, package `com.railbite.passenger` / `com.railbite.picker`,
+version 1.0.0 (1)). They have been removed from this folder and replaced by the native
+builds above. Note: the old Expo picker used the same `com.railbite.picker` package,
+so on a device that still has it, uninstall the Expo build first (signature mismatch),
+then install the native one.

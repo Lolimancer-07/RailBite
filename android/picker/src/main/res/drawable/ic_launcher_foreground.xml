@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RailBite Picker launcher foreground: a checklist clipboard glyph, drawn from scratch. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- clipboard board -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,28 h32 a6,6 0 0 1 6,6 v44 a6,6 0 0 1 -6,6 h-32 a6,6 0 0 1 -6,-6 v-44 a6,6 0 0 1 6,-6 z" />
+    <!-- clip -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,22 h12 a4,4 0 0 1 4,4 v6 h-20 v-6 a4,4 0 0 1 4,-4 z" />
+    <path
+        android:fillColor="#17457B"
+        android:pathData="M50,25 h8 a2,2 0 0 1 2,2 v2 h-12 v-2 a2,2 0 0 1 2,-2 z" />
+    <!-- check marks -->
+    <path
+        android:strokeColor="#17457B"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M43,49 l6,6 l14,-14" />
+    <path
+        android:strokeColor="#17457B"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M43,68 l6,6 l14,-14" />
+</vector>
