@@ -462,8 +462,13 @@ private fun DeliveredCard(order: Order, busy: Boolean, onDone: () -> Unit) {
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
-                "Hand over only after the passenger pays ${Money.rupees(order.totalPaise)} cash. " +
-                    "They confirm the amount in their app.",
+                if (order.paymentMode == "UPI_QUEUED") {
+                    "The passenger pays ${Money.rupees(order.totalPaise)} digitally via UPI — no cash to collect. " +
+                        "They confirm the payment in their app."
+                } else {
+                    "Hand over only after the passenger pays ${Money.rupees(order.totalPaise)} cash. " +
+                        "They confirm the amount in their app."
+                },
                 textAlign = TextAlign.Center,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,

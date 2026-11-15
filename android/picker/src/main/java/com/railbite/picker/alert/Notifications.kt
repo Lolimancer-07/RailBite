@@ -81,11 +81,17 @@ object Notifications {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val itemsText = alert.items.joinToString("\n") { "${it.qty} × ${it.name}" }
+        val upiOrder = alert.paymentMode == "UPI_QUEUED"
         return NotificationCompat.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(com.railbite.picker.R.drawable.ic_stat_picker)
             .setContentTitle("🚨 New order — Coach ${alert.coach} · Seat ${alert.berth}")
-            .setContentText("${alert.items.sumOf { it.qty }} items · ${Money.rupees(alert.total)} · Cash")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("$itemsText\nTotal ${Money.rupees(alert.total)} (COD)"))
+            .setContentText("${alert.items.sumOf { it.qty }} items · ${Money.rupees(alert.total)} · ${if (upiOrder) "UPI" else "Cash"}")
+            .setStyle(
+                NotificationCompat.BigTextStyle().bigText(
+                    "$itemsText\nTotal ${Money.rupees(alert.total)} " +
+                        "(${if (upiOrder) "UPI — passenger pays digitally" else "COD"})",
+                ),
+            )
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setFullScreenIntent(fullScreen, true)

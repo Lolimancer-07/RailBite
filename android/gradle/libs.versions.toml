@@ -12,6 +12,7 @@ okhttp = "4.12.0"
 kotlinxSerialization = "1.7.3"
 kotlinxCoroutines = "1.9.0"
 hivemq = "1.3.5"
+netty = "4.1.118.Final"
 junit = "4.13.2"
 firebaseBom = "33.6.0"
 googleServices = "4.4.2"
@@ -39,6 +40,12 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
 hivemq-mqtt-client = { group = "com.hivemq", name = "hivemq-mqtt-client", version.ref = "hivemq" }
+# HiveMQ marks netty-codec-http as <optional> in its POM, so it never propagates —
+# without it the WebSocket transport throws NoClassDefFoundError
+# (io/netty/handler/codec/http/websocketx/WebSocketVersion) inside the channel
+# initializer and the MQTT connect hangs forever. Keep the version aligned with
+# the netty BOM hivemq 1.3.5 resolves (4.1.118.Final).
+netty-codec-http = { group = "io.netty", name = "netty-codec-http", version.ref = "netty" }
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }

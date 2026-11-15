@@ -35,6 +35,8 @@ dependencies {
     api(libs.okhttp)
     api(libs.okhttp.logging)
     api(libs.hivemq.mqtt.client)
+    // Required at runtime for HiveMQ's WebSocket transport (marked optional upstream).
+    api(libs.netty.codec.http)
     api(libs.androidx.datastore.preferences)
     api(libs.androidx.lifecycle.viewmodel.compose)
     api(libs.androidx.lifecycle.runtime.compose)
