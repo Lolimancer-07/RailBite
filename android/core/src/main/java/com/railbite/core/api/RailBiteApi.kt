@@ -72,6 +72,9 @@ interface RailBiteApi {
     @POST("staff/{id}/online")
     suspend fun setStaffOnline(@Path("id") id: String, @Body body: OnlineRequest): OnlineResponse
 
+    @POST("staff/device-token")
+    suspend fun registerDeviceToken(@Body body: DeviceTokenRequest): DeviceTokenResponse
+
     @GET("staff/{id}/stats")
     suspend fun staffStats(@Path("id") id: String): PickerStats
 
@@ -97,6 +100,12 @@ interface RailBiteApi {
 
     @kotlinx.serialization.Serializable
     data class OnlineResponse(val ok: Boolean, val staffId: String, val online: Boolean)
+
+    @kotlinx.serialization.Serializable
+    data class DeviceTokenRequest(val staffId: String, val deviceToken: String)
+
+    @kotlinx.serialization.Serializable
+    data class DeviceTokenResponse(val ok: Boolean = true, val staffId: String? = null)
 
     @kotlinx.serialization.Serializable
     data class ComplaintAck(val id: String, val tier: Int, val status: String)

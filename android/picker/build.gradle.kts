@@ -7,8 +7,14 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 val defaultServerUrl: String =
-    (project.findProperty("railbiteDefaultServerUrl") as String?) ?: ""
+    (project.findProperty("SERVER_URL") as String?)
+        ?: (project.findProperty("railbiteDefaultServerUrl") as String?)
+        ?: "https://railbite-api.onrender.com"
 
 android {
     namespace = "com.railbite.picker"
@@ -88,6 +94,9 @@ dependencies {
     implementation(libs.compose.material.icons)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
+
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

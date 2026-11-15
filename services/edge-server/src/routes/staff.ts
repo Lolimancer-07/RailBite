@@ -58,6 +58,25 @@ export function createStaffRoutes(
       return { ok: true, staffId: id, online };
     });
 
+    // POST /staff/device-token — register FCM / APNs device token for staff alerts
+    fastify.post("/staff/device-token", async (request, reply) => {
+      const body = (request.body || {}) as { staffId?: string; deviceToken?: string; fcmToken?: string };
+      const staffId = body.staffId;
+      const token = body.fcmToken || body.deviceToken;
+
+      if (!staffId || !token) {
+        return reply.status(400).send({ error: "staffId and deviceToken (or fcmToken) are required" });
+      }
+
+      const staff = staffRepo.findById(staffId);
+      if (!staff) {
+        return reply.status(404).send({ error: "Staff not found" });
+      }
+
+      staffRepo.setDeviceToken(staffId, token);
+      return { ok: true, staffId, registered: true };
+    });
+
     // GET /staff/:id/stats — today's picker stats (orders delivered, cash collected)
     fastify.get("/staff/:id/stats", async (request, reply) => {
       const { id } = request.params as { id: string };

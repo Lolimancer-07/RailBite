@@ -14,11 +14,12 @@ async function main() {
   // 1. Database & Migrations
   const db = getDb();
 
-  // Auto-seed if menu_items is empty
+  // Auto-seed if menu_items or trips is empty
   const itemCount = (db.prepare("SELECT COUNT(*) as cnt FROM menu_items").get() as any)?.cnt || 0;
-  if (itemCount === 0) {
-    console.log("Database empty. Seeding initial data...");
-    seed();
+  const tripCount = (db.prepare("SELECT COUNT(*) as cnt FROM trips").get() as any)?.cnt || 0;
+  if (itemCount === 0 || tripCount === 0) {
+    console.log("Database empty or missing seed data. Seeding initial data...");
+    seed(db);
   }
 
   // 2. MQTT Broker
@@ -34,17 +35,21 @@ async function main() {
   // 4. Wire MQTT Handlers
   registerMqttHandlers(broker.aedes, orderService, complaintService);
 
-  // 5. Start Servers
-  broker.tcpServer.listen(config.mqttPort, config.host, () => {
-    console.log(`[MQTT] TCP broker listening on ${config.host}:${config.mqttPort}`);
-  });
-
-  broker.wsServer.listen(config.mqttWsPort, config.host, () => {
-    console.log(`[MQTT] WebSocket broker listening on ${config.host}:${config.mqttWsPort}`);
-  });
-
+  // 5. Start Server (single port for REST and MQTT-over-WebSocket)
   await app.listen({ port: config.port, host: config.host });
-  console.log(`[HTTP] REST API listening on http://${config.host}:${config.port}`);
+  broker.attachToHttpServer(app.server);
+
+  console.log(`[HTTP+MQTT] Server listening on http://${config.host}:${config.port}`);
+  console.log(`[MQTT/WS]   WebSocket endpoint: ws://${config.host}:${config.port}/mqtt`);
+
+  // Optional: keep standalone TCP port 1883 if explicitly requested via ENABLE_TCP_MQTT
+  if (process.env.ENABLE_TCP_MQTT === "true") {
+    const net = await import("node:net");
+    const tcp = net.createServer(broker.aedes.handle);
+    tcp.listen(config.mqttPort, config.host, () => {
+      console.log(`[MQTT/TCP] Optional TCP broker listening on ${config.host}:${config.mqttPort}`);
+    });
+  }
 
   // 6. Recover pending timers from DB
   dispatcher.recoverPendingTimers();

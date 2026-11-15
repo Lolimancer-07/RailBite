@@ -83,15 +83,13 @@ class RailBiteAlertService : Service() {
         val staffId = container.settings.staffId.first()
         if (serverUrl.isBlank() || staffId.isBlank()) return
 
-        val host = ApiClient.hostFromServerUrl(serverUrl)
-        if (host.isBlank()) return
         val tripId = runCatching { ApiClient.testConnection(serverUrl).tripId }
             .getOrDefault(RailBiteTopics.DEFAULT_TRIP_ID)
 
         mutex.withLock {
             if (connector != null) return
-            val c = MqttConnector(
-                host = host,
+            val c = MqttConnector.fromServerUrl(
+                serverUrl = serverUrl,
                 clientId = "c-$staffId",
                 onConnected = { },
                 onDisconnected = { },

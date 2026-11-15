@@ -1,6 +1,6 @@
 import Aedes from "aedes";
 import net from "node:net";
-import http from "node:http";
+import type http from "node:http";
 import websocketStream from "websocket-stream";
 import pino from "pino";
 import { config } from "../config.js";
@@ -9,8 +9,9 @@ const logger = pino({ name: "mqtt-broker", level: config.logLevel });
 
 export interface MqttBrokerInstance {
   aedes: Aedes;
-  tcpServer: net.Server;
-  wsServer: http.Server;
+  tcpServer?: net.Server;
+  wsServer?: http.Server;
+  attachToHttpServer: (server: http.Server) => void;
   close: () => Promise<void>;
 }
 
@@ -114,25 +115,18 @@ export function createBroker(): MqttBrokerInstance {
     callback(null, subscription);
   };
 
-  // TCP MQTT Server
-  const tcpServer = net.createServer(aedes.handle);
-
-  // WebSocket MQTT Server
-  const wsServer = http.createServer();
-  websocketStream.createServer({ server: wsServer }, aedes.handle as any);
+  function attachToHttpServer(server: http.Server): void {
+    websocketStream.createServer({ server, path: "/mqtt" }, aedes.handle as any);
+    logger.info("MQTT WebSocket broker attached to HTTP server on path /mqtt");
+  }
 
   const close = async () => {
     return new Promise<void>((resolve) => {
       aedes.close(() => {
-        tcpServer.close(() => {
-          wsServer.close(() => {
-            resolve();
-          });
-        });
+        resolve();
       });
     });
   };
 
-  return { aedes, tcpServer, wsServer, close };
+  return { aedes, attachToHttpServer, close };
 }
-

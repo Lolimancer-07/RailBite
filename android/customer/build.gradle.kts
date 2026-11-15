@@ -8,9 +8,11 @@ plugins {
 }
 
 // Optional: set a build-time default server URL, e.g.
-//   ./gradlew :customer:assembleRelease -PrailbiteDefaultServerUrl=http://192.168.1.45:8080
+//   ./gradlew :customer:assembleRelease -PSERVER_URL=https://railbite-api.onrender.com
 val defaultServerUrl: String =
-    (project.findProperty("railbiteDefaultServerUrl") as String?) ?: ""
+    (project.findProperty("SERVER_URL") as String?)
+        ?: (project.findProperty("railbiteDefaultServerUrl") as String?)
+        ?: "https://railbite-api.onrender.com"
 
 android {
     namespace = "com.railbite.customer"

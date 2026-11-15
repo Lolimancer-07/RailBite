@@ -134,6 +134,124 @@ Verify from a phone browser: `http://<LAPTOP_IP>:8080/health` → `{"ok":true,..
 
 ---
 
+## Deploy to the Cloud (No Shared Wi-Fi / Cross-Network)
+
+RailBite can be deployed to the cloud so phones on **any network** (e.g., customer on mobile 5G data and picker on hotel Wi-Fi) can place, dispatch, and fulfill orders with **no shared Wi-Fi, no LAN IP, and no port forwarding**.
+
+The cloud server serves both REST and MQTT-over-WebSocket on **one single port** (`process.env.PORT`), attaching Aedes' WebSocket transport directly to the Fastify HTTP server on path `/mqtt`.
+
+---
+
+### Option A: Deploy to Render (Recommended)
+
+1. **Push your repository** to GitHub.
+2. In [Render Dashboard](https://dashboard.render.com/), click **New +** → **Blueprint** (or **Web Service**):
+   - Render will detect `render.yaml` automatically.
+   - Or create a **Docker Web Service**:
+     - Docker Context: `.`
+     - Dockerfile Path: `./services/edge-server/Dockerfile`
+3. **Configure Environment Variables**:
+   | Variable | Value / Description |
+   |---|---|
+   | `PORT` | `10000` (Render default) |
+   | `NODE_ENV` | `production` |
+   | `DB_PATH` | `/data/railbite.db` (with persistent disk) or `/tmp/railbite.db` |
+   | `TRIP_ID` | `TRIP_001` |
+   | `HMAC_SECRET` | Auto-generated or custom random secret |
+   | `GOOGLE_SERVICE_ACCOUNT_JSON` | Minified Firebase service account JSON (optional, for FCM) |
+4. **Health Check Path**: `/health`.
+5. Once deployed, copy your service's public HTTPS URL, for example:
+   ```
+   https://railbite-edge-server.onrender.com
+   ```
+   Verify by opening `https://railbite-edge-server.onrender.com/health` in your browser.
+
+---
+
+### Option B: Deploy to Railway
+
+1. In [Railway.app](https://railway.app/), create a **New Project** → **Deploy from GitHub repo**.
+2. Railway detects `railway.json` and uses `services/edge-server/Dockerfile`.
+3. Add a Volume mounted at `/data` for SQLite persistence.
+4. Set Environment Variables (`PORT=8080`, `DB_PATH=/data/railbite.db`, etc.).
+5. Generate a Public Domain under **Networking** (e.g. `https://railbite-production.up.railway.app`).
+
+---
+
+### Option C: Temporary Local Cloud Tunnel (`cloudflared`)
+
+If you want to test cross-network without cloud hosting, expose your local laptop server to the internet using a free Cloudflare tunnel:
+
+```bash
+# Starts local edge server on port 8080 and opens an HTTPS tunnel
+bash scripts/tunnel.sh
+```
+
+The script prints a public HTTPS URL (e.g. `https://random-words.trycloudflare.com`). Both REST (`https://`) and MQTT (`wss://.../mqtt`) work through this tunnel URL.
+
+---
+
+### Build APKs with the Cloud URL
+
+Pass the public URL at build time using the `-PSERVER_URL` Gradle property:
+
+```bash
+cd android
+
+# Build both apps pointing to your cloud server
+./gradlew :customer:assembleRelease :picker:assembleRelease -PSERVER_URL=https://railbite-edge-server.onrender.com
+
+# Copy the fresh APKs to the /release folder
+bash scripts/copy-release.sh
+```
+
+Both apps can also have their server address changed or verified in-app anytime:
+- **Passenger App**: Tap the Settings gear icon → enter/edit the server URL.
+- **Picker App**: On the sign-in screen, tap **Change** next to Server to enter/edit the server URL.
+
+---
+
+### Firebase Cloud Messaging (FCM) Setup for Wake-Up Alerts
+
+RailBite Picker uses **FCM high-priority data messages** as the primary wake-up mechanism so alerts ring loudly even when the picker phone screen is locked or the app is closed.
+
+1. **Firebase Console**:
+   - Create a project at [console.firebase.google.com](https://console.firebase.google.com/).
+   - Add an Android App with package name `com.railbite.picker`.
+   - Download `google-services.json` and place it at:
+     ```
+     android/picker/google-services.json
+     ```
+     *(This file is gitignored).*
+2. **Server Service Account**:
+   - Go to Project Settings → Service accounts → Generate new private key.
+   - Copy the JSON contents and set the `GOOGLE_SERVICE_ACCOUNT_JSON` environment variable on Render, Railway, or your `.env` file.
+3. **Build Picker APK**:
+   - Once `google-services.json` is present in `android/picker/`, rebuild the picker APK (`./gradlew :picker:assembleRelease`). Gradle automatically applies the Google Services plugin.
+4. **Fallback**: If FCM credentials are not configured, the app seamlessly falls back to the foreground service MQTT connection.
+
+---
+
+### Two-Phone Cross-Network Verification Test
+
+1. **Customer Phone**: Connect to **Cellular Mobile Data (4G/5G)** (turn off Wi-Fi).
+   - Install `release/railbite-customer.apk`.
+   - Open app → verify it connects to the cloud server URL.
+   - Enter PNR `8492000001`, Coach `B1`, Seat `1`.
+   - Add items to cart and place an order.
+2. **Picker Phone**: Connect to a **different Wi-Fi network** (e.g. home/office Wi-Fi).
+   - Install `release/railbite-picker.apk`.
+   - Sign in as `c1` / PIN `1234`.
+   - Turn ONLINE toggle on.
+   - Lock the phone screen.
+3. **Verification**:
+   - Within 1–2 seconds of placing the order on Phone 1, Phone 2 wakes up over the lock screen with a loud alarm sound, vibration, and 60-second countdown alert.
+   - Tap **ACCEPT** on Phone 2 → item checklist appears.
+   - Complete checklist → Phone 1 receives live status updates and reveals the secret 4-digit delivery code.
+   - Deliver with cash collected → confirm delivery.
+
+---
+
 ## Build and install the APKs
 
 > **Historical (Expo).** These Expo-based builds are superseded by the native Kotlin apps in

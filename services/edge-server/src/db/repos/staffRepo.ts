@@ -70,5 +70,9 @@ export class StaffRepo {
   setOnline(id: string, online: boolean): void {
     this.db.prepare("UPDATE staff SET online = ? WHERE id = ?").run(online ? 1 : 0, id);
   }
+
+  setDeviceToken(id: string, token: string): void {
+    this.db.prepare("UPDATE staff SET device_token = ? WHERE id = ?").run(token, id);
+  }
 }
 

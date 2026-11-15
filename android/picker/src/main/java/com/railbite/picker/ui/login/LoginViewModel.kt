@@ -46,6 +46,10 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
                     token = login.token,
                     zone = login.zoneCoaches.joinToString(", "),
                 )
+                // Register FCM device token with server on login
+                launch {
+                    com.railbite.picker.fcm.FcmTokenRegistrar.registerCurrentToken(container)
+                }
                 // The server marks fresh logins online; snap it back in sync with the app
                 // toggle (OFF) so alerts are only dispatched once the picker goes online.
                 runCatching {

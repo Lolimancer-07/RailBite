@@ -6,6 +6,7 @@ import type { MqttPublisher } from "../mqtt/publisher.js";
 import type { OrderService } from "../services/orderService.js";
 import { findBestCaptain } from "./zones.js";
 import { CookBatcher } from "./batching.js";
+import { sendFcmAlert } from "../fcm.js";
 
 const logger = pino({ name: "dispatcher" });
 
@@ -84,6 +85,22 @@ export class Dispatcher {
         if (c.online) {
           this.orderRepo.createAssignment(order.id, c.id, attempt, assignedAt);
           await this.publisher.publishCaptainAlert(c.id, alertPayload);
+          if (c.deviceToken) {
+            sendFcmAlert(c.deviceToken, {
+              type: "ORDER_DISPATCH",
+              orderId: order.id,
+              coach: order.coach,
+              berth: String(order.berth),
+              total: String(order.totalPaise),
+              track: order.track || "READY",
+              attempt: String(attempt),
+              expiresAt,
+              pnr: order.pnr || "",
+              diners: String(order.diners || 1),
+              verified: String(order.verified || 1),
+              items: JSON.stringify(alertPayload.items),
+            }).catch((err) => logger.warn({ err }, "FCM broadcast dispatch failed"));
+          }
         }
       }
 
@@ -106,6 +123,22 @@ export class Dispatcher {
     } else if (captain) {
       this.orderRepo.createAssignment(order.id, captain.id, attempt, assignedAt);
       await this.publisher.publishCaptainAlert(captain.id, alertPayload);
+      if (captain.deviceToken) {
+        sendFcmAlert(captain.deviceToken, {
+          type: "ORDER_DISPATCH",
+          orderId: order.id,
+          coach: order.coach,
+          berth: String(order.berth),
+          total: String(order.totalPaise),
+          track: order.track || "READY",
+          attempt: String(attempt),
+          expiresAt,
+          pnr: order.pnr || "",
+          diners: String(order.diners || 1),
+          verified: String(order.verified || 1),
+          items: JSON.stringify(alertPayload.items),
+        }).catch((err) => logger.warn({ err }, "FCM direct dispatch failed"));
+      }
       logger.info(
         { orderId: order.id, captainId: captain.id, coach: order.coach, attempt },
         "Order assigned to captain",

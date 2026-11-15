@@ -40,22 +40,17 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
     val connected: StateFlow<Boolean>
         get() = connector?.connected ?: MutableStateFlow(false)
 
-    /** Connects (idempotent) using the host derived from the saved server URL. */
+    /** Connects (idempotent) using host + port derived from the saved server URL. */
     suspend fun ensureConnected() {
         val serverUrl = settings.serverUrl.first()
         if (serverUrl.isBlank()) return
-        val host = ApiClient.hostFromServerUrl(serverUrl)
-        if (host.isBlank()) return
         mutex.withLock {
             if (connector != null) return
             val clientId = "p-" + randomId()
-            val c = MqttConnector(host, clientId)
+            val c = MqttConnector.fromServerUrl(serverUrl, clientId)
             connector = c
             scope.launch {
-                val ok = c.start()
-                if (!ok) {
-                    // Auto-reconnect keeps retrying; nothing else to do here.
-                }
+                c.start()
             }
         }
     }

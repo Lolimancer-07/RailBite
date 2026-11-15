@@ -32,8 +32,15 @@ export function getDb(customPath?: string): Database.Database {
 }
 
 export function runMigrations(db: Database.Database): void {
-  const migrationsDir = path.resolve(__dirname, "migrations");
-  if (!fs.existsSync(migrationsDir)) return;
+  let migrationsDir = path.resolve(__dirname, "migrations");
+  if (!fs.existsSync(migrationsDir)) {
+    const srcFallback = path.resolve(__dirname, "../../src/db/migrations");
+    if (fs.existsSync(srcFallback)) {
+      migrationsDir = srcFallback;
+    } else {
+      return;
+    }
+  }
 
   const files = fs
     .readdirSync(migrationsDir)

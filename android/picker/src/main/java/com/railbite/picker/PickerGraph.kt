@@ -35,7 +35,13 @@ class PickerGraph(
 
     init {
         scope.launch {
+            if (settings.serverUrl.first().isBlank() && BuildConfig.DEFAULT_SERVER_URL.isNotBlank()) {
+                settings.setServerUrl(BuildConfig.DEFAULT_SERVER_URL)
+            }
             val loggedIn = settings.staffToken.first().isNotBlank()
+            if (loggedIn) {
+                com.railbite.picker.fcm.FcmTokenRegistrar.registerCurrentToken(container)
+            }
             _startDestination.value = if (loggedIn) PickerRoutes.HOME else PickerRoutes.LOGIN
         }
     }

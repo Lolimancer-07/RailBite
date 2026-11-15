@@ -5,35 +5,99 @@ import com.hivemq.client.mqtt.MqttGlobalPublishFilter
 import com.hivemq.client.mqtt.datatypes.MqttQos
 import com.hivemq.client.mqtt.mqtt3.Mqtt3AsyncClient
 import com.hivemq.client.mqtt.mqtt3.message.publish.Mqtt3Publish
+import com.railbite.core.api.ApiClient
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import java.net.URI
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
- * Thin wrapper around the HiveMQ MQTT v3 async client.
+ * Cloud-native MQTT-over-WebSocket wrapper around HiveMQ MQTT v3 async client.
  *
- * - connects over plain TCP :1883 (preferred); falls back to WebSocket :8883 once if TCP fails
- * - automatic reconnect with default config after the first successful connect
- * - re-subscribes all topics after every (re)connect (cleanSession = true)
- * - QoS 1 everywhere
- *
- * Callbacks are invoked on HiveMQ's netty threads — hop to your own dispatcher if needed.
+ * - Single port: attaches over WebSocket on path "/mqtt"
+ * - Supports wss:// (TLS) for https cloud endpoints and ws:// for local/prototype
+ * - Automatic reconnect with default config
+ * - Re-subscribes all topics after every reconnect
+ * - QoS 1
  */
 class MqttConnector(
     private val host: String,
     private val clientId: String,
+    private val port: Int = 443,
+    private val isSsl: Boolean = false,
+    private val webSocketPath: String = "/mqtt",
     private val onConnected: (() -> Unit)? = null,
     private val onDisconnected: (() -> Unit)? = null,
 ) {
-    private val _connected = kotlinx.coroutines.flow.MutableStateFlow(false)
+    /** Backwards-compatible constructor for host + clientId */
+    constructor(
+        host: String,
+        clientId: String,
+        onConnected: (() -> Unit)? = null,
+        onDisconnected: (() -> Unit)? = null,
+    ) : this(
+        host = host,
+        clientId = clientId,
+        port = 443,
+        isSsl = false,
+        webSocketPath = "/mqtt",
+        onConnected = onConnected,
+        onDisconnected = onDisconnected,
+    )
+
+    companion object {
+        data class Endpoint(val host: String, val port: Int, val isSsl: Boolean)
+
+        fun parseServerUrl(serverUrl: String): Endpoint {
+            val normalized = ApiClient.normalizeServerUrl(serverUrl)
+            if (normalized.isBlank()) return Endpoint("localhost", 8080, false)
+            return try {
+                val uri = URI(normalized)
+                val host = uri.host ?: "localhost"
+                val isSsl = uri.scheme?.equals("https", ignoreCase = true) == true ||
+                    uri.scheme?.equals("wss", ignoreCase = true) == true
+                val port = if (uri.port != -1) {
+                    uri.port
+                } else if (isSsl) {
+                    443
+                } else {
+                    80
+                }
+                Endpoint(host, port, isSsl)
+            } catch (_: Exception) {
+                Endpoint("localhost", 8080, false)
+            }
+        }
+
+        fun fromServerUrl(
+            serverUrl: String,
+            clientId: String,
+            webSocketPath: String = "/mqtt",
+            onConnected: (() -> Unit)? = null,
+            onDisconnected: (() -> Unit)? = null,
+        ): MqttConnector {
+            val ep = parseServerUrl(serverUrl)
+            return MqttConnector(
+                host = ep.host,
+                clientId = clientId,
+                port = ep.port,
+                isSsl = ep.isSsl,
+                webSocketPath = webSocketPath,
+                onConnected = onConnected,
+                onDisconnected = onDisconnected,
+            )
+        }
+    }
+
+    private val _connected = MutableStateFlow(false)
     val connected = _connected
 
     private val subscriptions = ConcurrentHashMap<String, (ByteArray) -> Unit>()
     private var client: Mqtt3AsyncClient? = null
-    private var useWebSocket = false
     private var stopped = false
 
     /** Subscribes (or registers for later auto-subscribe) and receives payloads as raw bytes. */
@@ -60,29 +124,22 @@ class MqttConnector(
     }
 
     /**
-     * Builds and connects the client. Tries TCP first; on failure tries the WebSocket
-     * transport once; if that also fails, rebuilds TCP and lets automatic reconnect retry forever.
-     * Returns true when connected (within the timeout).
+     * Builds and connects the WebSocket client.
+     * Retries automatically in the background if initially unreachable.
      */
     suspend fun start(connectTimeoutMs: Long = 6_000): Boolean = withContext(Dispatchers.IO) {
         stopped = false
-        useWebSocket = false
-        var ok = tryConnect(useWebSocket = false, timeoutMs = connectTimeoutMs)
-        if (!ok) {
-            // One WebSocket attempt (broker also listens on 8883/mqtt-over-ws)
-            ok = tryConnect(useWebSocket = true, timeoutMs = connectTimeoutMs)
-            if (ok) useWebSocket = true
-        }
-        if (!ok) {
-            // Give up for now; auto-reconnect keeps hammering TCP in the background.
-            buildClient(tcp = true)
-            connectAsync()
+        var ok = tryConnect(timeoutMs = connectTimeoutMs)
+        if (!ok && !stopped) {
+            // Keep background reconnect hammering
+            buildClient()
+            runCatching { connectAsync() }
         }
         ok
     }
 
-    private suspend fun tryConnect(useWebSocket: Boolean, timeoutMs: Long): Boolean {
-        buildClient(tcp = !useWebSocket, webSocket = useWebSocket)
+    private suspend fun tryConnect(timeoutMs: Long): Boolean {
+        buildClient()
         val deferred = CompletableDeferred<Boolean>()
         val c = client ?: return false
 
@@ -110,12 +167,12 @@ class MqttConnector(
             .keepAlive(30)
             .send()
 
-    private fun buildClient(tcp: Boolean, webSocket: Boolean = false) {
+    private fun buildClient() {
         var builder = MqttClient.builder()
             .useMqttVersion3()
             .identifier(clientId)
             .serverHost(host)
-            .serverPort(if (webSocket) 8883 else 1883)
+            .serverPort(port)
             .automaticReconnectWithDefaultConfig()
             .addConnectedListener {
                 _connected.value = true
@@ -126,12 +183,17 @@ class MqttConnector(
                 _connected.value = false
                 onDisconnected?.invoke()
             }
-        if (webSocket) {
-            // Aedes websocket-stream accepts any upgrade path; "/" is what the broker exposes.
-            builder = builder.webSocketConfig(
-                com.hivemq.client.mqtt.MqttWebSocketConfig.builder().serverPath("/").build(),
-            )
+
+        if (isSsl) {
+            builder = builder.sslWithDefaultConfig()
         }
+
+        builder = builder.webSocketConfig(
+            com.hivemq.client.mqtt.MqttWebSocketConfig.builder()
+                .serverPath(webSocketPath)
+                .build(),
+        )
+
         client = builder.buildAsync()
     }
 

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- PROTOTYPE ONLY: plain cleartext HTTP to the edge server on the pantry/laptop LAN. -->
+<!-- Release configuration: cleartext HTTP disallowed; TLS (HTTPS/WSS) required. -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="true">
+    <base-config cleartextTrafficPermitted="false">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

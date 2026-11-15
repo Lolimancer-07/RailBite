@@ -6,22 +6,19 @@
 function defaultServerUrl(): string {
   const envUrl = process.env.EXPO_PUBLIC_SERVER_URL;
   if (envUrl && /^(http|ws):\/\//.test(envUrl)) return envUrl;
-  // TODO: Replace with your laptop's LAN IP, e.g. http://192.168.1.45:8080
-  // Find it with: ipconfig getifaddr en0 (macOS) or hostname -I (Linux)
-  return "http://192.168.1.100:8080";
+  return "https://railbite-api.onrender.com";
 }
 
 const DEFAULT_API_BASE_URL = defaultServerUrl();
 
-/** http://host:8080 -> ws://host:8883 */
+/** Derive the MQTT WebSocket URL from an API base URL (http://host:8080 -> ws://host:8080/mqtt, https://host -> wss://host/mqtt) */
 export function deriveMqttWsUrl(apiBaseUrl: string): string {
   try {
     const url = new URL(apiBaseUrl);
     const proto = url.protocol === "https:" ? "wss:" : "ws:";
-    const wsPort = process.env.EXPO_PUBLIC_MQTT_WS_PORT || "8883";
-    return `${proto}//${url.hostname}:${wsPort}`;
+    return `${proto}//${url.host}/mqtt`;
   } catch {
-    return "ws://192.168.50.1:8883";
+    return "ws://localhost:8080/mqtt";
   }
 }
 
