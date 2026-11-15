@@ -105,3 +105,4 @@ export async function sendFcmAlert(token: string, data: Record<string, string>):
     return false;
   }
 }
+

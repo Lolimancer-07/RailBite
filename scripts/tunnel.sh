@@ -55,3 +55,4 @@ echo "  ./gradlew assembleRelease -PSERVER_URL=https://<your-subdomain>.trycloud
 echo "--------------------------------------------------------"
 
 cloudflared tunnel --url "http://localhost:$PORT"
+

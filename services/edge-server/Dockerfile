@@ -51,3 +51,4 @@ WORKDIR /app/services/edge-server
 EXPOSE 8080
 
 CMD ["node", "dist/index.js"]
+
