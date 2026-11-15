@@ -78,11 +78,13 @@ fun OrderProgressScreen(
     var cashText by remember { mutableStateOf("") }
     var cashTouched by remember { mutableStateOf(false) }
 
-    // Pre-fill the collected-cash field with the expected total
+    // Pre-fill the collected-cash field: the expected total for COD, 0 for UPI_QUEUED
+    // (passenger pays digitally; the picker records nothing unless odd cash changes hands)
     LaunchedEffect(state.order?.id, state.order?.status, state.order?.totalPaise) {
         val o = state.order ?: return@LaunchedEffect
         if (!cashTouched && o.status == Statuses.OUT_FOR_DELIVERY) {
-            cashText = String.format(Locale.US, "%.2f", o.totalPaise / 100.0)
+            val prefilled = if (o.paymentMode == "UPI_QUEUED") 0 else o.totalPaise
+            cashText = String.format(Locale.US, "%.2f", prefilled / 100.0)
         }
     }
 
@@ -153,6 +155,7 @@ fun OrderProgressScreen(
                         cashText = it
                     },
                     expectedPaise = order.totalPaise,
+                    upiOrder = order.paymentMode == "UPI_QUEUED",
                     busy = state.busy,
                     onDeliver = { vm.deliver(code, cashText) },
                 )
@@ -199,7 +202,8 @@ private fun HeaderCard(order: Order) {
             )
             order.items?.let { items ->
                 Text(
-                    items.sumOf { it.qty }.toString() + " item(s) · " + Money.rupees(order.totalPaise) + " COD",
+                    items.sumOf { it.qty }.toString() + " item(s) · " + Money.rupees(order.totalPaise) + " " +
+                        (if (order.paymentMode == "UPI_QUEUED") "UPI (digital)" else "COD"),
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -363,6 +367,7 @@ private fun DeliveryCard(
     cashText: String,
     onCashChange: (String) -> Unit,
     expectedPaise: Int,
+    upiOrder: Boolean,
     busy: Boolean,
     onDeliver: () -> Unit,
 ) {
@@ -403,13 +408,18 @@ private fun DeliveryCard(
             OutlinedTextField(
                 value = cashText,
                 onValueChange = onCashChange,
-                label = { Text("Cash collected (₹)") },
+                label = { Text(if (upiOrder) "Cash collected (₹) — UPI order" else "Cash collected (₹)") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Decimal,
                     imeAction = ImeAction.Done,
                 ),
-                supportingText = { Text("Expected ${Money.rupees(expectedPaise)}") },
+                supportingText = {
+                    Text(
+                        if (upiOrder) "Passenger pays ${Money.rupees(expectedPaise)} digitally via UPI — leave 0"
+                        else "Expected ${Money.rupees(expectedPaise)}",
+                    )
+                },
                 modifier = Modifier.fillMaxWidth(),
             )
             Button(

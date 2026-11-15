@@ -38,7 +38,7 @@ describe("Prototype endpoints (PACKING status, picker toggle & stats)", () => {
     db.close();
   });
 
-  async function createOrder(status: "ASSIGNED" | "ACCEPTED" | "PACKING") {
+  async function createOrder(status: "ASSIGNED" | "ACCEPTED" | "PACKING", paymentMode: "COD" | "UPI_QUEUED" = "COD") {
     const orderId = crypto.randomUUID();
     const chaiId = "10000000-0000-0000-0000-000000000001";
 
@@ -51,7 +51,7 @@ describe("Prototype endpoints (PACKING status, picker toggle & stats)", () => {
         coach: "B1",
         berth: 1,
         diners: 1,
-        paymentMode: "COD",
+        paymentMode,
         items: [{ itemId: chaiId, qty: 1 }],
         createdAt: new Date().toISOString(),
         source: "WIFI",
@@ -230,5 +230,57 @@ describe("Prototype endpoints (PACKING status, picker toggle & stats)", () => {
     // Unknown staff -> 404
     const notFound = await app.inject({ method: "GET", url: "/staff/zzz/stats" });
     expect(notFound.statusCode).toBe(404);
+  });
+
+  /** Picks up + delivers an order, returning the delivery code used. */
+  async function deliverOrder(orderId: string, paymentMode: "COD" | "UPI_QUEUED", cashPaise?: number) {
+    await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/accept`,
+      payload: { captainId: "c1" },
+    });
+    await app.inject({ method: "POST", url: `/orders/${orderId}/packing`, payload: { captainId: "c1" } });
+    await app.inject({ method: "POST", url: `/orders/${orderId}/pickup`, payload: { captainId: "c1" } });
+    const deliveryCode = JSON.parse(
+      (await app.inject({ method: "GET", url: `/orders/${orderId}` })).body,
+    ).deliveryCode;
+    const res = await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/deliver`,
+      payload: {
+        captainId: "c1",
+        ...(cashPaise !== undefined ? { cashPaise } : {}),
+        deliveryCode,
+      },
+    });
+    expect(res.statusCode).toBe(200);
+  }
+
+  it("UPI_QUEUED orders deliver with a ₹0 cash ledger row (no cash expectation)", async () => {
+    const orderId = await createOrder("ASSIGNED", "UPI_QUEUED");
+    await deliverOrder(orderId, "UPI_QUEUED");
+
+    const stats = JSON.parse((await app.inject({ method: "GET", url: "/staff/c1/stats" })).body);
+    expect(stats.ordersDelivered).toBe(1);
+    expect(stats.expectedPaise).toBe(0); // UPI is digital — nothing expected in cash
+    expect(stats.collectedPaise).toBe(0);
+
+    // Passenger confirms the UPI payment after delivery
+    const confirm = await app.inject({ method: "POST", url: `/orders/${orderId}/confirm-cash` });
+    expect(confirm.statusCode).toBe(200);
+    const stats2 = JSON.parse((await app.inject({ method: "GET", url: "/staff/c1/stats" })).body);
+    expect(stats2.passengerConfirmedPaise).toBe(0);
+  });
+
+  it("mixed COD + UPI day: stats expected/collected count only COD orders", async () => {
+    const codId = await createOrder("ASSIGNED", "COD");
+    const upiId = await createOrder("ASSIGNED", "UPI_QUEUED");
+    await deliverOrder(codId, "COD", 1500);
+    await deliverOrder(upiId, "UPI_QUEUED");
+
+    const stats = JSON.parse((await app.inject({ method: "GET", url: "/staff/c1/stats" })).body);
+    expect(stats.ordersDelivered).toBe(2);
+    expect(stats.expectedPaise).toBe(1500); // only the COD order
+    expect(stats.collectedPaise).toBe(1500);
   });
 });

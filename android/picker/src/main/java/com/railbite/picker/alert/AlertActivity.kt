@@ -331,7 +331,11 @@ private fun OrderDetailsCard(a: MqttOrderAlert) {
             }
             Spacer(Modifier.height(4.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Cash on delivery", color = Color(0xFF5D5D5D), fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (a.paymentMode == "UPI_QUEUED") "UPI — passenger pays digitally" else "Cash on delivery",
+                    color = Color(0xFF5D5D5D),
+                    fontWeight = FontWeight.SemiBold,
+                )
                 Text(
                     Money.rupees(a.total),
                     color = Color(0xFF0E8A4B),

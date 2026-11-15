@@ -35,10 +35,10 @@ export class LedgerRepo {
           s.id as captainId,
           s.name as captainName,
           COALESCE(
-            (SELECT SUM(o.total_paise) 
-             FROM orders o 
-             JOIN assignments a ON a.order_id = o.id 
-             WHERE a.captain_id = s.id AND o.status = 'DELIVERED'), 0
+            (SELECT SUM(o.total_paise)
+             FROM orders o
+             JOIN assignments a ON a.order_id = o.id
+             WHERE a.captain_id = s.id AND o.status = 'DELIVERED' AND o.payment_mode = 'COD'), 0
           ) as expectedPaise,
           COALESCE(
             (SELECT SUM(l.amount_paise) 
@@ -83,7 +83,7 @@ export class LedgerRepo {
       .prepare(
         `SELECT
           COUNT(*) as ordersDelivered,
-          COALESCE(SUM(o.total_paise), 0) as expectedPaise,
+          COALESCE(SUM(CASE WHEN o.payment_mode = 'COD' THEN o.total_paise ELSE 0 END), 0) as expectedPaise,
           COALESCE(SUM(l.amount_paise), 0) as collectedPaise,
           COALESCE(SUM(CASE WHEN l.passenger_confirmed = 1 THEN l.amount_paise ELSE 0 END), 0) as confirmedPaise
          FROM cash_ledger l

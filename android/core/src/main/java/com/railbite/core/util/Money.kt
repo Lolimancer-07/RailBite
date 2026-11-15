@@ -20,6 +20,13 @@ object Money {
         val frac = paise % 100
         return "₹" + DecimalFormat("#,##0.##").format(whole + frac / 100.0)
     }
+
+    /** 1500 -> "15.00" — plain decimal for machine-facing strings (UPI `am` parameter). */
+    fun rupeesPlain(paise: Int): String {
+        val whole = paise / 100
+        val frac = paise % 100
+        return "$whole.${DecimalFormat("00").format(frac)}"
+    }
 }
 
 /** Simple validation shared by both apps. */

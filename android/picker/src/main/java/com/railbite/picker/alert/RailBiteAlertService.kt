@@ -61,6 +61,10 @@ class RailBiteAlertService : Service() {
             else -> {
                 startForegroundCompat()
                 scope.launch { connectAlerts() }
+                // Re-assert server-side online state: after a server restart or a login
+                // snap-off the dispatcher would silently skip this picker even though the
+                // app shows ONLINE (the service running is the source of truth).
+                scope.launch { runCatching { setOnline(true) } }
                 return START_STICKY
             }
         }

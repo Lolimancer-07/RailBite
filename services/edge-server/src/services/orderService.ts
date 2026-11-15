@@ -296,8 +296,13 @@ export class OrderService {
     // 2. Mark assignment delivered
     this.orderRepo.updateAssignmentDelivered(orderId, captainId, now);
 
-    // 3. Append-only ledger record
-    const amount = cashPaise !== undefined ? cashPaise : order.totalPaise;
+    // 3. Append-only ledger record. UPI_QUEUED orders settle digitally — no cash hits the
+    // ledger unless the picker explicitly reports some (the passenger confirms in-app).
+    const amount = cashPaise !== undefined
+      ? cashPaise
+      : order.paymentMode === "UPI_QUEUED"
+        ? 0
+        : order.totalPaise;
     this.ledgerRepo.append(orderId, captainId, amount, now);
 
     return updated;

@@ -28,7 +28,8 @@ export function registerMqttHandlers(
     if (
       topic.endsWith("/status") ||
       topic.endsWith("/alerts") ||
-      topic.endsWith("/queue")
+      topic.endsWith("/queue") ||
+      topic.startsWith("$SYS") // broker heartbeats/stats — not app JSON
     ) {
       return;
     }

@@ -157,6 +157,8 @@ data class MqttOrderAlert(
     val pnr: String,
     val diners: Int,
     val verified: Int,
+    /** COD | UPI_QUEUED — drives the collect-cash vs digital badge. */
+    val paymentMode: String = "COD",
 ) {
     @Serializable
     data class AlertItem(

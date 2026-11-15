@@ -185,7 +185,8 @@ private fun OrderCard(order: com.railbite.core.model.Order, onOpenOrder: (String
             }
             Row {
                 Text(
-                    "${order.items?.sumOf { it.qty } ?: order.diners} item(s) · COD",
+                    "${order.items?.sumOf { it.qty } ?: order.diners} item(s) · " +
+                        (if (order.paymentMode == "UPI_QUEUED") "UPI" else "COD"),
                     style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f),
                 )

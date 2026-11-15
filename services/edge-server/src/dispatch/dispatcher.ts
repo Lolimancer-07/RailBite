@@ -68,6 +68,7 @@ export class Dispatcher {
       pnr: order.pnr,
       diners: order.diners,
       verified: order.verified,
+      paymentMode: order.paymentMode || "COD",
     };
 
     if (order.status !== OrderStatus.ASSIGNED) {
@@ -99,6 +100,7 @@ export class Dispatcher {
               diners: String(order.diners || 1),
               verified: String(order.verified || 1),
               items: JSON.stringify(alertPayload.items),
+              paymentMode: String(order.paymentMode || "COD"),
             }).catch((err) => logger.warn({ err }, "FCM broadcast dispatch failed"));
           }
         }
@@ -137,6 +139,7 @@ export class Dispatcher {
           diners: String(order.diners || 1),
           verified: String(order.verified || 1),
           items: JSON.stringify(alertPayload.items),
+          paymentMode: String(order.paymentMode || "COD"),
         }).catch((err) => logger.warn({ err }, "FCM direct dispatch failed"));
       }
       logger.info(

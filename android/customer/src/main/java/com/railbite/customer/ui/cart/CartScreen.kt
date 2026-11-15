@@ -20,6 +20,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -91,7 +92,11 @@ fun CartScreen(
                                 Text("Placing…", color = MaterialTheme.colorScheme.onPrimary)
                             } else {
                                 Text(
-                                    "Place Order · ${Money.rupees(grandTotal)}  (Cash on Delivery)",
+                                    if (state.paymentMode == "UPI_QUEUED") {
+                                        "Place Order · ${Money.rupees(grandTotal)}  (Pay via UPI)"
+                                    } else {
+                                        "Place Order · ${Money.rupees(grandTotal)}  (Cash on Delivery)"
+                                    },
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onPrimary,
                                 )
@@ -145,7 +150,31 @@ fun CartScreen(
                 }
                 item {
                     Text(
-                        "Payment: Cash on Delivery — pay the picker at your seat.",
+                        "Payment",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FilterChip(
+                            selected = state.paymentMode == "COD",
+                            onClick = { vm.setPaymentMode("COD") },
+                            label = { Text("Cash on delivery") },
+                        )
+                        FilterChip(
+                            selected = state.paymentMode == "UPI_QUEUED",
+                            onClick = { vm.setPaymentMode("UPI_QUEUED") },
+                            label = { Text("UPI (pay in app)") },
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        if (state.paymentMode == "UPI_QUEUED") {
+                            "Pay ₹${Money.rupeesPlain(grandTotal)} with any UPI app from the order screen. " +
+                                "The picker verifies the handover with your 4-digit code."
+                        } else {
+                            "Cash on Delivery — pay the picker at your seat."
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )

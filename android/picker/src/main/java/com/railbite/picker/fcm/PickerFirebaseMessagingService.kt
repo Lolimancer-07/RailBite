@@ -63,6 +63,7 @@ class PickerFirebaseMessagingService : FirebaseMessagingService() {
             pnr = data["pnr"] ?: "",
             diners = data["diners"]?.toIntOrNull() ?: 1,
             verified = data["verified"]?.toIntOrNull() ?: 1,
+            paymentMode = data["paymentMode"] ?: "COD",
         )
 
         // 1. Post to in-app event bus

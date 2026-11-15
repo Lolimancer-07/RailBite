@@ -20,6 +20,8 @@ import java.util.UUID
 data class CartUiState(
     val placing: Boolean = false,
     val error: String? = null,
+    /** COD (default) or UPI_QUEUED — picker still verifies handover by code either way. */
+    val paymentMode: String = "COD",
     /** Set when the order went out over the Bluetooth relay instead of the cloud. */
     val relayedCode: String? = null,
 )
@@ -49,9 +51,15 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
      * - client generates the UUID (server uses it as an idempotency key)
      * - sends ids + quantities only — the server is authoritative on prices/stock
      */
+    /** COD or UPI_QUEUED; relayed (offline) orders are always COD — cash at handover. */
+    fun setPaymentMode(mode: String) {
+        _state.update { it.copy(paymentMode = mode) }
+    }
+
     fun placeOrder(onPlaced: (String) -> Unit) {
         val linesMap = container.cart.lines.value
         if (linesMap.isEmpty()) return
+        val paymentMode = _state.value.paymentMode
         _state.update { it.copy(placing = true, error = null) }
         viewModelScope.launch {
             try {
@@ -70,7 +78,7 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                     coach = seat.coach,
                     berth = seat.berth,
                     diners = seat.diners,
-                    paymentMode = "COD",
+                    paymentMode = paymentMode,
                     items = linesMap.values.map { OrderCreateRequest.CreateItem(it.item.id, it.qty) },
                     createdAt = java.time.Instant.now().toString(),
                     source = "WIFI",
@@ -82,8 +90,9 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                 onPlaced(order.id)
             } catch (e: Exception) {
                 // Cloud path failed: fall back to the Bluetooth relay when enabled
-                // (offline feature — the cloud remains the default transport).
-                if (isUnreachable(e) && container.settings.meshRelayEnabled.first()) {
+                // (offline feature — the cloud remains the default transport). Relay
+                // orders settle in cash at handover, so UPI selections stay online-only.
+                if (paymentMode == "COD" && isUnreachable(e) && container.settings.meshRelayEnabled.first()) {
                     val relayed = relayViaMesh(linesMap)
                     if (relayed != null) {
                         container.cart.clear()

@@ -1,5 +1,6 @@
 package com.railbite.core.mqtt
 
+import android.util.Log
 import com.hivemq.client.mqtt.MqttClient
 import com.hivemq.client.mqtt.MqttGlobalPublishFilter
 import com.hivemq.client.mqtt.datatypes.MqttQos
@@ -50,6 +51,7 @@ class MqttConnector(
     )
 
     companion object {
+        private const val TAG = "RailBiteMqtt"
         data class Endpoint(val host: String, val port: Int, val isSsl: Boolean)
 
         fun parseServerUrl(serverUrl: String): Endpoint {
@@ -127,7 +129,7 @@ class MqttConnector(
      * Builds and connects the WebSocket client.
      * Retries automatically in the background if initially unreachable.
      */
-    suspend fun start(connectTimeoutMs: Long = 6_000): Boolean = withContext(Dispatchers.IO) {
+    suspend fun start(connectTimeoutMs: Long = 20_000): Boolean = withContext(Dispatchers.IO) {
         stopped = false
         var ok = tryConnect(timeoutMs = connectTimeoutMs)
         if (!ok && !stopped) {
@@ -147,13 +149,20 @@ class MqttConnector(
 
         val future = connectAsync()
         future.whenComplete { _, error ->
-            if (error == null) deferred.complete(true) else deferred.complete(false)
+            if (error == null) {
+                deferred.complete(true)
+            } else {
+                Log.w(TAG, "connect error: ${error.javaClass.simpleName}: ${error.message}")
+                deferred.complete(false)
+            }
         }
         val connected = withTimeoutOrNull(timeoutMs) { deferred.await() } ?: false
         if (connected) {
             _connected.value = true
+            Log.d(TAG, "connected $host:$port path=$webSocketPath ssl=$isSsl")
             resubscribeAll()
         } else {
+            Log.w(TAG, "connect FAILED $host:$port (timeout or error above)")
             runCatching { future.cancel(true) }
             runCatching { c.disconnect() }
             client = null
@@ -175,11 +184,13 @@ class MqttConnector(
             .serverPort(port)
             .automaticReconnectWithDefaultConfig()
             .addConnectedListener {
+                Log.d(TAG, "client CONNECTED listener fired")
                 _connected.value = true
                 resubscribeAll()
                 onConnected?.invoke()
             }
             .addDisconnectedListener {
+                Log.d(TAG, "client DISCONNECTED listener fired")
                 _connected.value = false
                 onDisconnected?.invoke()
             }
@@ -188,7 +199,7 @@ class MqttConnector(
             builder = builder.sslWithDefaultConfig()
         }
 
-        builder = builder.webSocketConfig(
+        builder = builder.useWebSocket(
             com.hivemq.client.mqtt.MqttWebSocketConfig.builder()
                 .serverPath(webSocketPath)
                 .build(),
@@ -200,18 +211,24 @@ class MqttConnector(
     private fun resubscribeAll() {
         val c = client ?: return
         for ((topic, _) in subscriptions) {
+            Log.d(TAG, "subscribing $topic")
             runCatching {
                 c.subscribeWith()
                     .topicFilter(topic)
                     .qos(MqttQos.AT_LEAST_ONCE)
                     .send()
-            }
+            }.onFailure { Log.w(TAG, "subscribe failed $topic: ${it.message}") }
         }
     }
 
     private fun dispatch(publish: Mqtt3Publish) {
         val topic = publish.topic.toString()
-        val cb = subscriptions[topic] ?: return
+        val cb = subscriptions[topic]
+        if (cb == null) {
+            Log.w(TAG, "publish on unsubscribed topic: $topic")
+            return
+        }
+        Log.d(TAG, "publish received on $topic (${publish.payloadAsBytes.size} bytes)")
         runCatching {
             cb(publish.payloadAsBytes)
         }
