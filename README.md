@@ -109,6 +109,29 @@ Demo accounts: pickers `c1`–`c4` with PIN `1234` (zones B1–B2, B3–B4, S1�
 `8492000001`–`8492000120`. Rejecting an alert or missing the 60 s countdown re-dispatches the
 order to the next picker.
 
+### When the internet dies: Bluetooth mesh relay (optional, off by default)
+
+Cloud stays the default path. If the cloud can't be reached **and** the passenger enabled
+*Settings → Offline relay (Bluetooth mesh)*, the order rides phone-to-phone over BLE instead:
+
+1. The passenger's phone bursts the order (compact JSON: item names, prices and a
+   passenger-generated 4-digit handover code) inside legacy BLE advertisements. Every RailBite
+   phone that hears it re-broadcasts it — LRU-500 dedup, TTL 16 hops, loop prevention and an
+   HMAC-8 integrity tag keep the flood sane (ported from `tools/relay-sim`).
+2. The pantry phone (picker ONLINE with the **Bluetooth relay** sink switch on) consumes the
+   packet and rings the **same loud full-screen alert**, marked as a relay order.
+3. The picker works it offline: ACCEPT → the usual checklist → handover verified with the
+   passenger's 4-digit code. Nothing touches the network.
+4. When internet returns, the pantry phone **replays the outcome to the cloud**
+   (create → accept → deliver, idempotent by the passenger's client UUID) and the passenger's
+   outbox syncs any orders the cloud hasn't seen. The cloud then owns the record and the live
+   timeline flows over MQTT as usual.
+
+Emulator note: the AVD has no Bluetooth radio, so the radio hop itself is only exercised on real
+phones; the mesh engine is fully unit-tested in `:core` (22 tests: 12-hop delivery, partitions,
+dedup, LRU eviction, TTL, HMAC, flood), and the queue → sync → cloud-replay loop was verified
+end-to-end on the emulator with the server offline then back online.
+
 ### Running the server locally (development / demo fallback)
 
 ```bash

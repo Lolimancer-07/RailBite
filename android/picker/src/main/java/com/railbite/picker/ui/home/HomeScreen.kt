@@ -34,10 +34,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,6 +48,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.launch
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -134,6 +139,13 @@ fun HomeScreen(
             }
 
             item { OnlineCard(state, vm::setOnline) }
+
+            item {
+                MeshRelayCard(
+                    container = graph.container,
+                    online = state.online,
+                )
+            }
 
             if (!perms.allGranted) {
                 item { PermissionsCard(perms, onOpenPermissions) }
@@ -391,5 +403,91 @@ private fun RatingRow(stats: PickerStats) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+}
+
+/**
+ * Bluetooth relay (offline feature) card: pantry-sink toggle + BLE permission row +
+ * how many relay orders are waiting for the cloud. While the picker is ONLINE the alert
+ * service starts the gateway, so mesh orders ring like normal alerts.
+ */
+@Composable
+private fun MeshRelayCard(container: com.railbite.picker.PickerContainer, online: Boolean) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val sinkEnabled by container.settings.meshSinkEnabled.collectAsState(initial = false)
+    var pending by remember { mutableStateOf(0) }
+    var missingPerms by remember { mutableStateOf<List<String>>(emptyList()) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) {
+        missingPerms = container.meshTransport.requiredPermissions()
+    }
+
+    LaunchedEffect(Unit) {
+        missingPerms = container.meshTransport.requiredPermissions()
+        while (true) {
+            pending = runCatching { container.meshLedger.pendingCount() }.getOrDefault(0)
+            kotlinx.coroutines.delay(5_000)
+        }
+    }
+
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("📶", style = MaterialTheme.typography.headlineSmall)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("Bluetooth relay", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (online && sinkEnabled) "Listening for offline orders nearby"
+                        else if (online) "Off — enable below to accept offline orders"
+                        else "Active while you are ONLINE",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = sinkEnabled,
+                    onCheckedChange = { enabled ->
+                        scope.launch {
+                            container.settings.setMeshSinkEnabled(enabled)
+                            if (online && enabled) {
+                                val missing = container.meshTransport.requiredPermissions()
+                                if (missing.isEmpty() && container.meshTransport.isUsable()) {
+                                    container.meshGateway.start()
+                                } else {
+                                    permissionLauncher.launch(missing.toTypedArray())
+                                }
+                            } else if (!enabled) {
+                                container.meshGateway.stop()
+                            }
+                        }
+                    },
+                )
+            }
+            if (missingPerms.isNotEmpty()) {
+                Text(
+                    "Bluetooth permission needed to receive relay orders",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { permissionLauncher.launch(missingPerms.toTypedArray()) },
+                ) { Text("Allow Bluetooth") }
+            }
+            if (pending > 0) {
+                Text(
+                    "$pending relay order${if (pending == 1) "" else "s"} waiting to sync to the cloud",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
     }
 }

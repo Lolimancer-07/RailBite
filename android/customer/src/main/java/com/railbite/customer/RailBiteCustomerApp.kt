@@ -3,6 +3,8 @@ package com.railbite.customer
 import android.app.Application
 import com.railbite.core.api.RailBiteClient
 import com.railbite.core.data.RailBiteSettings
+import com.railbite.core.mesh.BleMeshTransport
+import com.railbite.customer.mesh.MeshOrderSender
 
 class RailBiteCustomerApp : Application() {
 
@@ -21,4 +23,6 @@ class AppContainer(val app: Application) {
     val client = RailBiteClient(settings)
     val cart = CartStore()
     val mqtt = CustomerMqtt(settings)
+    val meshTransport = BleMeshTransport(app)
+    val meshSender = MeshOrderSender(this)
 }

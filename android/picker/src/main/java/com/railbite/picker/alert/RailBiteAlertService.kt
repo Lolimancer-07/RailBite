@@ -103,6 +103,11 @@ class RailBiteAlertService : Service() {
                 }
             }
             c.start()
+
+            // Bluetooth relay (offline feature): also listen for mesh orders while ONLINE.
+            if (container.settings.meshSinkEnabled.first()) {
+                container.meshGateway.start()
+            }
         }
     }
 
@@ -121,6 +126,7 @@ class RailBiteAlertService : Service() {
     private fun stopForegroundService() {
         connector?.stop()
         connector = null
+        (application as? com.railbite.picker.RailBitePickerApp)?.container?.meshGateway?.stop()
         _running.value = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
         stopSelf()

@@ -22,6 +22,18 @@ object AlertActions {
         onFailed: (String) -> Unit,
     ) {
         val app = context.applicationContext as RailBitePickerApp
+        // Bluetooth relay order: the server doesn't know it yet — record the acceptance
+        // locally and route to the offline handover screen; the gateway replays it later.
+        if (AlertBus.currentSource() == AlertBus.SOURCE_MESH) {
+            scope.launch {
+                app.container.meshLedger.markState(alert.orderId, "ACCEPTED")
+                app.container.settings.setPickerOrderId(alert.orderId)
+                AlertBus.markAccepted(alert.orderId)
+                cancelAlertNotification(context)
+                onAccepted()
+            }
+            return
+        }
         scope.launch {
             try {
                 val api = app.container.client.api()
@@ -48,6 +60,14 @@ object AlertActions {
 
     fun reject(context: Context, alert: MqttOrderAlert, onDone: () -> Unit) {
         val app = context.applicationContext as RailBitePickerApp
+        if (AlertBus.currentSource() == AlertBus.SOURCE_MESH) {
+            // Rejected relay order: just forget it (the passenger's relay has no re-dispatch)
+            scope.launch { app.container.meshLedger.markState(alert.orderId, "REJECTED") }
+            cancelAlertNotification(context)
+            AlertBus.clear()
+            onDone()
+            return
+        }
         scope.launch {
             try {
                 val api = app.container.client.api()

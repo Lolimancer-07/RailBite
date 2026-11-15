@@ -23,6 +23,8 @@ edge server (`services/edge-server`) is reused as-is; `apps/passenger`, `apps/ca
 │   ├── DataStore settings store (server URL, seat, login, online flag)
 │   ├── HiveMQ MQTT client wrapper (TCP 1883, auto-reconnect, QoS 1, WS 8883 fallback)
 │   ├── money helpers (integer paise → ₹ display)
+│   ├── mesh/ (offline Bluetooth relay: MeshPacket/Codec/Relay/Chunker, outbox+ledger stores,
+│   │          BLE transport, unit-tested port of tools/relay-sim)
 │   └── shared Compose theme + common components
 ├── customer/                  # app, applicationId com.railbite.customer, name "RailBite"
 └── picker/                    # app, applicationId com.railbite.picker, name "RailBite Picker"
@@ -94,7 +96,8 @@ Therefore: **no server code changes required.** Only docs (`android-plan.md`, RE
    (fallback chain as above) with an optional override behind "Change".
 2. **Home**: big ONLINE/OFFLINE toggle (drives the foreground service), today's stats cards
    (delivered / collected / confirmed / avg rating), active orders list, **Test alert** button,
-   permissions card.
+   permissions card, **Bluetooth relay** card (sink toggle + BLE permission row + pending-sync
+   count).
 3. **Permission flow**: POST_NOTIFICATIONS runtime prompt, full-screen-intent permission
    (`canUseFullScreenIntent` on Android 14+), ignore-battery-optimizations, DND/overlay notes.
 4. **AlertActivity** (the core feature): full-screen, `showWhenLocked` + `turnScreenOn`,
@@ -113,6 +116,36 @@ Therefore: **no server code changes required.** Only docs (`android-plan.md`, RE
 persistent "You are online" notification + Stop action; owns the MQTT connection so alerts ring
 with the app closed / screen locked; on new alert → high-importance notification with full-screen
 intent → AlertActivity (sound + vibration handled there via a shared AlertBus singleton).
+
+## Offline feature: Bluetooth mesh relay (Phase 2)
+
+The apps stay cloud-first; the mesh is an optional transport that only engages when the cloud is
+unreachable and the user turned it on:
+
+- **Engine (`core/mesh/`)** — Kotlin port of `tools/relay-sim`: envelope `{v, orderId, ttl,
+  origin, payloadB64, hmac8, hops}`, LRU-500 dedup by orderId, loop prevention (origin + hops),
+  TTL 16, sink consumes; chunker frames `[hash4][idx1][total1][data≤14]` (20-byte manufacturer
+  AD, company id 0x0822, max 64 chunks). HMAC-SHA256-8 over `orderId|origin|payloadB64` under
+  the shared trip secret (`MeshTrip.SECRET`, pinned in `render.yaml` as `HMAC_SECRET` — redeploy
+  with a different secret and the phones' tags break).
+- **Payload** — `MeshOrderPayload` is richer than REST on purpose: item names/prices (pantry can
+  alert offline) and the passenger-generated 4-digit delivery code (offline handover
+  verification; cloud orders keep the server-generated code).
+- **Customer** — cloud `createOrder` failure + relay ON → order queued in `MeshOutbox`
+  (DataStore `railbite_mesh`), burst over BLE, "Sent via Bluetooth relay" card on Orders with the
+  code; `MeshOrderSender.syncPending` POSTs queued orders (idempotent client UUID) when
+  reachable; menu cache (`menu_cache`) keeps browsing/cart working offline.
+- **Picker** — `MeshGateway` scans while ONLINE (sink toggle on Home); completed packets →
+  same `AlertBus`/AlertActivity path (`source = MESH`), ledger entry PENDING; accept works
+  offline (routes to `MeshHandoverScreen`); deliver verifies the passenger's code and marks
+  DELIVERED; a 2-minute replay loop pushes outcomes to the cloud (create → accept → deliver,
+  409/404 tolerated) so the server record and customer timeline catch up.
+- **Replay source** — orders are created with `source: "RELAY"` (shared schema enum
+  `WIFI | SMS | RELAY`).
+- **Tests** — 22 unit tests in `:core` port the simulator's scenarios (12-hop delivery, 2-dead-
+  node partition, dedup, TTL death, loops, HMAC tamper, LRU eviction, 96-order flood) plus
+  chunker round-trips/interleaving and codec sign/verify round-trips. BLE radio itself can't be
+  exercised in the emulator; queue → sync → cloud-replay was verified E2E there.
 
 ## Risks
 

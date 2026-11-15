@@ -3,6 +3,9 @@ package com.railbite.picker
 import android.app.Application
 import com.railbite.core.api.RailBiteClient
 import com.railbite.core.data.RailBiteSettings
+import com.railbite.core.mesh.BleMeshTransport
+import com.railbite.core.mesh.MeshLedger
+import com.railbite.picker.mesh.MeshGateway
 
 class RailBitePickerApp : Application() {
 
@@ -16,7 +19,10 @@ class RailBitePickerApp : Application() {
 }
 
 /** Tiny manual service locator (no DI framework on purpose). */
-class PickerContainer(val app: Application) {
+class PickerContainer(val app: RailBitePickerApp) {
     val settings = RailBiteSettings(app, BuildConfig.DEFAULT_SERVER_URL)
     val client = RailBiteClient(settings)
+    val meshTransport = BleMeshTransport(app)
+    val meshLedger = MeshLedger(app)
+    val meshGateway = MeshGateway(app, meshTransport, meshLedger)
 }

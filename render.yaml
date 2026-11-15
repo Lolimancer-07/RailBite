@@ -28,7 +28,9 @@ services:
       - key: TRIP_ID
         value: TRIP_001
       - key: HMAC_SECRET
-        generateValue: true
+        # Pinned to the apps' MeshTrip.SECRET: offline BLE-mesh packets are tagged with
+        # the same secret (generateValue would break the phones' tags on redeploy).
+        value: railbite-trip-secret-key-xyz
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false # FCM push credentials — set in the dashboard when enabling push
       # Optional durable DB on a paid plan:

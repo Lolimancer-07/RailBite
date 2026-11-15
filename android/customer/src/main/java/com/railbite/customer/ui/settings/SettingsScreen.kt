@@ -100,6 +100,46 @@ fun SettingsScreen(
             }
 
             HorizontalDivider()
+            Text("Offline relay (Bluetooth mesh)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    if (state.meshRelayEnabled) "ON" else "OFF",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = if (state.meshRelayEnabled) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                androidx.compose.material3.Switch(
+                    checked = state.meshRelayEnabled,
+                    onCheckedChange = vm::setMeshRelayEnabled,
+                )
+            }
+            Text(
+                "When the cloud can't be reached and this is ON, orders travel phone-to-phone " +
+                    "over Bluetooth and ring at the pantry phone like any other order. They " +
+                    "sync to the cloud automatically once you have internet again.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (state.meshPending > 0) {
+                Text(
+                    "${state.meshPending} relay order${if (state.meshPending == 1) "" else "s"} waiting for internet",
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedButton(onClick = vm::syncMeshOrders, enabled = !state.meshSyncing) {
+                    Text(if (state.meshSyncing) "Syncing…" else "Sync now")
+                }
+                Spacer(Modifier.width(12.dp))
+                state.meshSyncMessage?.let {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            HorizontalDivider()
             Text("Your seat", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             OutlinedTextField(
                 value = state.pnr,

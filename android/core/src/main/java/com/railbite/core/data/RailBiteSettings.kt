@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "railbite_settings")
@@ -35,6 +36,11 @@ class RailBiteSettings(
         val activeOrderId = stringPreferencesKey("customer_active_order_id")
         val pickerOrderId = stringPreferencesKey("picker_current_order_id")
         val howItWorksShown = booleanPreferencesKey("how_it_works_shown")
+        // Bluetooth-mesh relay (offline feature; cloud remains the default path)
+        val meshNodeId = stringPreferencesKey("mesh_node_id")
+        val meshRelayEnabled = booleanPreferencesKey("mesh_relay_enabled")
+        val meshSinkEnabled = booleanPreferencesKey("mesh_sink_enabled")
+        val menuCache = stringPreferencesKey("menu_cache")
     }
 
     /** Effective server URL: stored override if set, otherwise the baked cloud default. */
@@ -57,6 +63,29 @@ class RailBiteSettings(
     val activeOrderId: Flow<String> = context.dataStore.data.map { it[Keys.activeOrderId] ?: "" }
     val pickerOrderId: Flow<String> = context.dataStore.data.map { it[Keys.pickerOrderId] ?: "" }
     val howItWorksShown: Flow<Boolean> = context.dataStore.data.map { it[Keys.howItWorksShown] ?: false }
+    val meshNodeId: Flow<String> = context.dataStore.data.map { it[Keys.meshNodeId] ?: "" }
+    val meshRelayEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshRelayEnabled] ?: false }
+    val meshSinkEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshSinkEnabled] ?: false }
+    val menuCache: Flow<String> = context.dataStore.data.map { it[Keys.menuCache] ?: "" }
+
+    /** Stable mesh node id (origin/hops identity) — generated on first use. */
+    suspend fun ensureMeshNodeId(): String {
+        val existing = context.dataStore.data.first()[Keys.meshNodeId]
+        if (!existing.isNullOrBlank()) return existing
+        val fresh = java.util.UUID.randomUUID().toString().take(8)
+        context.dataStore.edit { it[Keys.meshNodeId] = fresh }
+        return fresh
+    }
+
+    suspend fun setMeshRelayEnabled(value: Boolean) =
+        context.dataStore.edit { it[Keys.meshRelayEnabled] = value }
+
+    suspend fun setMeshSinkEnabled(value: Boolean) =
+        context.dataStore.edit { it[Keys.meshSinkEnabled] = value }
+
+    suspend fun setMenuCache(rawJson: String) = context.dataStore.edit {
+        if (rawJson.isBlank()) it.remove(Keys.menuCache) else it[Keys.menuCache] = rawJson
+    }
 
     suspend fun setServerUrl(value: String) = context.dataStore.edit { it[Keys.serverUrl] = value.trim() }
     suspend fun setSeat(pnr: String, coach: String, berth: Int, diners: Int) = context.dataStore.edit {

@@ -17,8 +17,13 @@ object PickerRoutes {
     const val PERMISSIONS = "permissions"
     const val ORDER = "order/{orderId}"
     const val CASH = "cash"
+    const val MESH_ORDER = "meshOrder/{orderId}"
+
+    /** OpenOrderRouter marker for offline (Bluetooth relay) handovers. */
+    const val MESH_PREFIX = "mesh:"
 
     fun order(orderId: String) = "order/$orderId"
+    fun meshOrder(orderId: String) = "meshOrder/$orderId"
 }
 
 /** Shared graph of the picker app: settings + api client + pending-order store. */

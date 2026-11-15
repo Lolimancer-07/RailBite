@@ -8,8 +8,8 @@
 
 | File | App | Package | Version | Min SDK | Target SDK | Size | SHA-256 |
 |------|-----|---------|---------|---------|-----------|------|---------|
-| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.0.0 (1) | 29 | 35 | 6,921,086 B (~6.6 MB) | `573534c620609be597a02fd45bb05fca624cbf92fb8fb1f5fc1e4faf3986534e` |
-| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.0.0 (1) | 29 | 35 | 7,450,905 B (~7.1 MB) | `e800cb1990998995119d015bef0d22d24a38861e85628c20c0ca5031742b4656` |
+| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.0.0 (1) | 29 | 35 | 6,986,862 B (~6.7 MB) | `faab9cae94b8e89c0bf5e3ef5508e5bd57af875011ad6c7b3df731eea96788ec` |
+| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.0.0 (1) | 29 | 35 | 7,500,289 B (~7.2 MB) | `49715bc4827ad9f14a359445e92789f4043dcbbd6a69c80f8bc29da787e82e24` |
 
 Native Kotlin + Jetpack Compose builds, R8-minified and signed with the prototype
 keystore (`android/keystore.properties`; store/key pass `railbite-demo`, alias `railbite`).
@@ -18,6 +18,10 @@ Distinct package names — both install side by side. Build & connect instructio
 
 > Release builds keep `org.jctools.**`, `io.netty.**` and `com.hivemq.**` unobfuscated
 > (HiveMQ's MQTT client reflects on its own queue fields) and run with R8 full mode off.
+>
+> Both APKs request the Bluetooth LE permissions (`BLUETOOTH_ADVERTISE` / `BLUETOOTH_SCAN`
+> `neverForLocation` / `BLUETOOTH_CONNECT`) for the optional offline **Bluetooth mesh relay**
+> (off by default; see the root README). BLE is not used by the normal cloud flow.
 
 ### Install via ADB
 

@@ -20,6 +20,8 @@ data class OrdersUiState(
     val active: List<Order> = emptyList(),
     val past: List<Order> = emptyList(),
     val error: String? = null,
+    /** Bluetooth-relay orders still waiting to reach the cloud (offline feature). */
+    val relayPending: List<com.railbite.core.mesh.MeshOrderPayload> = emptyList(),
 )
 
 class OrdersViewModel(private val container: AppContainer) : ViewModel() {
@@ -47,10 +49,16 @@ class OrdersViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private suspend fun loadOnce() {
+        // Relay orders first (offline feature): pending outbox entries shown as local cards.
+        val relayPending = runCatching {
+            com.railbite.core.mesh.MeshOutbox(container.app).all()
+                .filter { it.state != "SYNCED" }
+                .mapNotNull { com.railbite.core.mesh.MeshOrderPayload.decode(it.payload) }
+        }.getOrDefault(emptyList())
         try {
             val pnr = container.settings.pnr.first()
             if (pnr.isBlank()) {
-                _state.update { it.copy(loading = false, active = emptyList(), past = emptyList()) }
+                _state.update { it.copy(loading = false, active = emptyList(), past = emptyList(), relayPending = relayPending) }
                 return
             }
             val orders = container.client.api().ordersByPnr(pnr)
@@ -60,11 +68,16 @@ class OrdersViewModel(private val container: AppContainer) : ViewModel() {
                     active = orders.filter { o -> !Statuses.isTerminal(o.status) },
                     past = orders.filter { o -> Statuses.isTerminal(o.status) },
                     error = null,
+                    relayPending = relayPending,
                 )
             }
         } catch (e: Exception) {
             _state.update {
-                it.copy(loading = false, error = "Cannot reach server — retrying")
+                it.copy(
+                    loading = false,
+                    error = if (relayPending.isEmpty()) "Cannot reach server — retrying" else null,
+                    relayPending = relayPending,
+                )
             }
         }
     }

@@ -20,6 +20,8 @@ import java.util.UUID
 data class CartUiState(
     val placing: Boolean = false,
     val error: String? = null,
+    /** Set when the order went out over the Bluetooth relay instead of the cloud. */
+    val relayedCode: String? = null,
 )
 
 class CartViewModel(private val container: AppContainer) : ViewModel() {
@@ -79,6 +81,19 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                 container.mqtt.watchOrder(order.id)
                 onPlaced(order.id)
             } catch (e: Exception) {
+                // Cloud path failed: fall back to the Bluetooth relay when enabled
+                // (offline feature — the cloud remains the default transport).
+                if (isUnreachable(e) && container.settings.meshRelayEnabled.first()) {
+                    val relayed = relayViaMesh(linesMap)
+                    if (relayed != null) {
+                        container.cart.clear()
+                        _state.update {
+                            it.copy(placing = false, error = null, relayedCode = relayed.deliveryCode)
+                        }
+                        onPlaced(relayed.orderId)
+                        return@launch
+                    }
+                }
                 _state.update {
                     it.copy(
                         placing = false,
@@ -87,6 +102,44 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                 }
             }
         }
+    }
+
+    /** Broadcasts the cart as a mesh packet and queues it for cloud sync. */
+    private suspend fun relayViaMesh(
+        linesMap: Map<String, com.railbite.customer.CartLine>,
+    ): com.railbite.core.mesh.MeshOrderPayload? {
+        val seat = com.railbite.core.data.SeatSnapshot(container.settings).seat.first() ?: return null
+        return try {
+            val orderId = UUID.randomUUID().toString()
+            val items = linesMap.values.map {
+                com.railbite.core.mesh.MeshOrderPayload.Item(
+                    itemId = it.item.id,
+                    name = it.item.name,
+                    qty = it.qty,
+                    unitPricePaise = it.item.mrpPaise,
+                )
+            }
+            container.meshSender.send(
+                orderId = orderId,
+                pnr = seat.pnr,
+                coach = seat.coach,
+                berth = seat.berth,
+                diners = seat.diners,
+                items = items,
+                totalPaise = container.cart.totalPaise,
+            )
+        } catch (_: Exception) {
+            null // no BT hardware/permission — surface the normal cloud error instead
+        }
+    }
+
+    private fun isUnreachable(e: Exception): Boolean {
+        val msg = e.message ?: ""
+        return msg.contains("Unable to resolve host", ignoreCase = true) ||
+            msg.contains("Failed to connect", ignoreCase = true) ||
+            msg.contains("timeout", ignoreCase = true) ||
+            msg.contains("Network is unreachable", ignoreCase = true) ||
+            msg.contains("ECONNREFUSED", ignoreCase = true)
     }
 
     private fun friendly(e: Exception): String {

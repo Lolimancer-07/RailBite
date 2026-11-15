@@ -19,6 +19,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,6 +33,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.ui.EmptyState
@@ -63,7 +65,7 @@ fun OrdersScreen(
         Column(Modifier.padding(padding)) {
             if (state.loading) {
                 LoadingSkeleton(rows = 4, modifier = Modifier.padding(16.dp))
-            } else if (state.active.isEmpty() && state.past.isEmpty()) {
+            } else if (state.active.isEmpty() && state.past.isEmpty() && state.relayPending.isEmpty()) {
                 EmptyState(
                     emoji = "📋",
                     title = "No orders yet",
@@ -74,6 +76,10 @@ fun OrdersScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    if (state.relayPending.isNotEmpty()) {
+                        item { SectionHeader("Sent via Bluetooth relay") }
+                        items(state.relayPending, key = { it.orderId }) { RelayOrderCard(it) }
+                    }
                     if (state.active.isNotEmpty()) {
                         item { SectionHeader("Active") }
                         items(state.active, key = { it.id }) { OrderCard(it, onOpenOrder) }
@@ -83,6 +89,55 @@ fun OrdersScreen(
                         items(state.past, key = { it.id }) { OrderCard(it, onOpenOrder) }
                     }
                 }
+            }
+        }
+    }
+}
+
+/** Offline relay order waiting for the cloud — shows the handover code. */
+@Composable
+private fun RelayOrderCard(p: com.railbite.core.mesh.MeshOrderPayload) {
+    Card(
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "Coach ${p.coach} · Seat ${p.berth}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Bluetooth relay — syncs to the cloud automatically when you have internet",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Text(
+                    "📶",
+                    style = MaterialTheme.typography.headlineMedium,
+                )
+            }
+            p.items.forEach { item ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("${item.qty} × ${item.name}", style = MaterialTheme.typography.bodyMedium)
+                    Text(Money.rupees(item.unitPricePaise * item.qty), style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            HorizontalDivider()
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Delivery code", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(p.deliveryCode, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, letterSpacing = 4.sp)
+                }
+                Text(
+                    Money.rupees(p.totalPaise),
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.titleLarge,
+                )
             }
         }
     }

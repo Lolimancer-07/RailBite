@@ -20,6 +20,11 @@ data class SettingsUiState(
     val testState: OnboardingLikeTestState = OnboardingLikeTestState.Idle,
     val saved: Boolean = false,
     val error: String? = null,
+    // Bluetooth relay (offline feature)
+    val meshRelayEnabled: Boolean = false,
+    val meshPending: Int = 0,
+    val meshSyncing: Boolean = false,
+    val meshSyncMessage: String? = null,
 ) {
     val seatValid: Boolean
         get() = com.railbite.core.util.Validators.isValidPnr(pnr) &&
@@ -49,6 +54,31 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                     coach = s.coach.first(),
                     berth = s.berth.first().let { b -> if (b == 0) "" else b.toString() },
                     diners = s.diners.first(),
+                    meshRelayEnabled = s.meshRelayEnabled.first(),
+                )
+            }
+            container.meshSender.refreshPending()
+            _state.update { it.copy(meshPending = container.meshSender.pending.value) }
+        }
+    }
+
+    fun setMeshRelayEnabled(value: Boolean) {
+        _state.update { it.copy(meshRelayEnabled = value) }
+        viewModelScope.launch { container.settings.setMeshRelayEnabled(value) }
+    }
+
+    /** Manual "sync relay orders now" — also runs automatically on Home resume. */
+    fun syncMeshOrders() {
+        _state.update { it.copy(meshSyncing = true, meshSyncMessage = null) }
+        viewModelScope.launch {
+            // runCatching: any unexpected failure surfaces as a message, never a crash.
+            val n = runCatching { container.meshSender.syncPending() }.getOrDefault(0)
+            container.meshSender.refreshPending()
+            _state.update {
+                it.copy(
+                    meshSyncing = false,
+                    meshPending = container.meshSender.pending.value,
+                    meshSyncMessage = if (n > 0) "Sent $n relay order${if (n == 1) "" else "s"} to the cloud" else "Nothing to sync (or no internet yet)",
                 )
             }
         }

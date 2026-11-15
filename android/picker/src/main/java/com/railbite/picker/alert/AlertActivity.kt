@@ -214,12 +214,17 @@ private fun AlertScreen(
                         if (!busy) {
                             busy = true
                             AlertSoundController.stop()
+                            // Capture before accept: AlertActions/AlertBus.clear() reset the source.
+                            val meshSource = AlertBus.currentSource() == AlertBus.SOURCE_MESH
                             AlertActions.accept(
                                 activityContext,
                                 a,
                                 onAccepted = {
                                     AlertBus.clear()
-                                    onAccepted(a.orderId)
+                                    onAccepted(
+                                        if (meshSource) com.railbite.picker.PickerRoutes.MESH_PREFIX + a.orderId
+                                        else a.orderId,
+                                    )
                                 },
                                 onFailed = { err ->
                                     busy = false

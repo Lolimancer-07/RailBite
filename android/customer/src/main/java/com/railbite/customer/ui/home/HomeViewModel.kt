@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -54,6 +55,16 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
             _state.update { it.copy(loading = it.menu.isEmpty(), error = null) }
             try {
                 val menu = container.client.api().menu().filter { it.track == "READY" }
+                // Cache for offline browsing (cloud-first app; the mesh relay reuses this).
+                runCatching {
+                    container.settings.setMenuCache(
+                        com.railbite.core.mesh.MeshStore.json
+                            .encodeToString(
+                                kotlinx.serialization.builtins.ListSerializer(MenuItem.serializer()),
+                                menu,
+                            ),
+                    )
+                }
                 val categories = menu.map { it.category }.distinct()
                 _state.update {
                     it.copy(
@@ -65,10 +76,23 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
                     )
                 }
             } catch (e: Exception) {
+                // Offline: serve the last fetched menu so browsing/cart keep working.
+                val cached = runCatching {
+                    com.railbite.core.mesh.MeshStore.json.decodeFromString(
+                        kotlinx.serialization.builtins.ListSerializer(MenuItem.serializer()),
+                        container.settings.menuCache.first(),
+                    )
+                }.getOrDefault(emptyList()).filter { it.track == "READY" }
+                val categories = cached.map { it.category }.distinct()
                 _state.update {
                     it.copy(
                         loading = false,
-                        error = "Cannot reach server — showing cached data" ,
+                        menu = cached,
+                        categories = categories,
+                        selectedCategory = if (categories.isEmpty()) it.selectedCategory
+                        else it.selectedCategory?.takeIf { c -> categories.contains(c) },
+                        error = if (cached.isEmpty()) "Cannot reach server — try again when you have internet"
+                        else "No internet — showing the saved menu",
                     )
                 }
             }
