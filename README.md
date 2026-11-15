@@ -49,8 +49,8 @@ Expo builds in `apps/passenger` and `apps/captain`, which are kept only as refer
 
 | App | Module | Package | Role |
 |---|---|---|---|
-| **RailBite** | `android/customer` | `com.railbite.customer` | Passenger: PNR/coach/seat onboarding, quick-commerce menu with ADD steppers + sold-out states, floating cart bar, COD order with UUID idempotency, live status timeline over MQTT, "Did you pay ₹X?" confirm dialog, Tier-1 report sheet |
-| **RailBite Picker** | `android/picker` | `com.railbite.picker` | Pantry staff: staff ID/PIN login, big ONLINE toggle driving a foreground service, loud full-screen order alerts that work over the lock screen, 60 s countdown (timeout = re-dispatch), picking checklist, 4-digit delivery-code handover, cash summary (expected vs collected vs confirmed) |
+| **RailBite** | `android/customer` | `com.railbite.customer` | Passenger: PNR/coach/seat onboarding, quick-commerce menu with ADD steppers + sold-out states, floating cart bar, COD/UPI order with UUID idempotency, live status timeline over MQTT, UPI pay card + payment confirm dialog (or "Did you pay ₹X?" for cash), Tier-1 report sheet |
+| **RailBite Picker** | `android/picker` | `com.railbite.picker` | Pantry staff: staff ID/PIN login, big ONLINE toggle driving a foreground service, loud full-screen order alerts that work over the lock screen (payment badge: UPI = digital / COD = cash), 60 s countdown (timeout = re-dispatch), picking checklist, 4-digit delivery-code handover with cash prefilled (₹0 for UPI orders), cash summary (expected vs collected vs confirmed) |
 
 Both install side by side and share `android/core` (models mirroring the server JSON, Retrofit/OkHttp
 client, HiveMQ MQTT wrapper with auto-reconnect, DataStore settings, Compose theme, integer-paise
@@ -89,7 +89,16 @@ adb install -r ../release/railbite-picker.apk
 Debug builds for development: `./gradlew :customer:assembleDebug :picker:assembleDebug`.
 R8 keeps `org.jctools.**` / `io.netty.**` / `com.hivemq.**` intact and runs with full mode off —
 full mode's class merging broke HiveMQ's reflective field lookups (`NoSuchFieldException:
-consumerIndex` on first connect); see `docs/android-plan.md`.
+consumerIndex` on first connect); see `docs/android-plan.md`. Note that HiveMQ's POM marks
+`netty-codec-http` as `<optional>`; the core module pins it explicitly (`netty-codec-http:4.1.118.Final`)
+because without it the MQTT WebSocket transport dies with a swallowed
+`NoClassDefFoundError: WebSocketVersion` and connects "hang" forever.
+
+**Emulator tip.** The emulator's SLiRP NAT can stall the HiveMQ WebSocket handshake (REST keeps
+working, MQTT never completes). On an AVD run `adb reverse tcp:8080 tcp:8080` after every emulator
+restart and set the picker's server override (login screen → "Change") to
+`http://127.0.0.1:8080` — the reverse tunnel carries both REST and MQTT. Physical phones over
+Wi-Fi/cloud don't need this.
 
 ### Connect both phones (cloud server — no laptop, no shared Wi-Fi)
 
