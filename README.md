@@ -56,6 +56,13 @@ Both install side by side and share `android/core` (models mirroring the server 
 client, HiveMQ MQTT wrapper with auto-reconnect, DataStore settings, Compose theme, integer-paise
 money helpers). Server contract details: `docs/android-plan.md`.
 
+**Cloud-first, zero configuration.** Both apps ship with the RailBite cloud server baked in
+(`https://railbite-api.onrender.com`, deployable with the included `render.yaml` — see
+"Deploying the edge server" below). Onboarding asks only for PNR/coach/seat; MQTT alerts ride
+`wss://…/mqtt` over the same HTTPS port, so the phones never need to share a Wi-Fi network or
+reach a laptop. An optional custom-server override for local testing hides in each app's
+settings/login screen.
+
 ### Prerequisites
 
 - JDK 17+ and the Android SDK (platform `android-35`, build-tools 34+); `sdk.dir` lives in the
@@ -84,13 +91,12 @@ R8 keeps `org.jctools.**` / `io.netty.**` / `com.hivemq.**` intact and runs with
 full mode's class merging broke HiveMQ's reflective field lookups (`NoSuchFieldException:
 consumerIndex` on first connect); see `docs/android-plan.md`.
 
-### Connect both phones to the edge server
+### Connect both phones (cloud server — no laptop, no shared Wi-Fi)
 
-1. Laptop: `cd services/edge-server && pnpm seed && cd ../.. && pnpm --filter @railbite/edge-server dev`
-   (HTTP `:8080`, MQTT TCP `:1883`, MQTT WebSocket `:8883` — allow all three through the firewall,
-   phone + laptop on the same Wi-Fi).
-2. **RailBite (customer)**: enter `http://<LAPTOP_IP>:8080` → "Connected" → PNR `8492000001`,
-   Coach `B1`, Seat `1` → Start ordering → add items → View cart → Place order (Cash on delivery).
+1. Make sure the edge server is deployed (below) — then just use the phones on **any internet
+   connection** (mobile data is fine).
+2. **RailBite (customer)**: open → PNR `8492000001`, Coach `B1`, Seat `1` → Start ordering →
+   add items → View cart → Place order (Cash on delivery).
 3. **RailBite Picker**: sign in `c1` / PIN `1234` → grant the three alert permissions
    (notifications, full-screen alerts, battery exemption) → flip **ONLINE** → when the customer
    orders, a loud full-screen alert rings (even locked) → **ACCEPT** → tick every item in the
@@ -102,6 +108,38 @@ consumerIndex` on first connect); see `docs/android-plan.md`.
 Demo accounts: pickers `c1`–`c4` with PIN `1234` (zones B1–B2, B3–B4, S1–S2, S3–S4); test PNRs
 `8492000001`–`8492000120`. Rejecting an alert or missing the 60 s countdown re-dispatches the
 order to the next picker.
+
+### Running the server locally (development / demo fallback)
+
+```bash
+cd services/edge-server && pnpm install && pnpm dev     # http://0.0.0.0:8080 (+ ws /mqtt)
+```
+
+Point either app at it via the custom-server override (customer: Settings → Server; picker:
+login screen → "Change"), e.g. `http://<laptop-ip>:8080` with both devices on the same Wi-Fi.
+
+### Deploying the edge server (Render)
+
+The repo ships a ready Blueprint: `render.yaml` + `services/edge-server/Dockerfile`
+(one container, REST + MQTT-over-WebSocket on Render's single HTTPS port; the DB auto-seeds
+menu, staff `c1`–`c4`/PIN `1234` and the PNR manifest on boot).
+
+1. Push the repo to GitHub.
+2. Render Dashboard → **New → Blueprint** → pick the repo → Apply. Render builds the Dockerfile
+   (build context is the repo root, as the Blueprint specifies) and starts the service.
+3. Free-tier notes: the service sleeps after ~15 min idle (first request wakes it in ~30–60 s) —
+   keep it warm with a cron ping on `https://<service>.onrender.com/health` every 10 minutes
+   (cron-job.org, free); the disk is ephemeral, so orders reset on restart (menu/staff/manifests
+   re-seed automatically; a paid plan + the commented-out disk in `render.yaml` makes them stick).
+4. Verify: `curl https://<service>.onrender.com/health` → `{"ok":true,...}` — the apps will
+   already be pointing there.
+
+Local container smoke test:
+
+```bash
+docker build -f services/edge-server/Dockerfile -t railbite-edge .
+docker run --rm -p 8080:8080 railbite-edge   # then open http://localhost:8080/health
+```
 
 ---
 

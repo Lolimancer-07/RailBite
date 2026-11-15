@@ -1,26 +1,40 @@
+# Render Blueprint — RailBite edge server.
+#
+# Deploy: push this repo to GitHub → Render Dashboard → New → Blueprint → pick the repo.
+# The service name determines the subdomain: `railbite-api` serves
+# https://railbite-api.onrender.com — the URL already baked into both Android apps.
+# Render injects PORT automatically (config.ts reads it); MQTT rides
+# wss://<service>.onrender.com/mqtt over the same port, which the apps already speak
+# (MqttConnector picks wss when the server URL is https).
+#
+# Free plan notes:
+#  - the service sleeps after ~15 min idle; first request wakes it (~30-60 s).
+#    Keep it warm with a cron ping on GET /health every 10 min (cron-job.org is free).
+#  - disk is ephemeral: menu/staff/PNR manifest re-seed automatically on boot
+#    (index.ts seeds when the DB is empty). Orders/cash ledger reset on restart.
+#    For durability switch to a paid plan and enable the disk below.
+
 services:
   - type: web
-    name: railbite-edge-server
+    name: railbite-api
     runtime: docker
-    dockerfilePath: ./services/edge-server/Dockerfile
     dockerContext: .
-    plan: standard
+    dockerfilePath: ./services/edge-server/Dockerfile
+    plan: free
+    healthCheckPath: /health
     envVars:
-      - key: PORT
-        value: 10000
       - key: NODE_ENV
         value: production
-      - key: DB_PATH
-        value: /data/railbite.db
       - key: TRIP_ID
         value: TRIP_001
       - key: HMAC_SECRET
         generateValue: true
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
-        sync: false
-    disk:
-      name: railbite-data
-      mountPath: /data
-      sizeGB: 1
-    healthCheckPath: /health
-
+        sync: false # FCM push credentials — set in the dashboard when enabling push
+      # Optional durable DB on a paid plan:
+      # - key: DB_PATH
+      #   value: /var/data/railbite.db
+    # disk:
+    #   name: railbite-data
+    #   mountPath: /var/data
+    #   sizeGB: 1

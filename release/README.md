@@ -8,8 +8,8 @@
 
 | File | App | Package | Version | Min SDK | Target SDK | Size | SHA-256 |
 |------|-----|---------|---------|---------|-----------|------|---------|
-| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.0.0 (1) | 29 | 35 | 6,937,470 B (~6.6 MB) | `2023b4073378898d13b511e485e25287b0ce3939b108fd7c2b6ac87bec56173b` |
-| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.0.0 (1) | 29 | 35 | 7,450,905 B (~7.1 MB) | `2f06511cfbc38f3fafa5abda8360ccc891ba5e53f9f3a7d41ca5698ac99134f6` |
+| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.0.0 (1) | 29 | 35 | 6,921,086 B (~6.6 MB) | `573534c620609be597a02fd45bb05fca624cbf92fb8fb1f5fc1e4faf3986534e` |
+| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.0.0 (1) | 29 | 35 | 7,450,905 B (~7.1 MB) | `e800cb1990998995119d015bef0d22d24a38861e85628c20c0ca5031742b4656` |
 
 Native Kotlin + Jetpack Compose builds, R8-minified and signed with the prototype
 keystore (`android/keystore.properties`; store/key pass `railbite-demo`, alias `railbite`).
@@ -36,7 +36,10 @@ adb install -r railbite-picker.apk
 
 - Passenger: any PNR from the seeded manifest `8492000001`–`8492000120` (coach/seat from the manifest, e.g. `B1` / seat `1`).
 - Picker: staff IDs `c1`–`c4`, PIN `1234` (zones B1–B2, B3–B4, S1–S2, S3–S4).
-- Edge server: `http://<laptop-ip>:8080` (HTTP), MQTT `:1883` TCP / `:8883` WS.
+- Server: **baked in** (`https://railbite-api.onrender.com`, deployable with `render.yaml` —
+  REST + MQTT-over-WebSocket `wss://…/mqtt` on one HTTPS port). No IP entry needed; phones can
+  be on any internet connection. A custom-server override for local testing (e.g.
+  `http://<laptop-ip>:8080`) hides in customer Settings and the picker login screen.
 
 ---
 

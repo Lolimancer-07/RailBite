@@ -1,0 +1,18 @@
+# Docker build context for the edge server (context is the repo root).
+# Only the pnpm workspace + the two workspace packages it needs go into the image.
+.git
+.github
+node_modules
+**/node_modules
+**/.pnpm-store
+apps
+android
+release
+docs
+tools
+adapters
+scripts
+*.md
+services/edge-server/railbite.db*
+services/edge-server/dist
+packages/shared/dist

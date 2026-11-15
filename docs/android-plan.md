@@ -73,9 +73,10 @@ Therefore: **no server code changes required.** Only docs (`android-plan.md`, RE
 
 ## Customer app screens
 
-1. **Onboarding** (first launch): server URL step (BuildConfig default, "Test connection" →
-   Connected / Cannot reach server) → seat step (PNR 10 digits, coach `B2`, berth 1–100, diners 1–8).
-   Editable later in Settings; header chip `Coach B2 · Seat 14`.
+1. **Onboarding** (first launch): seat step only (PNR 10 digits, coach `B2`, berth 1–100,
+   diners 1–8). The cloud server URL is baked in (`BuildConfig.DEFAULT_SERVER_URL`,
+   fallback chain: stored override → baked default) and auto-tested with a non-blocking
+   status line. Editable later in Settings; header chip `Coach B2 · Seat 14`.
 2. **Home**: seat chip + "~10 mins", search bar, category chips, 2-col product grid (emoji icon,
    veg dot, MRP ₹, ADD → − 1 + stepper, Sold out state), floating cart bar (`2 items · ₹45 · View Cart`).
 3. **Cart**: steppers, bill summary (item total, delivery fee ₹0, grand total), COD fixed,
@@ -85,11 +86,12 @@ Therefore: **no server code changes required.** Only docs (`android-plan.md`, RE
    while out for delivery, **"Did you pay ₹X?"** dialog → confirm-cash. Cancel before accept.
    Live = MQTT subscription + 3 s REST polling while order active. Tier-1 "Report a problem" sheet.
 5. **Orders** (bottom nav Home/Orders): active + past, empty states, skeletons, snackbar errors.
-6. **Settings**: server URL + test, seat editor.
+6. **Settings**: seat editor + optional advanced server-URL override (empty = built-in cloud).
 
 ## Picker app screens
 
-1. **Login**: server URL + test, staff ID, 4-digit PIN → token persisted in DataStore.
+1. **Login**: staff ID, 4-digit PIN → token persisted in DataStore. Baked-in cloud server
+   (fallback chain as above) with an optional override behind "Change".
 2. **Home**: big ONLINE/OFFLINE toggle (drives the foreground service), today's stats cards
    (delivered / collected / confirmed / avg rating), active orders list, **Test alert** button,
    permissions card.

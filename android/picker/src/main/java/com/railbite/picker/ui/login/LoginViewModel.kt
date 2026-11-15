@@ -39,7 +39,10 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             try {
-                val login = container.client.api().staffLogin(StaffLoginRequest(s.staffId, s.pin))
+                // Staff IDs are canonical lowercase in the seed (c1-c4). The field
+                // uppercases for display only — lowercase before the request or the
+                // server's exact-match lookup 401s ("C1" ≠ "c1").
+                val login = container.client.api().staffLogin(StaffLoginRequest(s.staffId.lowercase(), s.pin))
                 container.settings.setStaffLogin(
                     staffId = login.staffId,
                     name = login.name,

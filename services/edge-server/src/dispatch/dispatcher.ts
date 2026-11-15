@@ -198,7 +198,13 @@ export class Dispatcher {
     const now = Date.now();
     logger.info({ count: pending.length }, "Recovering pending assigned orders from database");
 
+    // Guard against duplicate rows for the same order: re-arm at most once per order.
+    const armed = new Set<string>();
+
     for (const item of pending) {
+      if (armed.has(item.id)) continue;
+      armed.add(item.id);
+
       const assignedTime = new Date(item.assignedAt).getTime();
       const elapsed = now - assignedTime;
       const fullOrder = this.orderRepo.findById(item.id);

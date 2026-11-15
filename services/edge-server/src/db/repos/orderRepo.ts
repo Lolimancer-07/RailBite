@@ -237,12 +237,16 @@ export class OrderRepo {
   }
 
   getAssignedOrdersForRecovery(): Array<{ id: string; coach: string; track: "READY" | "COOK"; attempt: number; assignedAt: string; captainId: string }> {
+    // Only the LATEST pending assignment per order: re-arming every historical
+    // assignment row made recovery re-dispatch N times per order and multiply the
+    // assignments table on every server restart (see 1M-row blowup incident).
     return this.db
       .prepare(
         `SELECT o.id, o.coach, o.track, a.attempt, a.assigned_at as assignedAt, a.captain_id as captainId
          FROM orders o
          JOIN assignments a ON a.order_id = o.id
          WHERE o.status = 'ASSIGNED' AND a.accepted_at IS NULL AND a.rejected_at IS NULL
+           AND a.id = (SELECT MAX(b.id) FROM assignments b WHERE b.order_id = a.order_id)
          ORDER BY a.id DESC`,
       )
       .all() as any[];

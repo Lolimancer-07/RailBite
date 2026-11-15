@@ -44,7 +44,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             val s = container.settings
             _state.update {
                 it.copy(
-                    serverUrl = s.serverUrl.first(),
+                    serverUrl = s.serverUrlStored.first(),
                     pnr = s.pnr.first(),
                     coach = s.coach.first(),
                     berth = s.berth.first().let { b -> if (b == 0) "" else b.toString() },

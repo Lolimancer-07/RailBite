@@ -68,10 +68,21 @@ fun SettingsScreen(
             OutlinedTextField(
                 value = state.serverUrl,
                 onValueChange = vm::setServerUrl,
-                label = { Text("Server URL") },
-                placeholder = { Text("http://192.168.1.45:8080") },
+                label = { Text("Custom server URL (advanced, optional)") },
+                placeholder = { Text("https://railbite-api.onrender.com") },
                 singleLine = true,
+                // Uri type + no autocorrect: keyboards otherwise "fix" http:// to https://,
+                // which breaks plain-HTTP local servers (e.g. a laptop on the same Wi-Fi).
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Uri,
+                    autoCorrect = false,
+                ),
                 modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                "Leave empty to use the built-in RailBite cloud server.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 OutlinedButton(onClick = vm::testConnection) { Text("Test connection") }
@@ -128,7 +139,7 @@ fun SettingsScreen(
                 Text(if (state.saved) "Saved ✓" else "Save", fontWeight = FontWeight.Bold)
             }
             Text(
-                "Prototype note: plain HTTP on the pantry Wi-Fi. Use the laptop's LAN IP (e.g. 192.168.1.45), not localhost.",
+                "The RailBite cloud server is built into the app. Override it above only for testing (e.g. a laptop on the same Wi-Fi).",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

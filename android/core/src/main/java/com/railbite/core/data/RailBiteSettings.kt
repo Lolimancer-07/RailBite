@@ -14,7 +14,11 @@ import kotlinx.coroutines.flow.map
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "railbite_settings")
 
 /** Everything both apps persist locally: server URL, seat, picker login, online flag. */
-class RailBiteSettings(private val context: Context) {
+class RailBiteSettings(
+    private val context: Context,
+    /** Build-time baked server (cloud). Used whenever no custom override is stored. */
+    private val defaultServerUrl: String = "",
+) {
 
     private object Keys {
         val serverUrl = stringPreferencesKey("server_url")
@@ -33,7 +37,13 @@ class RailBiteSettings(private val context: Context) {
         val howItWorksShown = booleanPreferencesKey("how_it_works_shown")
     }
 
-    val serverUrl: Flow<String> = context.dataStore.data.map { it[Keys.serverUrl] ?: "" }
+    /** Effective server URL: stored override if set, otherwise the baked cloud default. */
+    val serverUrl: Flow<String> = context.dataStore.data.map {
+        it[Keys.serverUrl]?.takeIf { v -> v.isNotBlank() } ?: defaultServerUrl
+    }
+
+    /** Raw stored override ("" when none) — for the advanced settings UIs. */
+    val serverUrlStored: Flow<String> = context.dataStore.data.map { it[Keys.serverUrl] ?: "" }
     val pnr: Flow<String> = context.dataStore.data.map { it[Keys.pnr] ?: "" }
     val coach: Flow<String> = context.dataStore.data.map { it[Keys.coach] ?: "" }
     val berth: Flow<Int> = context.dataStore.data.map { it[Keys.berth] ?: 0 }

@@ -17,7 +17,7 @@ class RailBiteCustomerApp : Application() {
 
 /** Tiny manual service locator (no DI framework on purpose). */
 class AppContainer(val app: Application) {
-    val settings = RailBiteSettings(app)
+    val settings = RailBiteSettings(app, BuildConfig.DEFAULT_SERVER_URL)
     val client = RailBiteClient(settings)
     val cart = CartStore()
     val mqtt = CustomerMqtt(settings)

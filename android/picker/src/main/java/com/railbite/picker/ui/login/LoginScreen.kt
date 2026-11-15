@@ -179,7 +179,7 @@ fun LoginScreen(
                     text = {
                         Column {
                             Text(
-                                "Enter the server URL (e.g. https://railbite-api.onrender.com or http://192.168.1.45:8080):",
+                                "Custom server URL — leave empty to use the built-in RailBite cloud server (railbite-api.onrender.com):",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Spacer(Modifier.height(12.dp))
@@ -189,6 +189,10 @@ fun LoginScreen(
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth(),
                                 placeholder = { Text("https://railbite-api.onrender.com") },
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Uri,
+                                    autoCorrect = false,
+                                ),
                             )
                         }
                     },
