@@ -17,6 +17,9 @@
 services:
   - type: web
     name: railbite-api
+    # Deploy the Android-era branch explicitly — the repo's default branch (main)
+    # predates the native apps and has none of the current edge-server code.
+    branch: native-android
     runtime: docker
     dockerContext: .
     dockerfilePath: ./services/edge-server/Dockerfile
