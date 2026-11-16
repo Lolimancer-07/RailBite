@@ -41,4 +41,9 @@ object AlertBus {
     fun markAccepted(orderId: String) {
         _acceptedOrderId.value = orderId
     }
+
+    /** Consumed by MainActivity right after routing — keeps old orders from resurfacing. */
+    fun clearAccepted() {
+        _acceptedOrderId.value = null
+    }
 }

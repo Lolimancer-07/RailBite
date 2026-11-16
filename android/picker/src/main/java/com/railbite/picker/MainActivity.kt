@@ -95,11 +95,13 @@ private fun PickerRoot(
         if (initialOpenOrderId != null) OpenOrderRouter.post(initialOpenOrderId)
     }
 
-    // If an alert was accepted, jump straight to the progress screen
+    // If an alert was accepted, jump straight to the progress screen — and consume
+    // the event so a stale order doesn't resurface on the next app open.
     LaunchedEffect(Unit) {
         AlertBus.acceptedOrderId.collect { id ->
             if (id != null) {
                 OpenOrderRouter.post(id)
+                AlertBus.clearAccepted()
             }
         }
     }

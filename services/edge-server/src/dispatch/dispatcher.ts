@@ -46,8 +46,17 @@ export class Dispatcher {
     const assignedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
+    // Single-target dispatch must reach a picker we can actually alert. A captain
+    // without a deviceToken only gets a private MQTT topic no phone may be listening
+    // to, which burns the whole 60s window in dead air (field-observed 2026-11-16:
+    // an order placed 13:50:57 alerted the device at 13:53:58 after two token-less
+    // attempts). Prefer token-equipped captains; fall back to every online captain
+    // for mesh/offline deployments where no one has registered a token yet.
+    const reachable = captains.filter((c) => c.online && c.deviceToken);
+    const alertPool = reachable.length > 0 ? reachable : captains.filter((c) => c.online);
+
     // Find best captain
-    let captain = findBestCaptain(order.coach, captains, excludedCaptainIds);
+    let captain = findBestCaptain(order.coach, alertPool, excludedCaptainIds);
 
     // If attempt >= 3 or no captain found in zone, alert all online captains
     const isBroadcast = attempt >= 3 || !captain;

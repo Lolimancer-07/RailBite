@@ -106,7 +106,14 @@ class AlertActivity : ComponentActivity() {
                         startActivity(
                             Intent(this, MainActivity::class.java)
                                 .putExtra(MainActivity.EXTRA_OPEN_ORDER_ID, orderId)
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                                // CLEAR_TOP + SINGLE_TOP: route the existing MainActivity
+                                // instead of stacking a duplicate one above the alert —
+                                // otherwise Back after accepting lands on a stale screen.
+                                .addFlags(
+                                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                                        Intent.FLAG_ACTIVITY_CLEAR_TOP,
+                                ),
                         )
                         finish()
                     },
@@ -148,16 +155,26 @@ private fun AlertScreen(
         AlertBus.alert.collect { a -> if (a != null) alert = a }
     }
 
-    // Ring + countdown; timeout counts as reject (server re-dispatches)
+    // Ring + countdown; timeout counts as reject (server re-dispatches).
+    // An alert that arrives already expired (late re-dispatch) must not blare the
+    // alarm for a dead order — pass it on quietly instead.
     LaunchedEffect(alert?.orderId) {
         val a = alert
         if (a != null) {
-            AlertSoundController.start(activityContext)
             val expiresAt = try {
                 Instant.parse(a.expiresAt).epochSecond
             } catch (_: Exception) {
                 Instant.now().epochSecond + AlertActivity.COUNTDOWN_SECONDS
             }
+            if (expiresAt - Instant.now().epochSecond <= 0) {
+                message = "This dispatch has expired — passing it on…"
+                delay(600)
+                if (!busy) {
+                    AlertActions.reject(activityContext, a) { onFinished() }
+                }
+                return@LaunchedEffect
+            }
+            AlertSoundController.start(activityContext)
             while (true) {
                 val left = (expiresAt - Instant.now().epochSecond).toInt()
                 secondsLeft = left.coerceIn(0, AlertActivity.COUNTDOWN_SECONDS)
