@@ -25,3 +25,6 @@ apps/passenger/ios/
 apps/captain/android/
 apps/captain/ios/
 
+
+# kotlin compiler session/error artifacts (build noise, not source)
+android/.kotlin/
