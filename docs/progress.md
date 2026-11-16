@@ -335,3 +335,33 @@
 - **Dynamic LAN Configuration**: Both apps allow changing the server host and port via in-app UI (Settings screen on passenger app, Login screen on picker app) with fallback to `EXPO_PUBLIC_SERVER_URL`.
 - **All Monorepo Unit & Integration Tests Passing**: 83/83 automated tests passed across all services and packages (`pnpm -r test`).
 
+## Phase 15: Cloud deploy + FCM push dispatch (native apps) ✅
+
+**Completed:** 2026-11-16
+
+**Cloud (Render).** The baked-in cloud URL `https://railbite-api.onrender.com` had **no service behind it**
+(`x-render-routing: no-server`) — the root cause of the "apps look old / orders don't reach the picker on a real
+phone" report. The `railbite-api` web service was created via the Render API mirroring `render.yaml`
+(docker runtime, branch `native-android` — pinned in `render.yaml` because the repo's default branch `main`
+predates all Android-era server code; free plan, `oregon`, healthCheck `/health`). First deploy went live in
+~2 min; env-var updates (bulk `PUT /v1/services/{id}/env-vars`) + `POST /v1/services/{id}/deploys` redeploys
+go live in ~20 s. `autoDeploy: yes` redeploys on every push to `native-android`. Free plan: sleeps after
+~15 min idle (~30–60 s first-request wake), ephemeral DB (menu/staff/PNR re-seed on boot; orders/ledger reset).
+
+**Cloud UPI E2E (UPI_QUEUED, ₹30).** create → dispatch (ASSIGNED ~1 s) → alert → accept → packing →
+out-for-delivery (code 4698) → deliver with `cashPaise: 0` → DELIVERED → confirm-cash (`passengerConfirmed`,
+₹0 ledger row). Physical Redmi Note 12 (USB, `c7a216a00000`) received the live-cloud MQTT alert and rendered
+AlertActivity; fresh-order dispatch latency measured at ~1.4 s.
+
+**FCM push dispatch.** Firebase project `railbite-7748b`:
+- App side: `android/picker/google-services.json` (app `com.railbite.picker`) — the picker's
+  `build.gradle.kts` already conditionally applies `com.google.gms.google-services`; release rebuilt,
+  installed on the physical phone. Verified in logcat: `FirebaseApp initialization successful`,
+  FCM token generated, `POST /staff/device-token` → 200.
+- Server side: Firebase Admin SDK service-account JSON set as `GOOGLE_SERVICE_ACCOUNT_JSON` on the Render
+  service (never committed; lives only in Render env). Dispatcher's `sendFcmAlert` (broadcast + direct
+  dispatch) is now live.
+- End-to-end on the physical device: order → dispatcher → **FCM data message received**
+  (`PickerFCM: FCM order dispatch data message received: {type=ORDER_DISPATCH, paymentMode=UPI_QUEUED, …}`).
+  MQTT remains the primary in-app alert path; FCM adds the backgrounded/wake-up channel.
+

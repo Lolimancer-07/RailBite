@@ -200,6 +200,23 @@ server is fine — REST keeps working, MQTT never completes. Workaround on the e
 `http://127.0.0.1:8080` via the login screen's server override (reverse tunnel carries both REST
 and MQTT). Physical phones over Wi-Fi/cloud don't need this.
 
+## Phase 4: FCM push dispatch (native apps)
+
+Firebase project `railbite-7748b` (app `com.railbite.picker`):
+
+- **App** — `android/picker/google-services.json` activates the already-wired conditional
+  `com.google.gms.google-services` plugin + Firebase BOM/Messaging. `FcmTokenRegistrar` generates the FCM
+  token at app start and `POST`s it to `/staff/device-token` (server stores it on the captain row). Since the
+  cloud DB is ephemeral, re-registration happens on every app start (after any server restart the app
+  re-registers automatically).
+- **Server** — Firebase Admin SDK service-account JSON is set as `GOOGLE_SERVICE_ACCOUNT_JSON` on the Render
+  `railbite-api` service (fetched at runtime by `fcm.ts`; **never committed**). The dispatcher fires
+  `sendFcmAlert` on every direct assignment and broadcast (`ORDER_DISPATCH` data message with coach/berth/
+  items/total/track/paymentMode payload).
+- **Verified** — physical device received the FCM dispatch (logcat `PickerFCM: FCM order dispatch data
+  message received`), payload carried `paymentMode=UPI_QUEUED`. MQTT (wss, `rb/TRIP_001/captain/<id>/alerts`)
+  stays the primary foreground alert channel; FCM covers backgrounded/wake-up delivery.
+
 ## Risks
 
 - **Java 27 system JVM** is too new for Gradle/AGP → pinned local JDK 17 (`org.gradle.java.home`),

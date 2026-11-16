@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "131615739517",
+    "project_id": "railbite-7748b",
+    "storage_bucket": "railbite-7748b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:131615739517:android:401671b8a12c445d50ab14",
+        "android_client_info": {
+          "package_name": "com.railbite.picker"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCT1qSIkX0Jjkvrz5HQqNpjs1JUx95ju90"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
