@@ -12,13 +12,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material3.Card
@@ -29,8 +28,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -44,9 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -57,6 +54,10 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.model.Order
 import com.railbite.core.model.PickerStats
+import com.railbite.core.ui.components.ErrorBar
+import com.railbite.core.ui.components.RailBiteSecondaryButton
+import com.railbite.core.ui.theme.Metrics
+import com.railbite.core.ui.theme.Space
 import com.railbite.core.util.Money
 import com.railbite.core.util.Statuses
 import com.railbite.picker.alert.AlertBus
@@ -95,7 +96,7 @@ fun HomeScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("RailBite Picker", fontWeight = FontWeight.ExtraBold) },
+                title = { Text("RailBite Picker") },
                 actions = {
                     IconButton(onClick = { vm.logout(onLoggedOut) }) {
                         Icon(Icons.Filled.Logout, contentDescription = "Sign out")
@@ -108,18 +109,24 @@ fun HomeScreen(
             Modifier
                 .padding(padding)
                 .fillMaxSize(),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(
+                start = Space.screen,
+                end = Space.screen,
+                top = Space.xs,
+                bottom = Space.xl,
+            ),
+            verticalArrangement = Arrangement.spacedBy(Space.m),
         ) {
             item {
                 Column {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+                    ) {
                         Text(
                             state.staffName.ifBlank { "Picker" },
                             style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
                         )
-                        Spacer(Modifier.width(8.dp))
                         if (state.zone.isNotBlank()) {
                             Text(
                                 "Zone ${state.zone}",
@@ -129,11 +136,7 @@ fun HomeScreen(
                         }
                     }
                     if (state.error != null) {
-                        Text(
-                            state.error!!,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                        )
+                        ErrorBar(state.error!!)
                     }
                 }
             }
@@ -164,18 +167,21 @@ fun HomeScreen(
                         AlertBus.post(alert)
                         onShowAlert(alert.orderId)
                     },
-                    shape = RoundedCornerShape(14.dp),
+                    shape = MaterialTheme.shapes.medium,
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surface,
                     ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().padding(16.dp),
+                        Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = Metrics.tapTarget)
+                            .padding(Space.m),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text("🔔", style = MaterialTheme.typography.headlineSmall)
-                        Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                            Text("Test alert", fontWeight = FontWeight.Bold)
+                        Column(Modifier.weight(1f)) {
+                            Text("Test alert", style = MaterialTheme.typography.titleMedium)
                             Text(
                                 "Check that the loud alarm, vibration and countdown work",
                                 style = MaterialTheme.typography.bodyMedium,
@@ -191,7 +197,7 @@ fun HomeScreen(
                     "Server ${state.serverUrl}",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp),
+                    modifier = Modifier.padding(top = Space.xs, bottom = Space.s),
                 )
             }
         }
@@ -202,21 +208,31 @@ fun HomeScreen(
 private fun OnlineCard(state: HomeUiState, onToggle: (Boolean) -> Unit) {
     val online = state.online
     Card(
-        shape = RoundedCornerShape(18.dp),
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            containerColor = if (online) Color(0xFF0E8A4B) else MaterialTheme.colorScheme.surfaceVariant,
+            containerColor = if (online) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
         ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(20.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(Space.xl),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
                     if (online) "You are ONLINE" else "You are OFFLINE",
                     style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (online) Color.White else MaterialTheme.colorScheme.onSurface,
+                    color = if (online) {
+                        MaterialTheme.colorScheme.onPrimaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
                 )
                 Text(
                     if (state.serviceRunning) {
@@ -226,7 +242,7 @@ private fun OnlineCard(state: HomeUiState, onToggle: (Boolean) -> Unit) {
                     },
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (online) {
-                        Color.White.copy(alpha = 0.85f)
+                        MaterialTheme.colorScheme.onPrimaryContainer
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
@@ -235,10 +251,6 @@ private fun OnlineCard(state: HomeUiState, onToggle: (Boolean) -> Unit) {
             Switch(
                 checked = online,
                 onCheckedChange = onToggle,
-                colors = SwitchDefaults.colors(
-                    checkedTrackColor = Color(0xFF0E8A4B),
-                    checkedThumbColor = Color.White,
-                ),
             )
         }
     }
@@ -248,19 +260,22 @@ private fun OnlineCard(state: HomeUiState, onToggle: (Boolean) -> Unit) {
 private fun PermissionsCard(perms: AlertPermissionState, onOpenPermissions: () -> Unit) {
     Card(
         onClick = onOpenPermissions,
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer,
         ),
     ) {
         Row(
-            Modifier.fillMaxWidth().padding(16.dp),
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = Metrics.tapTarget)
+                .padding(Space.m),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
                 Text(
                     "Alert permissions incomplete (${perms.grantedCount}/3)",
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onErrorContainer,
                 )
                 Text(
@@ -271,8 +286,8 @@ private fun PermissionsCard(perms: AlertPermissionState, onOpenPermissions: () -
             }
             Text(
                 "Review",
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onErrorContainer,
             )
         }
     }
@@ -282,40 +297,44 @@ private fun PermissionsCard(perms: AlertPermissionState, onOpenPermissions: () -
 private fun CurrentOrderCard(order: Order, onOpenOrder: (String) -> Unit) {
     Card(
         onClick = { onOpenOrder(order.id) },
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .heightIn(min = Metrics.tapTarget)
+                .padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
             Text(
-                "CURRENT ORDER",
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
+                "Current order",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         "Coach ${order.coach} · Seat ${order.berth}",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                     Text(
                         Statuses.label(order.status) + " · PNR ${order.pnr}",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 }
                 Text(
                     Money.rupees(order.totalPaise),
                     style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
             Text(
-                "Open checklist →",
+                "Open checklist",
                 style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
         }
     }
@@ -323,22 +342,18 @@ private fun CurrentOrderCard(order: Order, onOpenOrder: (String) -> Unit) {
 
 @Composable
 private fun StatsSection(stats: PickerStats?, onOpenCash: () -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(Space.s)) {
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text("Today", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                "Cash summary →",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.clickable(onClick = onOpenCash),
-            )
+            Text("Today", style = MaterialTheme.typography.titleMedium)
+            TextButton(onClick = onOpenCash) {
+                Text("Cash summary", style = MaterialTheme.typography.labelLarge)
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
             StatTile(
                 "${stats?.ordersDelivered ?: 0}",
                 "delivered",
@@ -365,13 +380,13 @@ private fun StatsSection(stats: PickerStats?, onOpenCash: () -> Unit) {
 private fun StatTile(value: String, label: String, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(vertical = 14.dp),
+            .padding(vertical = Space.s),
         contentAlignment = Alignment.Center,
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(value, style = MaterialTheme.typography.titleLarge)
             Text(
                 label,
                 style = MaterialTheme.typography.labelMedium,
@@ -389,13 +404,16 @@ private fun RatingRow(stats: PickerStats) {
     ) {
         repeat(5) { index ->
             Box(
-                Modifier.size(10.dp).clip(CircleShape).background(
-                    if (index < stats.avgRating!!.toInt()) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.surfaceVariant
-                    },
-                ),
+                Modifier
+                    .size(10.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (index < stats.avgRating!!.toInt()) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                    ),
             )
         }
         Text(
@@ -433,16 +451,24 @@ private fun MeshRelayCard(container: com.railbite.picker.PickerContainer, online
     }
 
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface,
         ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("📶", style = MaterialTheme.typography.headlineSmall)
-                Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                    Text("Bluetooth relay", fontWeight = FontWeight.Bold)
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.heightIn(min = Metrics.tapTarget),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("Bluetooth relay", style = MaterialTheme.typography.titleMedium)
                     Text(
                         if (online && sinkEnabled) "Listening for offline orders nearby"
                         else if (online) "Off — enable below to accept offline orders"
@@ -476,15 +502,15 @@ private fun MeshRelayCard(container: com.railbite.picker.PickerContainer, online
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.error,
                 )
-                androidx.compose.material3.OutlinedButton(
+                RailBiteSecondaryButton(
+                    text = "Allow Bluetooth",
                     onClick = { permissionLauncher.launch(missingPerms.toTypedArray()) },
-                ) { Text("Allow Bluetooth") }
+                )
             }
             if (pending > 0) {
                 Text(
                     "$pending relay order${if (pending == 1) "" else "s"} waiting to sync to the cloud",
                     style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }

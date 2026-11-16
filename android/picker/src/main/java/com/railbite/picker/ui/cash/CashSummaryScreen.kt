@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -31,11 +30,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.ui.EmptyState
 import com.railbite.core.ui.LoadingSkeleton
+import com.railbite.core.ui.theme.Space
 import com.railbite.core.util.Money
 
 /** Today's cash ledger for this picker: expected vs collected vs passenger-confirmed. */
@@ -50,7 +49,7 @@ fun CashSummaryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Cash summary", fontWeight = FontWeight.Bold) },
+                title = { Text("Cash summary") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -67,13 +66,12 @@ fun CashSummaryScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(Space.screen),
+            verticalArrangement = Arrangement.spacedBy(Space.m),
         ) {
             when {
                 state.loading -> LoadingSkeleton(rows = 4)
                 state.error != null -> EmptyState(
-                    emoji = "📡",
                     title = "No connection",
                     subtitle = state.error!!,
                 )
@@ -82,23 +80,22 @@ fun CashSummaryScreen(
                     Text(
                         "Today" + (stats?.let { " · ${it.staffName} (${it.staffId})" } ?: ""),
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                         StatTile(
                             "${stats?.ordersDelivered ?: 0}",
                             "orders delivered",
                             Modifier.weight(1f),
                         )
                         StatTile(
-                            stats?.avgRating?.let { "★ %.1f".format(it) } ?: "—",
+                            stats?.avgRating?.let { "%.1f".format(it) } ?: "—",
                             "rating",
                             Modifier.weight(1f),
                         )
                     }
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
                         StatTile(
                             Money.rupees(stats?.expectedPaise ?: 0),
                             "expected",
@@ -119,15 +116,20 @@ fun CashSummaryScreen(
                     val row = state.myRow
                     if (row != null && row.mismatch) {
                         Card(
-                            shape = RoundedCornerShape(14.dp),
+                            shape = MaterialTheme.shapes.medium,
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.errorContainer,
                             ),
                         ) {
-                            Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Column(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(Space.m),
+                                verticalArrangement = Arrangement.spacedBy(Space.xs),
+                            ) {
                                 Text(
-                                    "⚠ Cash mismatch flagged",
-                                    fontWeight = FontWeight.Bold,
+                                    "Cash mismatch flagged",
+                                    style = MaterialTheme.typography.titleMedium,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
                                 )
                                 Text(
@@ -142,13 +144,18 @@ fun CashSummaryScreen(
                         }
                     }
 
-                    Card(shape = RoundedCornerShape(14.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
-                            Text(
-                                "How confirmation works",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold,
-                            )
+                    Card(
+                        shape = MaterialTheme.shapes.medium,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(Space.m),
+                            verticalArrangement = Arrangement.spacedBy(Space.xs),
+                        ) {
+                            Text("How confirmation works", style = MaterialTheme.typography.titleMedium)
                             Text(
                                 "After every delivery the passenger is asked \"Did you pay ₹X?\" " +
                                     "in their app. Once they confirm, the amount moves into the " +
@@ -169,12 +176,12 @@ fun CashSummaryScreen(
 private fun StatTile(value: String, label: String, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(MaterialTheme.shapes.large)
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .padding(vertical = 14.dp, horizontal = 8.dp),
+            .padding(horizontal = Space.xs, vertical = Space.s),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(value, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(value, style = MaterialTheme.typography.titleLarge)
             Text(
                 label,
                 style = MaterialTheme.typography.labelMedium,

@@ -84,7 +84,7 @@ object Notifications {
         val upiOrder = alert.paymentMode == "UPI_QUEUED"
         return NotificationCompat.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(com.railbite.picker.R.drawable.ic_stat_picker)
-            .setContentTitle("🚨 New order — Coach ${alert.coach} · Seat ${alert.berth}")
+            .setContentTitle("New order — Coach ${alert.coach} · Seat ${alert.berth}")
             .setContentText("${alert.items.sumOf { it.qty }} items · ${Money.rupees(alert.total)} · ${if (upiOrder) "UPI" else "Cash"}")
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(

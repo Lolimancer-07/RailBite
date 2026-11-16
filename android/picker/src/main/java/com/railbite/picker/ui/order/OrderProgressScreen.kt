@@ -1,6 +1,7 @@
 package com.railbite.picker.ui.order
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,26 +10,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -53,6 +50,12 @@ import com.railbite.core.model.Order
 import com.railbite.core.ui.EmptyState
 import com.railbite.core.ui.LoadingSkeleton
 import com.railbite.core.ui.StatusChip
+import com.railbite.core.ui.components.ErrorBar
+import com.railbite.core.ui.components.RailBiteButton
+import com.railbite.core.ui.components.RailBiteSecondaryButton
+import com.railbite.core.ui.components.RailBiteTextField
+import com.railbite.core.ui.theme.Metrics
+import com.railbite.core.ui.theme.Space
 import com.railbite.core.util.Money
 import com.railbite.core.util.Statuses
 import java.util.Locale
@@ -91,7 +94,7 @@ fun OrderProgressScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Order #${orderId.take(8)}", fontWeight = FontWeight.Bold) },
+                title = { Text("Order #${orderId.take(8)}") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -105,8 +108,8 @@ fun OrderProgressScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(Space.screen),
+            verticalArrangement = Arrangement.spacedBy(Space.m),
         ) {
             val order = state.order
             if (state.loading && order == null) {
@@ -115,33 +118,23 @@ fun OrderProgressScreen(
             }
             if (order == null) {
                 EmptyState(
-                    emoji = "📭",
                     title = "Order unavailable",
                     subtitle = state.error ?: "Try again from the home screen",
                 )
-                OutlinedButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) {
-                    Text("Back")
-                }
+                RailBiteSecondaryButton(
+                    text = "Back",
+                    onClick = onBack,
+                    modifier = Modifier.padding(horizontal = Space.screen),
+                )
                 return@Column
             }
 
             StepsRow(order.status)
             HeaderCard(order)
 
-            state.message?.let {
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
+            state.message?.let { ErrorBar(it) }
             if (state.error != null && !Statuses.isTerminal(order.status)) {
-                Text(
-                    state.error!!,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                ErrorBar(state.error!!)
             }
 
             when (order.status) {
@@ -161,7 +154,6 @@ fun OrderProgressScreen(
                 )
                 Statuses.DELIVERED -> DeliveredCard(order, busy = state.busy, onDone = { vm.finish(onBack) })
                 Statuses.CANCELLED, Statuses.EXPIRED -> EmptyState(
-                    emoji = "🚫",
                     title = Statuses.label(order.status),
                     subtitle = "Nothing to do — this order left the flow",
                 )
@@ -176,13 +168,21 @@ fun OrderProgressScreen(
 
 @Composable
 private fun HeaderCard(order: Order) {
-    Card(shape = RoundedCornerShape(14.dp), colors = CardDefaults.cardColors()) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Coach ${order.coach} · Seat ${order.berth}",
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.ExtraBold,
+                    style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                 )
                 StatusChip(
@@ -196,7 +196,7 @@ private fun HeaderCard(order: Order) {
             }
             Text(
                 "PNR ${order.pnr} · ${order.diners} diner${if (order.diners == 1) "" else "s"}" +
-                    if (order.verified == 0) " · ⚠ unverified" else "",
+                    if (order.verified == 0) " · unverified" else "",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -243,7 +243,11 @@ private fun StepsRow(status: String) {
                     contentAlignment = Alignment.Center,
                 ) {
                     if (done) {
-                        Text("✓", color = MaterialTheme.colorScheme.onPrimary, style = MaterialTheme.typography.labelSmall)
+                        Text(
+                            "✓",
+                            color = MaterialTheme.colorScheme.onPrimary,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
                     } else if (active) {
                         Box(
                             Modifier
@@ -257,11 +261,11 @@ private fun StepsRow(status: String) {
                     label,
                     style = MaterialTheme.typography.labelSmall,
                     color = if (done || active) {
-                        MaterialTheme.colorScheme.primary
+                        MaterialTheme.colorScheme.onSurface
                     } else {
                         MaterialTheme.colorScheme.onSurfaceVariant
                     },
-                    fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                    fontWeight = if (active) FontWeight.SemiBold else FontWeight.Normal,
                     textAlign = TextAlign.Center,
                 )
             }
@@ -291,27 +295,41 @@ private fun PackingCard(state: ProgressUiState, vm: OrderProgressViewModel) {
     val packed = state.checklist.values.count { it }
     val allPacked = items.isNotEmpty() && packed == items.size
 
-    Card(shape = RoundedCornerShape(14.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     "Picking checklist",
                     style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
                     modifier = Modifier.weight(1f),
                 )
                 Text(
                     "$packed / ${items.size} picked",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
                 )
             }
             items.forEach { item ->
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Whole row is the tap target (≥ 44 dp); checkbox itself is display-only here.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = Metrics.tapTarget)
+                        .clickable { vm.tick(item.itemId) },
+                ) {
                     Checkbox(
                         checked = state.checklist[item.itemId] ?: false,
-                        onCheckedChange = { vm.tick(item.itemId) },
+                        onCheckedChange = null,
                     )
                     Text(
                         "${item.qty} × ${item.name ?: item.itemId}",
@@ -332,23 +350,13 @@ private fun PackingCard(state: ProgressUiState, vm: OrderProgressViewModel) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            Spacer(Modifier.height(4.dp))
-            Button(
+            Spacer(Modifier.height(Space.xs))
+            RailBiteButton(
+                text = "All picked — start delivery",
                 onClick = vm::startPickup,
-                enabled = allPacked && !state.busy,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
-                if (state.busy) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(20.dp),
-                    )
-                } else {
-                    Text("All picked — start delivery", fontWeight = FontWeight.Bold)
-                }
-            }
+                enabled = allPacked,
+                busy = state.busy,
+            )
             if (!allPacked) {
                 Text(
                     "Tick every item to continue",
@@ -371,25 +379,31 @@ private fun DeliveryCard(
     busy: Boolean,
     onDeliver: () -> Unit,
 ) {
-    Card(shape = RoundedCornerShape(14.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(
-                "🛵 On the way",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-            )
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.s),
+        ) {
+            Text("On the way", style = MaterialTheme.typography.titleMedium)
             Card(
-                shape = RoundedCornerShape(10.dp),
+                shape = MaterialTheme.shapes.small,
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
             ) {
                 Text(
                     "Ask the passenger for the 4-digit delivery code shown in their app. " +
                         "Never guess it — a wrong code keeps the order open.",
-                    Modifier.padding(12.dp),
+                    Modifier.padding(Space.s),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
+            // Passenger's 4-digit code first — the handover authority.
             OutlinedTextField(
                 value = code,
                 onValueChange = onCodeChange,
@@ -400,45 +414,34 @@ private fun DeliveryCard(
                     keyboardType = KeyboardType.NumberPassword,
                     imeAction = ImeAction.Next,
                 ),
-                textStyle = MaterialTheme.typography.headlineMedium.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                ),
-                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.small,
+                textStyle = MaterialTheme.typography.headlineSmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Metrics.tapTarget),
             )
-            OutlinedTextField(
+            // Then the collected cash.
+            RailBiteTextField(
                 value = cashText,
                 onValueChange = onCashChange,
-                label = { Text(if (upiOrder) "Cash collected (₹) — UPI order" else "Cash collected (₹)") },
+                label = if (upiOrder) "Cash collected (₹) — UPI order" else "Cash collected (₹)",
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.Decimal,
                     imeAction = ImeAction.Done,
                 ),
-                supportingText = {
-                    Text(
-                        if (upiOrder) "Passenger pays ${Money.rupees(expectedPaise)} digitally via UPI — leave 0"
-                        else "Expected ${Money.rupees(expectedPaise)}",
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-            Button(
-                onClick = onDeliver,
-                enabled = !busy && code.length == 4,
-                colors = ButtonDefaults.buttonColors(),
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(20.dp),
-                    )
+                supportingText = if (upiOrder) {
+                    "Passenger pays ${Money.rupees(expectedPaise)} digitally via UPI — leave 0"
                 } else {
-                    Text("Mark delivered", fontWeight = FontWeight.Bold)
-                }
-            }
+                    "Expected ${Money.rupees(expectedPaise)}"
+                },
+            )
+            RailBiteButton(
+                text = "Mark delivered",
+                onClick = onDeliver,
+                enabled = code.length == 4,
+                busy = busy,
+            )
         }
     }
 }
@@ -446,19 +449,19 @@ private fun DeliveryCard(
 @Composable
 private fun DeliveredCard(order: Order, busy: Boolean, onDone: () -> Unit) {
     Card(
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(20.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(Space.xl),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(Space.s),
         ) {
-            Text("✅", style = MaterialTheme.typography.displayMedium)
             Text(
                 "Delivered",
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
             Text(
@@ -473,25 +476,27 @@ private fun DeliveredCard(order: Order, busy: Boolean, onDone: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
             )
-            Spacer(Modifier.height(4.dp))
-            Button(
+            RailBiteButton(
+                text = "Done",
                 onClick = onDone,
-                enabled = !busy,
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().height(50.dp),
-            ) {
-                Text("Done", fontWeight = FontWeight.Bold)
-            }
+                busy = busy,
+            )
         }
     }
 }
 
 @Composable
 private fun InfoCard(text: String) {
-    Card(shape = RoundedCornerShape(14.dp)) {
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Text(
             text,
-            Modifier.fillMaxWidth().padding(16.dp),
+            Modifier
+                .fillMaxWidth()
+                .padding(Space.m),
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )

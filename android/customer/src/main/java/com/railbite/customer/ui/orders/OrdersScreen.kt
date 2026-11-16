@@ -2,26 +2,18 @@
 
 package com.railbite.customer.ui.orders
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -29,16 +21,16 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.ui.EmptyState
 import com.railbite.core.ui.LoadingSkeleton
 import com.railbite.core.ui.StatusChip
+import com.railbite.core.ui.theme.Space
 import com.railbite.core.util.Money
 import com.railbite.core.util.Statuses
 import java.time.Instant
@@ -57,24 +49,26 @@ fun OrdersScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("My Orders", fontWeight = FontWeight.Bold) },
-            )
+            TopAppBar(title = { Text("My orders") })
         },
     ) { padding ->
         Column(Modifier.padding(padding)) {
             if (state.loading) {
-                LoadingSkeleton(rows = 4, modifier = Modifier.padding(16.dp))
+                LoadingSkeleton(rows = 4, modifier = Modifier.padding(Space.screen))
             } else if (state.active.isEmpty() && state.past.isEmpty() && state.relayPending.isEmpty()) {
                 EmptyState(
-                    emoji = "📋",
                     title = "No orders yet",
                     subtitle = "Your orders will show up here after you place one",
                 )
             } else {
                 LazyColumn(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    contentPadding = PaddingValues(
+                        start = Space.screen,
+                        end = Space.screen,
+                        top = Space.s,
+                        bottom = Space.xl,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(Space.s),
                 ) {
                     if (state.relayPending.isNotEmpty()) {
                         item { SectionHeader("Sent via Bluetooth relay") }
@@ -98,26 +92,23 @@ fun OrdersScreen(
 @Composable
 private fun RelayOrderCard(p: com.railbite.core.mesh.MeshOrderPayload) {
     Card(
-        shape = RoundedCornerShape(14.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "Coach ${p.coach} · Seat ${p.berth}",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        "Bluetooth relay — syncs to the cloud automatically when you have internet",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+        Column(
+            Modifier.padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
+            Column {
                 Text(
-                    "📶",
-                    style = MaterialTheme.typography.headlineMedium,
+                    "Coach ${p.coach} · Seat ${p.berth}",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                Text(
+                    "Bluetooth relay — syncs to the cloud automatically when you have internet",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
             p.items.forEach { item ->
@@ -126,16 +117,23 @@ private fun RelayOrderCard(p: com.railbite.core.mesh.MeshOrderPayload) {
                     Text(Money.rupees(item.unitPricePaise * item.qty), style = MaterialTheme.typography.bodyMedium)
                 }
             }
-            HorizontalDivider()
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Delivery code", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(p.deliveryCode, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, letterSpacing = 4.sp)
+                    Text(
+                        "Delivery code",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        p.deliveryCode,
+                        style = MaterialTheme.typography.headlineSmall,
+                        letterSpacing = 4.sp,
+                    )
                 }
                 Text(
                     Money.rupees(p.totalPaise),
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.ExtraBold,
                     style = MaterialTheme.typography.titleLarge,
                 )
             }
@@ -147,8 +145,7 @@ private fun RelayOrderCard(p: com.railbite.core.mesh.MeshOrderPayload) {
 private fun SectionHeader(title: String) {
     Text(
         title,
-        style = MaterialTheme.typography.titleMedium,
-        fontWeight = FontWeight.Bold,
+        style = MaterialTheme.typography.labelLarge,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
@@ -157,16 +154,19 @@ private fun SectionHeader(title: String) {
 private fun OrderCard(order: com.railbite.core.model.Order, onOpenOrder: (String) -> Unit) {
     Card(
         onClick = { onOpenOrder(order.id) },
-        shape = RoundedCornerShape(14.dp),
+        shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(
+            Modifier.padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(
                         "#${order.id.take(8)}",
                         style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
                     )
                     Text(
                         formatTime(order.createdAt) + " · " + order.coach + " · Seat " + order.berth,
@@ -192,7 +192,7 @@ private fun OrderCard(order: com.railbite.core.model.Order, onOpenOrder: (String
                 )
                 Text(
                     Money.rupees(order.totalPaise),
-                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.titleSmall,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }

@@ -14,6 +14,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,10 +24,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,13 +44,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.railbite.core.model.MqttOrderAlert
+import com.railbite.core.ui.components.RailBiteButton
+import com.railbite.core.ui.theme.Metrics
+import com.railbite.core.ui.theme.RailBiteTheme
+import com.railbite.core.ui.theme.Space
 import com.railbite.core.util.Money
 import com.railbite.picker.MainActivity
 import kotlinx.coroutines.delay
@@ -57,7 +60,7 @@ import kotlinx.coroutines.flow.collect
 import java.time.Instant
 
 /**
- * Full-screen, high-contrast new-order alert:
+ * Full-screen, high-contrast new-order alert on a dark (#141414) surface:
  * rings loudly (ALARM stream) + vibrates until the picker ACCEPTs / REJECTs or 60 s elapse
  * (timeout counts as reject; the server re-dispatches to another picker).
  * Launched over the lock screen via a full-screen intent.
@@ -93,18 +96,22 @@ class AlertActivity : ComponentActivity() {
         runCatching { buzz() }
 
         setContent {
-            AlertScreen(
-                activityContext = this,
-                onFinished = { finish() },
-                onAccepted = { orderId ->
-                    startActivity(
-                        Intent(this, MainActivity::class.java)
-                            .putExtra(MainActivity.EXTRA_OPEN_ORDER_ID, orderId)
-                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-                    )
-                    finish()
-                },
-            )
+            // The alert screen is always dark — it must cut through daylight
+            // and be unmistakable at a glance, regardless of system theme.
+            RailBiteTheme(darkTheme = true) {
+                AlertScreen(
+                    activityContext = this,
+                    onFinished = { finish() },
+                    onAccepted = { orderId ->
+                        startActivity(
+                            Intent(this, MainActivity::class.java)
+                                .putExtra(MainActivity.EXTRA_OPEN_ORDER_ID, orderId)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+                        )
+                        finish()
+                    },
+                )
+            }
         }
     }
 
@@ -172,31 +179,35 @@ private fun AlertScreen(
         label = "countdown",
     )
 
-    Surface(color = Color(0xFF7A1010), contentColor = Color.White, modifier = Modifier.fillMaxSize()) {
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        contentColor = MaterialTheme.colorScheme.onBackground,
+        modifier = Modifier.fillMaxSize(),
+    ) {
         Column(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(20.dp),
+                .padding(Space.screen),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(Space.m),
         ) {
             Text(
-                "🚨 NEW ORDER",
+                "New order",
                 style = MaterialTheme.typography.headlineLarge,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White,
             )
 
             val a = alert
             if (a == null) {
                 Text(
                     message ?: "No pending alert",
-                    color = Color.White,
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.titleMedium,
                 )
-                OutlinedButton(onClick = onFinished) { Text("Close") }
+                OutlinedButton(
+                    onClick = onFinished,
+                    modifier = Modifier.heightIn(min = Metrics.tapTarget),
+                ) { Text("Close") }
                 return@Surface
             }
 
@@ -205,11 +216,17 @@ private fun AlertScreen(
             OrderDetailsCard(a)
 
             message?.let {
-                Text(it, color = Color(0xFFFFD54F), fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.tertiary,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textAlign = TextAlign.Center,
+                )
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(14.dp), modifier = Modifier.fillMaxWidth()) {
-                Button(
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s), modifier = Modifier.fillMaxWidth()) {
+                RailBiteButton(
+                    text = "Accept",
                     onClick = {
                         if (!busy) {
                             busy = true
@@ -235,15 +252,9 @@ private fun AlertScreen(
                         }
                     },
                     enabled = !busy,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF0E8A4B),
-                        contentColor = Color.White,
-                    ),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.weight(1f).height(72.dp),
-                ) {
-                    Text("ACCEPT", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
-                }
+                    busy = busy,
+                    modifier = Modifier.weight(1f),
+                )
                 OutlinedButton(
                     onClick = {
                         if (!busy) {
@@ -254,16 +265,21 @@ private fun AlertScreen(
                         }
                     },
                     enabled = !busy,
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White),
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.weight(1f).height(72.dp),
+                    shape = MaterialTheme.shapes.small,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurfaceVariant),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.onBackground,
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = Metrics.primaryButtonHeight),
                 ) {
-                    Text("REJECT", fontWeight = FontWeight.ExtraBold, style = MaterialTheme.typography.titleLarge)
+                    Text("Reject", style = MaterialTheme.typography.labelLarge)
                 }
             }
             Text(
                 "Ignoring this alert for ${AlertActivity.COUNTDOWN_SECONDS} s counts as a reject.",
-                color = Color.White.copy(alpha = 0.8f),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium,
                 textAlign = TextAlign.Center,
             )
@@ -277,14 +293,18 @@ private fun CountdownRing(secondsLeft: Int, animatedProgress: Float) {
         Canvas(Modifier.size(110.dp)) {
             val stroke = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
             drawArc(
-                color = Color.White.copy(alpha = 0.25f),
+                color = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.25f),
                 startAngle = -90f,
                 sweepAngle = 360f,
                 useCenter = false,
                 style = stroke,
             )
             drawArc(
-                color = if (secondsLeft <= 10) Color(0xFFFFD54F) else Color(0xFFB9F6CA),
+                color = if (secondsLeft <= 10) {
+                    com.railbite.core.ui.theme.Palette.Warning
+                } else {
+                    com.railbite.core.ui.theme.Palette.DarkAccent
+                },
                 startAngle = -90f,
                 sweepAngle = 360f * animatedProgress,
                 useCenter = false,
@@ -293,60 +313,59 @@ private fun CountdownRing(secondsLeft: Int, animatedProgress: Float) {
         }
         Text(
             "${secondsLeft}s",
-            color = Color.White,
             style = MaterialTheme.typography.headlineSmall,
-            fontWeight = FontWeight.ExtraBold,
         )
     }
 }
 
 @Composable
 private fun OrderDetailsCard(a: MqttOrderAlert) {
-    Surface(color = Color.White, shape = RoundedCornerShape(18.dp)) {
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+        shape = MaterialTheme.shapes.medium,
+    ) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
+                .padding(Space.m),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
         ) {
             Text(
                 "Coach ${a.coach} · Seat ${a.berth}",
-                color = Color(0xFF7A1010),
                 style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.ExtraBold,
             )
             Text(
                 "PNR ${a.pnr} · ${a.diners} diner${if (a.diners == 1) "" else "s"}" +
-                    if (a.verified == 0) " · ⚠ unverified" else "",
-                color = Color(0xFF5D5D5D),
+                    if (a.verified == 0) " · unverified" else "",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyLarge,
             )
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(Space.xs))
             a.items.forEach { item ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("${item.qty} × ${item.name}", color = Color(0xFF222222))
-                    Text(Money.rupees(item.unitPricePaise * item.qty), color = Color(0xFF222222))
+                    Text("${item.qty} × ${item.name}", style = MaterialTheme.typography.bodyLarge)
+                    Text(Money.rupees(item.unitPricePaise * item.qty), style = MaterialTheme.typography.bodyLarge)
                 }
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(Space.xs))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
                     if (a.paymentMode == "UPI_QUEUED") "UPI — passenger pays digitally" else "Cash on delivery",
-                    color = Color(0xFF5D5D5D),
-                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
                     Money.rupees(a.total),
-                    color = Color(0xFF0E8A4B),
-                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.primary,
                     style = MaterialTheme.typography.titleLarge,
                 )
             }
             if (a.attempt > 1) {
                 Text(
                     "Attempt ${a.attempt} — other pickers declined",
-                    color = Color(0xFFB00020),
+                    color = MaterialTheme.colorScheme.error,
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }

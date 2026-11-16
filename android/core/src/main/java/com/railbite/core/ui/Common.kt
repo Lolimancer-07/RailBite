@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -29,8 +28,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.railbite.core.ui.theme.Radii
+import com.railbite.core.ui.theme.Space
 
-/** Green/red FOT-style veg marker. */
+/** Green/red FOT-style veg marker (functional food-safety semantics). */
 @Composable
 fun VegDot(isVeg: Boolean, modifier: Modifier = Modifier) {
     val color = if (isVeg) Color(0xFF0E8A4B) else Color(0xFFC62828)
@@ -45,7 +46,7 @@ fun VegDot(isVeg: Boolean, modifier: Modifier = Modifier) {
     )
 }
 
-/** Simple pulsing placeholder blocks used while the menu/orders load. */
+/** Flat pulsing placeholder blocks used while the menu/orders load. */
 @Composable
 fun LoadingSkeleton(rows: Int = 6, modifier: Modifier = Modifier) {
     var visible by remember { mutableStateOf(false) }
@@ -60,23 +61,23 @@ fun LoadingSkeleton(rows: Int = 6, modifier: Modifier = Modifier) {
         animationSpec = tween(500),
         label = "skeleton",
     )
-    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier = modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(Space.m)) {
         repeat(rows) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.m)) {
                 Box(
                     Modifier
                         .size(64.dp)
                         .alpha(alpha)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(MaterialTheme.shapes.large)
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 )
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(
                         Modifier
                             .fillMaxWidth(0.55f)
                             .height(16.dp)
                             .alpha(alpha)
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(MaterialTheme.shapes.small)
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
                     Box(
@@ -84,7 +85,7 @@ fun LoadingSkeleton(rows: Int = 6, modifier: Modifier = Modifier) {
                             .fillMaxWidth(0.3f)
                             .height(14.dp)
                             .alpha(alpha)
-                            .clip(RoundedCornerShape(6.dp))
+                            .clip(MaterialTheme.shapes.small)
                             .background(MaterialTheme.colorScheme.surfaceVariant),
                     )
                 }
@@ -93,18 +94,17 @@ fun LoadingSkeleton(rows: Int = 6, modifier: Modifier = Modifier) {
     }
 }
 
-/** Empty-state card with a big emoji + message. */
+/** Empty state: flat, centred, no decoration. */
 @Composable
-fun EmptyState(emoji: String, title: String, subtitle: String, modifier: Modifier = Modifier) {
+fun EmptyState(title: String, subtitle: String, modifier: Modifier = Modifier) {
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(32.dp),
+            .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(Space.xs),
     ) {
-        Text(emoji, style = MaterialTheme.typography.headlineLarge)
-        Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(title, style = MaterialTheme.typography.titleLarge)
         Text(
             subtitle,
             style = MaterialTheme.typography.bodyMedium,
@@ -118,7 +118,7 @@ fun EmptyState(emoji: String, title: String, subtitle: String, modifier: Modifie
 fun StatusChip(text: String, color: Color, modifier: Modifier = Modifier) {
     Box(
         modifier
-            .clip(RoundedCornerShape(50))
+            .clip(MaterialTheme.shapes.small)
             .background(color.copy(alpha = 0.14f))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
@@ -126,41 +126,33 @@ fun StatusChip(text: String, color: Color, modifier: Modifier = Modifier) {
             text,
             style = MaterialTheme.typography.labelMedium,
             color = color,
-            fontWeight = FontWeight.Bold,
         )
     }
 }
 
 @Composable
 fun SectionSpacer() {
-    Spacer(Modifier.height(12.dp))
+    Spacer(Modifier.height(Space.s))
 }
 
-/** Friendly emoji per menu item (no image assets, nothing copyrighted). */
-object ProductEmoji {
-    private val byName = listOf<Pair<String, String>>(
-        "chai" to "☕", "coffee" to "☕", "cola" to "🥤",
-        "buttermilk" to "🥛", "water" to "💧", "biscuit" to "🍪",
-        "parle" to "🍪", "chips" to "🍟", "samosa" to "🥟",
-        "puff" to "🥐", "sandwich" to "🥪", "biryani" to "🍛",
-        "noodles" to "🍜", "frankie" to "🌯", "roll" to "🌯",
-        "bonda" to "🍘", "cake" to "🍰", "thali" to "🍱",
-        "paratha" to "🫓", "omelette" to "🍳", "juice" to "🧃",
-    )
-
-    private val byCategory = mapOf(
-        "BEVERAGES" to "☕",
-        "WATER" to "💧",
-        "SNACKS" to "🍪",
-        "MEALS" to "🍱",
-        "BREAKFAST" to "🥐",
-    )
-
-    fun forItem(name: String, category: String): String {
-        val n = name.lowercase()
-        for ((needle, emoji) in byName) {
-            if (n.contains(needle)) return emoji
-        }
-        return byCategory[category.uppercase()] ?: "🍽️"
+/**
+ * Flat product tile placeholder until real photos exist: a surface-tinted
+ * rounded square with the item's first letter. No emoji, no gradients.
+ * Size it through [modifier] (e.g. Modifier.size(56.dp) or fillMaxWidth).
+ */
+@Composable
+fun ProductThumb(name: String, modifier: Modifier = Modifier) {
+    val letter: String = name.trim().uppercase().firstOrNull()?.takeIf { it.isLetter() }?.toString() ?: "•"
+    Box(
+        modifier
+            .clip(MaterialTheme.shapes.large)
+            .background(MaterialTheme.colorScheme.surfaceVariant),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            letter,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -13,27 +14,30 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.railbite.core.ui.components.ErrorBar
+import com.railbite.core.ui.components.RailBiteButton
+import com.railbite.core.ui.components.RailBiteSecondaryButton
+import com.railbite.core.ui.components.RailBiteTextField
+import com.railbite.core.ui.components.iconDescription
+import com.railbite.core.ui.theme.Metrics
+import com.railbite.core.ui.theme.Space
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -61,60 +65,67 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(Space.screen),
+            verticalArrangement = Arrangement.spacedBy(Space.m),
         ) {
-            Text("Server", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
+            Text("Server", style = MaterialTheme.typography.titleMedium)
+            RailBiteTextField(
                 value = state.serverUrl,
                 onValueChange = vm::setServerUrl,
-                label = { Text("Custom server URL (advanced, optional)") },
-                placeholder = { Text("https://railbite-api.onrender.com") },
-                singleLine = true,
-                // Uri type + no autocorrect: keyboards otherwise "fix" http:// to https://,
-                // which breaks plain-HTTP local servers (e.g. a laptop on the same Wi-Fi).
+                label = "Custom server URL (advanced, optional)",
+                hint = "https://railbite-api.onrender.com",
                 keyboardOptions = KeyboardOptions(
+                    // Uri type + no autocorrect: keyboards otherwise "fix" http:// to https://,
+                    // which breaks plain-HTTP local servers (e.g. a laptop on the same Wi-Fi).
                     keyboardType = KeyboardType.Uri,
                     autoCorrect = false,
                 ),
-                modifier = Modifier.fillMaxWidth(),
             )
             Text(
                 "Leave empty to use the built-in RailBite cloud server.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = vm::testConnection) { Text("Test connection") }
-                Spacer(Modifier.width(12.dp))
-                when (val t = state.testState) {
-                    is OnboardingLikeTestState.Testing -> Text("Testing…", style = MaterialTheme.typography.bodyMedium)
-                    is OnboardingLikeTestState.Ok -> Text(
-                        "Connected ✓",
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    is OnboardingLikeTestState.Fail -> Text(t.message, color = MaterialTheme.colorScheme.error)
-                    else -> {}
-                }
+            RailBiteSecondaryButton(text = "Test connection", onClick = vm::testConnection)
+            when (val t = state.testState) {
+                is OnboardingLikeTestState.Testing -> Text(
+                    "Testing…",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                is OnboardingLikeTestState.Ok -> Text(
+                    "Connected",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                is OnboardingLikeTestState.Fail -> ErrorBar(t.message)
+                else -> {}
             }
 
-            HorizontalDivider()
-            Text("Offline relay (Bluetooth mesh)", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            Text("Offline relay (Bluetooth mesh)", style = MaterialTheme.typography.titleMedium)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = Metrics.tapTarget),
+            ) {
                 Text(
-                    if (state.meshRelayEnabled) "ON" else "OFF",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = if (state.meshRelayEnabled) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    "Bluetooth relay",
+                    style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f),
                 )
-                androidx.compose.material3.Switch(
+                Switch(
                     checked = state.meshRelayEnabled,
                     onCheckedChange = vm::setMeshRelayEnabled,
                 )
             }
+            Text(
+                if (state.meshRelayEnabled) "On" else "Off",
+                style = MaterialTheme.typography.labelLarge,
+                color = if (state.meshRelayEnabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text(
                 "When the cloud can't be reached and this is ON, orders travel phone-to-phone " +
                     "over Bluetooth and ring at the pantry phone like any other order. They " +
@@ -125,62 +136,71 @@ fun SettingsScreen(
             if (state.meshPending > 0) {
                 Text(
                     "${state.meshPending} relay order${if (state.meshPending == 1) "" else "s"} waiting for internet",
-                    fontWeight = FontWeight.SemiBold,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedButton(onClick = vm::syncMeshOrders, enabled = !state.meshSyncing) {
-                    Text(if (state.meshSyncing) "Syncing…" else "Sync now")
-                }
-                Spacer(Modifier.width(12.dp))
-                state.meshSyncMessage?.let {
-                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
-                }
+            RailBiteSecondaryButton(
+                text = if (state.meshSyncing) "Syncing…" else "Sync now",
+                onClick = vm::syncMeshOrders,
+                enabled = !state.meshSyncing,
+            )
+            state.meshSyncMessage?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
 
-            HorizontalDivider()
-            Text("Your seat", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            OutlinedTextField(
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            Text("Your seat", style = MaterialTheme.typography.titleMedium)
+            RailBiteTextField(
                 value = state.pnr,
                 onValueChange = vm::setPnr,
-                label = { Text("PNR (10 digits)") },
+                label = "PNR (10 digits)",
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+                RailBiteTextField(
                     value = state.coach,
                     onValueChange = vm::setCoach,
-                    label = { Text("Coach") },
-                    singleLine = true,
+                    label = "Coach",
                     modifier = Modifier.weight(1f),
                 )
-                OutlinedTextField(
+                RailBiteTextField(
                     value = state.berth,
                     onValueChange = vm::setBerth,
-                    label = { Text("Seat") },
+                    label = "Seat",
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
                     modifier = Modifier.weight(1f),
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Diners", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.width(12.dp))
-                IconButton(onClick = { vm.setDiners(state.diners - 1) }) { Text("−") }
-                Text("${state.diners}", fontWeight = FontWeight.Bold)
-                IconButton(onClick = { vm.setDiners(state.diners + 1) }) { Text("+") }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.heightIn(min = Metrics.tapTarget),
+            ) {
+                Text("Diners", style = MaterialTheme.typography.bodyLarge)
+                Spacer(Modifier.width(Space.s))
+                IconButton(
+                    onClick = { vm.setDiners(state.diners - 1) },
+                    modifier = Modifier.iconDescription("Fewer diners"),
+                ) { Text("−", style = MaterialTheme.typography.titleMedium) }
+                Text("${state.diners}", style = MaterialTheme.typography.titleMedium)
+                IconButton(
+                    onClick = { vm.setDiners(state.diners + 1) },
+                    modifier = Modifier.iconDescription("More diners"),
+                ) { Text("+", style = MaterialTheme.typography.titleMedium) }
             }
 
-            state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            Button(onClick = { vm.save(onBack) }, modifier = Modifier.fillMaxWidth()) {
-                Text(if (state.saved) "Saved ✓" else "Save", fontWeight = FontWeight.Bold)
-            }
+            state.error?.let { ErrorBar(it) }
+            RailBiteButton(
+                text = if (state.saved) "Saved" else "Save",
+                onClick = { vm.save(onBack) },
+            )
             Text(
                 "The RailBite cloud server is built into the app. Override it above only for testing (e.g. a laptop on the same Wi-Fi).",
-                style = MaterialTheme.typography.bodyMedium,
+                style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

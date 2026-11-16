@@ -22,8 +22,8 @@ android {
         applicationId = "com.railbite.customer"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 4
+        versionName = "1.2.0"
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$defaultServerUrl\"")
     }
 

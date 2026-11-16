@@ -365,3 +365,40 @@ AlertActivity; fresh-order dispatch latency measured at ~1.4 s.
   (`PickerFCM: FCM order dispatch data message received: {type=ORDER_DISPATCH, paymentMode=UPI_QUEUED, …}`).
   MQTT remains the primary in-app alert path; FCM adds the backgrounded/wake-up channel.
 
+
+## Phase 16: Full UI redesign — token-based theme across both Android apps ✅
+
+**Completed:** 2026-11-16 (builds+tests green; versions bumped to 1.2.0/vc4 both apps)
+
+**Token foundation (core module, single source of truth):**
+- `core/ui/theme/Tokens.kt` — palette (ink `#141414`, bg `#FFFFFF`, surface `#F4F4F2`, divider
+  `#E6E5E0`, muted `#5F6368`, accent `#0B6B3A` actions-only, warning `#F5B942` on dark), type sizes
+  (12/14/15/17/24/34/44 only), 4/8 spacing scale (8/12/16/20/24, screen padding 20), radii
+  (8 controls / 10 cards / 12 tiles), metrics (44 dp tap target, 56 dp primary button).
+- `Type.kt` — Inter variable font (`core/src/main/res/font/inter_var.ttf`, 400/500/600/700 via
+  `FontVariation`, `@OptIn(ExperimentalTextApi)`); every M3 role maps onto the seven sizes.
+- `Theme.kt` — light/dark schemes derived from tokens (one accent hue; secondary mirrors accent),
+  shapes 8/10/12. Public `RailBiteTheme` API unchanged (source-safe for both apps).
+- `core/ui/components/Ui.kt` — `RailBiteButton` (56 dp), `RailBiteSecondaryButton` (≥44 dp),
+  `RailBiteTextField` (labelled; keyboardActions/minLines supported), `RailBiteCheckboxRow`,
+  `RailBiteFilterChip` (≥44 dp), `RailBiteStepper` (44 dp controls), `SkeletonBlock/Row`,
+  `EmptyState`, `ErrorBar`, `SectionTitle`, `iconDescription`.
+- `core/ui/Common.kt` — `ProductEmoji` removed → flat `ProductThumb` (letter placeholder; real
+  photos slot in later); emoji-free `EmptyState(title, subtitle)`.
+
+**Customer app (7 screens):** Tracking (delivery code 44 sp at top + exact hint "Tell this to the
+person at your seat. Do not share it earlier."), Home (flat product tiles, ₹ prices via
+`Money.rupees` — also fixed a double-₹ bug, ≥44 dp ADD/stepper, no emoji), Cart, Orders, Report,
+Settings, Onboarding. All VM/cart/MQTT/state wiring untouched.
+
+**Picker app (7 screens):** AlertActivity (forced dark `#141414` via `RailBiteTheme(darkTheme=true)`,
+warning-amber countdown ≤10 s, 56 dp Accept), OrderProgress (packing checklist rows ≥44 dp, deliver
+flow still code-before-cash), Home, Login, CashSummary, Permissions, MeshHandover. Notification
+title de-emojified.
+
+**Rules enforced:** no gradients/decoration shadows/emoji; no hard-coded colours/sizes in screens
+(tokens only); content descriptions on icon-only controls; loading skeletons + empty states +
+human-readable errors everywhere; no business-logic changes.
+
+**Validation:** `:core:assembleRelease`, `:customer:assembleRelease`, `:customer:test`,
+`:picker:assembleRelease`, `:picker:test` — all green (sequential single-invocation builds).

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -15,10 +16,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -32,14 +30,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.api.ApiClient
+import com.railbite.core.ui.components.ErrorBar
+import com.railbite.core.ui.components.RailBiteButton
+import com.railbite.core.ui.components.RailBiteTextField
+import com.railbite.core.ui.theme.Space
 import kotlinx.coroutines.launch
 
 /** Staff ID + PIN login (demo accounts c1-c4, PIN 1234). Token is stored in DataStore. */
@@ -61,41 +61,32 @@ fun LoginScreen(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(28.dp),
+                .padding(Space.xl),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
-            Text("🚂", style = MaterialTheme.typography.displayLarge)
-            Spacer(Modifier.height(8.dp))
-            Text(
-                "RailBite Picker",
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.ExtraBold,
-            )
+            Text("RailBite Picker", style = MaterialTheme.typography.headlineMedium)
             Text(
                 "Train pantry staff",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Spacer(Modifier.height(28.dp))
+            Spacer(Modifier.height(Space.xl))
 
-            OutlinedTextField(
+            RailBiteTextField(
                 value = state.staffId,
                 onValueChange = vm::onStaffIdChange,
-                label = { Text("Staff ID") },
-                placeholder = { Text("c1") },
-                singleLine = true,
+                label = "Staff ID",
+                hint = "c1",
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-                modifier = Modifier.fillMaxWidth(),
             )
-            Spacer(Modifier.height(12.dp))
-            OutlinedTextField(
+            Spacer(Modifier.height(Space.s))
+            RailBiteTextField(
                 value = state.pin,
                 onValueChange = vm::onPinChange,
-                label = { Text("4-digit PIN") },
-                placeholder = { Text("••••") },
-                singleLine = true,
+                label = "4-digit PIN",
+                hint = "••••",
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(
                     keyboardType = KeyboardType.NumberPassword,
@@ -105,49 +96,32 @@ fun LoginScreen(
                     focus.clearFocus()
                     vm.submit(onLoggedIn)
                 }),
-                modifier = Modifier.fillMaxWidth(),
             )
 
             state.error?.let {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    it,
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center,
-                )
+                Spacer(Modifier.height(Space.s))
+                ErrorBar(it)
             }
 
-            Spacer(Modifier.height(20.dp))
-            Button(
+            Spacer(Modifier.height(Space.m))
+            RailBiteButton(
+                text = "Sign in",
                 onClick = {
                     focus.clearFocus()
                     vm.submit(onLoggedIn)
                 },
                 enabled = !state.busy && state.staffId.isNotBlank() && state.pin.length == 4,
-                colors = ButtonDefaults.buttonColors(),
-                shape = MaterialTheme.shapes.medium,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-            ) {
-                if (state.busy) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.width(20.dp).height(20.dp),
-                    )
-                } else {
-                    Text("Sign in", fontWeight = FontWeight.Bold)
-                }
-            }
+                busy = state.busy,
+            )
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Space.m))
             Text(
                 "Demo logins: c1, c2, c3 or c4 · PIN 1234",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(Space.xl))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center,
@@ -161,9 +135,8 @@ fun LoginScreen(
                     if (serverUrl.isNotBlank()) serverUrl else "Not configured",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.SemiBold,
                 )
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(Space.xs))
                 TextButton(onClick = {
                     editServerUrl = serverUrl
                     showServerDialog = true
@@ -175,20 +148,19 @@ fun LoginScreen(
             if (showServerDialog) {
                 AlertDialog(
                     onDismissRequest = { showServerDialog = false },
-                    title = { Text("Server Address") },
+                    title = { Text("Server address") },
                     text = {
                         Column {
                             Text(
                                 "Custom server URL — leave empty to use the built-in RailBite cloud server (railbite-api.onrender.com):",
                                 style = MaterialTheme.typography.bodySmall,
                             )
-                            Spacer(Modifier.height(12.dp))
-                            OutlinedTextField(
+                            Spacer(Modifier.height(Space.s))
+                            RailBiteTextField(
                                 value = editServerUrl,
                                 onValueChange = { editServerUrl = it },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth(),
-                                placeholder = { Text("https://railbite-api.onrender.com") },
+                                label = "Server URL",
+                                hint = "https://railbite-api.onrender.com",
                                 keyboardOptions = KeyboardOptions(
                                     keyboardType = KeyboardType.Uri,
                                     autoCorrect = false,
@@ -197,18 +169,24 @@ fun LoginScreen(
                         }
                     },
                     confirmButton = {
-                        Button(onClick = {
-                            val normalized = ApiClient.normalizeServerUrl(editServerUrl)
-                            scope.launch {
-                                graph.settings.setServerUrl(normalized)
-                            }
-                            showServerDialog = false
-                        }) {
+                        Button(
+                            onClick = {
+                                val normalized = ApiClient.normalizeServerUrl(editServerUrl)
+                                scope.launch {
+                                    graph.settings.setServerUrl(normalized)
+                                }
+                                showServerDialog = false
+                            },
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) {
                             Text("Save")
                         }
                     },
                     dismissButton = {
-                        TextButton(onClick = { showServerDialog = false }) {
+                        TextButton(
+                            onClick = { showServerDialog = false },
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) {
                             Text("Cancel")
                         }
                     },

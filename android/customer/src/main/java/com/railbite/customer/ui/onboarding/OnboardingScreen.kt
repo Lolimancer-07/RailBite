@@ -11,14 +11,11 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,11 +23,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.railbite.customer.CustomerGraph
+import com.railbite.core.ui.components.ErrorBar
+import com.railbite.core.ui.components.RailBiteButton
+import com.railbite.core.ui.components.RailBiteTextField
+import com.railbite.core.ui.components.iconDescription
+import com.railbite.core.ui.theme.Space
 
 @Composable
 fun OnboardingScreen(
@@ -45,27 +44,24 @@ fun OnboardingScreen(
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
             .imePadding()
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(Space.xl),
+        verticalArrangement = Arrangement.spacedBy(Space.m),
     ) {
-        Spacer(Modifier.height(24.dp))
-        Text("🚆", style = MaterialTheme.typography.headlineLarge)
-        Text("RailBite", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.ExtraBold)
+        Spacer(Modifier.height(Space.xl))
+        Text("RailBite", style = MaterialTheme.typography.headlineLarge)
         Text(
             "Food delivered to your train seat in ~10 minutes.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Space.xs))
 
         SeatCard(vm = vm, state = state, onDone = { vm.complete(onDone) })
 
         ConnectionStatus(state = state, onRetry = vm::testConnection)
 
-        state.error?.let {
-            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
-        }
-        Spacer(Modifier.height(24.dp))
+        state.error?.let { ErrorBar(it) }
+        Spacer(Modifier.height(Space.xl))
     }
 }
 
@@ -75,48 +71,63 @@ private fun SeatCard(
     state: OnboardingUiState,
     onDone: () -> Unit,
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Your seat", style = MaterialTheme.typography.titleLarge)
-            OutlinedTextField(
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(
+            Modifier.padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.s),
+        ) {
+            Text("Your seat", style = MaterialTheme.typography.titleMedium)
+            RailBiteTextField(
                 value = state.pnr,
                 onValueChange = vm::setPnr,
-                label = { Text("PNR (10 digits)") },
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                label = "PNR (10 digits)",
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                ),
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
+            Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
+                RailBiteTextField(
                     value = state.coach,
                     onValueChange = vm::setCoach,
-                    label = { Text("Coach") },
-                    placeholder = { Text("B2") },
-                    singleLine = true,
+                    label = "Coach",
+                    hint = "B2",
                     modifier = Modifier.weight(1f),
                 )
-                OutlinedTextField(
+                RailBiteTextField(
                     value = state.berth,
                     onValueChange = vm::setBerth,
-                    label = { Text("Seat") },
-                    placeholder = { Text("14") },
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    singleLine = true,
+                    label = "Seat",
+                    hint = "14",
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                    ),
                     modifier = Modifier.weight(1f),
                 )
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("Diners", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.width(12.dp))
-                TextButton(onClick = { vm.setDiners(state.diners - 1) }) { Text("−") }
-                Text("${state.diners}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                TextButton(onClick = { vm.setDiners(state.diners + 1) }) { Text("+") }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Space.xs),
+            ) {
+                Text("Diners", style = MaterialTheme.typography.bodyLarge)
+                TextButton(
+                    onClick = { vm.setDiners(state.diners - 1) },
+                    modifier = Modifier.iconDescription("Fewer diners"),
+                ) { Text("−", style = MaterialTheme.typography.titleMedium) }
+                Text("${state.diners}", style = MaterialTheme.typography.titleMedium)
+                TextButton(
+                    onClick = { vm.setDiners(state.diners + 1) },
+                    modifier = Modifier.iconDescription("More diners"),
+                ) { Text("+", style = MaterialTheme.typography.titleMedium) }
             }
-            Button(
+            RailBiteButton(
+                text = "Start ordering",
                 onClick = onDone,
                 enabled = state.seatValid,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text("Start ordering") }
+            )
         }
     }
 }
@@ -124,11 +135,18 @@ private fun SeatCard(
 @Composable
 private fun ConnectionStatus(state: OnboardingUiState, onRetry: () -> Unit) {
     // Non-blocking: the server is baked into the app; this is purely informational.
-    Row(verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+    ) {
         when (state.connection) {
             OnboardingUiState.Connection.Testing -> {
-                CircularProgressIndicator(Modifier.height(18.dp).width(18.dp), strokeWidth = 2.dp)
-                Spacer(Modifier.width(10.dp))
+                CircularProgressIndicator(
+                    Modifier
+                        .height(18.dp)
+                        .width(18.dp),
+                    strokeWidth = 2.dp,
+                )
                 Text(
                     "Checking the RailBite cloud…",
                     style = MaterialTheme.typography.bodyMedium,
@@ -136,10 +154,9 @@ private fun ConnectionStatus(state: OnboardingUiState, onRetry: () -> Unit) {
                 )
             }
             OnboardingUiState.Connection.Ok -> Text(
-                "RailBite cloud connected ✓",
+                "RailBite cloud connected",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.primary,
-                fontWeight = FontWeight.SemiBold,
             )
             is OnboardingUiState.Connection.Fail -> {
                 Text(
