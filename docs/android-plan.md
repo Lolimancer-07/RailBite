@@ -217,6 +217,13 @@ Firebase project `railbite-7748b` (app `com.railbite.picker`):
   message received`), payload carried `paymentMode=UPI_QUEUED`. MQTT (wss, `rb/TRIP_001/captain/<id>/alerts`)
   stays the primary foreground alert channel; FCM covers backgrounded/wake-up delivery.
 
+- **Auto-arm on app open (1.1.1, versionCode 3)** — field-observed on the Redmi (2026-11-16): app restarts
+  left the picker silently disarmed (local ONLINE flag false) while the server kept dispatching to it (seeded
+  staff rows are `online=1`, so the server-side gate alone doesn't reflect the device). `MainActivity` now
+  starts the alert foreground service on every app open when a staff login exists; the in-app ONLINE/OFFLINE
+  toggle still controls the session (it stops the service and marks the staff offline server-side, which is
+  what actually gates dispatch). Opening the picker = returning to shift.
+
 ## Risks
 
 - **Java 27 system JVM** is too new for Gradle/AGP → pinned local JDK 17 (`org.gradle.java.home`),

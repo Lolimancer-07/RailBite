@@ -76,10 +76,16 @@ private fun PickerRoot(
     val graph = remember { PickerGraph(container) }
     val start by graph.startDestination.collectAsState()
 
-    // Restart the foreground service if the picker was ONLINE when the app closed
+    // Arm the alert service on every app open when a staff login exists.
+    // Field-observed (2026-11-16): app restarts left the picker silently disarmed
+    // (local ONLINE flag false) while the server kept dispatching to it — the seeded
+    // staff rows are online=1, so the server-side gate alone can't reflect the device.
+    // Opening the picker means returning to shift; the in-app ONLINE/OFFLINE toggle
+    // still controls the current session (it stops the service and marks the staff
+    // offline server-side, which is what actually gates dispatch).
     LaunchedEffect(Unit) {
-        val online = container.settings.online.first()
-        if (online) {
+        val staffId = container.settings.staffId.first()
+        if (staffId.isNotBlank()) {
             androidx.core.content.ContextCompat.startForegroundService(
                 container.app,
                 Intent(container.app, RailBiteAlertService::class.java)
