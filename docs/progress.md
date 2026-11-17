@@ -441,3 +441,42 @@ live offline demo (airplane mode → BT only → order → accept → handover �
 **Security cleanup (Nov 17) — complete:** exposed Render API key revoked in the dashboard ✅.
 Firebase service-account key rotated ✅ — new key swapped into `GOOGLE_SERVICE_ACCOUNT_JSON` on
 Render, verified live (cloud test order → FCM alert rang on the picker phone), old key deleted.
+
+## Phase 18: Mesh return channel + retry loop — "the mesh never misses" ✅
+
+**Field finding (2026-11-17):** offline placement worked (order reached the relay UI with
+code/items, no server errors) but the picker app never rang offline. Root causes: a single
+8 s advertise burst (the pantry app has to be scanning at that exact second), the picker app
+silently never got the "Nearby devices" runtime permission (no startup request — the gateway
+start was skipped without any UI hint), and MIUI killing swiped apps. Also: the mesh was
+one-way, so the passenger's timeline sat on "Order placed" until the internet returned.
+
+**Change (17 files, both apps 1.2.2 / versionCode 6):**
+- Protocol: `MeshPacket.type` (ORDER | STATUS) + `tag`; dedup is type-aware — statuses
+  dedupe per orderId+state so ACCEPTED announcements can't swallow DELIVERED ones
+  (`MeshRelay.dedupKey`). `MeshRelay.isSink` is now packet-type aware: pantry sinks
+  ORDER packets, passenger sinks STATUS packets; both forward the rest.
+- Customer: background duty cycle (`MeshOrderSender.startLoop`) — re-broadcasts pending
+  orders every cycle until the pantry confirms (or cloud sync lands) and listens for
+  STATUS announcements; started on app open, tracking screen and after each send.
+  A closed pantry app at the wrong second can no longer lose an order.
+- Customer tracking: `MeshEntry.ack` (monotonic ACCEPTED → OUT_FOR_DELIVERY → DELIVERED)
+  drives the timeline fully offline; banner/hint copy no longer mentions waiting for
+  internet; pay dialog suppressed for relayed orders (cash settled at handover).
+- Picker: startup Bluetooth permission request (same as customer) + gateway start right
+  after grant; home relay card shows honest state ("Allow Nearby devices…" /
+  "Listening over Bluetooth — works with no internet") and the toggle works offline.
+- Picker broadcasts outcomes over the mesh: ACCEPTED (alert accept), OUT_FOR_DELIVERY
+  (handover screen opens), DELIVERED (code verified), REJECTED (declined).
+- Dual-path (when online, COD + relay enabled): the cloud order is also burst over the
+  mesh for an instant nearby alert; the sink dedupes mesh copies against the cloud
+  (`ApiClient.orderExists`, ~1.5 s probe) so alerts never ring twice.
+- picker: `androidx.fragment:fragment-ktx:1.8.5` pinned — firebase-messaging left a
+  pre-1.3.0 fragment on the classpath and lintVital rejected registerForActivityResult.
+
+**Validation:** `:core:assembleRelease :core:test` (incl. new status-dedup test),
+`:picker:assembleRelease :picker:test`, `:customer:assembleRelease :customer:test` — all
+green sequentially. APKs installed on the Redmi (Success ×2).
+
+**Pending:** live offline re-test (open picker FIRST; airplane mode → BT on → order →
+accept → code → delivered → internet back) + GitHub push.
