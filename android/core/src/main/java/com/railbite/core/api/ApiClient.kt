@@ -70,4 +70,25 @@ object ApiClient {
     suspend fun testConnection(serverUrl: String): Health = withContext(Dispatchers.IO) {
         api(serverUrl).health()
     }
+
+    /**
+     * Fast reachability probe (~2 s) used to choose between the cloud and the
+     * Bluetooth relay without making the user wait out the full HTTP timeouts.
+     */
+    suspend fun reachable(serverUrl: String, timeoutMs: Long = 2_000L): Boolean =
+        withContext(Dispatchers.IO) {
+            val url = normalizeServerUrl(serverUrl)
+            if (url.isEmpty()) {
+                false
+            } else {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                    .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                    .build()
+                runCatching {
+                    val request = okhttp3.Request.Builder().url("$url/health").build()
+                    client.newCall(request).execute().use { it.isSuccessful }
+                }.getOrDefault(false)
+            }
+        }
 }

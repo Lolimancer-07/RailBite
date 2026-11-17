@@ -19,6 +19,8 @@ import java.util.UUID
 
 data class CartUiState(
     val placing: Boolean = false,
+    /** True while the cart is being burst over Bluetooth (offline placement). */
+    val sendingRelay: Boolean = false,
     val error: String? = null,
     /** COD (default) or UPI_QUEUED — picker still verifies handover by code either way. */
     val paymentMode: String = "COD",
@@ -62,6 +64,30 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
         val paymentMode = _state.value.paymentMode
         _state.update { it.copy(placing = true, error = null) }
         viewModelScope.launch {
+            val relayPossible = paymentMode == "COD" &&
+                container.settings.meshRelayEnabled.first() &&
+                container.meshTransport.requiredPermissions().isEmpty()
+
+            // ~2s probe: with a dead train Wi-Fi go straight to the Bluetooth relay
+            // instead of letting the cart sit through the network timeouts.
+            val online = runCatching {
+                ApiClient.reachable(container.settings.serverUrl.first())
+            }.getOrDefault(false)
+            if (!online && relayPossible) {
+                _state.update { it.copy(sendingRelay = true) }
+                val relayed = relayViaMesh(linesMap)
+                if (relayed != null) {
+                    container.cart.clear()
+                    _state.update {
+                        it.copy(placing = false, sendingRelay = false, error = null, relayedCode = relayed.deliveryCode)
+                    }
+                    onPlaced(relayed.orderId)
+                    return@launch
+                }
+                _state.update { it.copy(sendingRelay = false) }
+                // Bluetooth burst failed (radio off?) — let the cloud attempt run below.
+            }
+
             try {
                 val seat = container.settings.let { s ->
                     com.railbite.core.data.SeatSnapshot.Seat(
@@ -93,13 +119,24 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                 // (offline feature — the cloud remains the default transport). Relay
                 // orders settle in cash at handover, so UPI selections stay online-only.
                 if (paymentMode == "COD" && isUnreachable(e) && container.settings.meshRelayEnabled.first()) {
+                    _state.update { it.copy(sendingRelay = true) }
                     val relayed = relayViaMesh(linesMap)
                     if (relayed != null) {
                         container.cart.clear()
                         _state.update {
-                            it.copy(placing = false, error = null, relayedCode = relayed.deliveryCode)
+                            it.copy(placing = false, sendingRelay = false, error = null, relayedCode = relayed.deliveryCode)
                         }
                         onPlaced(relayed.orderId)
+                        return@launch
+                    }
+                    _state.update { it.copy(sendingRelay = false) }
+                    if (container.meshTransport.requiredPermissions().isNotEmpty()) {
+                        _state.update {
+                            it.copy(
+                                placing = false,
+                                error = "Allow Nearby devices (Bluetooth) in system settings to order offline",
+                            )
+                        }
                         return@launch
                     }
                 }

@@ -81,10 +81,11 @@ fun CartScreen(
                         verticalArrangement = Arrangement.spacedBy(Space.xs),
                     ) {
                         RailBiteButton(
-                            text = if (state.paymentMode == "UPI_QUEUED") {
-                                "Place order · ${Money.rupees(grandTotal)} (Pay via UPI)"
-                            } else {
-                                "Place order · ${Money.rupees(grandTotal)} (Cash on delivery)"
+                            text = when {
+                                state.sendingRelay -> "Sending over Bluetooth…"
+                                state.paymentMode == "UPI_QUEUED" ->
+                                    "Place order · ${Money.rupees(grandTotal)} (Pay via UPI)"
+                                else -> "Place order · ${Money.rupees(grandTotal)} (Cash on delivery)"
                             },
                             onClick = { vm.placeOrder(onPlaced) },
                             busy = state.placing,

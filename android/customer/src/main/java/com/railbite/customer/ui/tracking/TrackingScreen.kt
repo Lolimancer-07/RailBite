@@ -120,8 +120,13 @@ fun TrackingScreen(
                 val order = state.order
                 val code = order?.deliveryCode
 
-                // Delivery code first, large, per the handover contract.
-                if (state.status == Statuses.OUT_FOR_DELIVERY && code != null) {
+                if (state.relayed) {
+                    RelayBanner()
+                    // The passenger's own code rides in the mesh payload — show it
+                    // immediately; the picker verifies it at handover exactly as for
+                    // cloud orders.
+                    state.relayCode?.let { DeliveryCodeBlock(it, relayHint) }
+                } else if (state.status == Statuses.OUT_FOR_DELIVERY && code != null) {
                     DeliveryCodeBlock(code)
                 }
 
@@ -134,11 +139,19 @@ fun TrackingScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Text(
-                    "ETA ~${state.etaMin ?: 10} mins",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+                if (state.relayed) {
+                    Text(
+                        "Waiting for a picker nearby",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                } else {
+                    Text(
+                        "ETA ~${state.etaMin ?: 10} mins",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
 
                 // UPI_QUEUED orders: pay (or re-open) the UPI app until delivered.
                 if (order?.paymentMode == "UPI_QUEUED" && state.status != Statuses.DELIVERED) {
@@ -153,8 +166,12 @@ fun TrackingScreen(
                     )
                 }
 
-                ItemsCard(state.order)
-                if (state.status == Statuses.PLACED || state.status == Statuses.ASSIGNED) {
+                if (state.relayed) {
+                    RelayItemsCard(state.relayItems, state.relayTotalPaise)
+                } else {
+                    ItemsCard(state.order)
+                }
+                if ((state.status == Statuses.PLACED || state.status == Statuses.ASSIGNED) && !state.relayed) {
                     RailBiteSecondaryButton("Cancel order", vm::cancelOrder)
                 }
                 RailBiteSecondaryButton("Report a problem", onReport)
@@ -190,12 +207,69 @@ fun TrackingScreen(
     }
 }
 
+/** Offline hint shown instead of the standard "do not share earlier" handover line. */
+private val relayHint = "Show this to the picker when the food reaches your seat."
+
+/** Offline relay state: the order is on the mesh, waiting for a pantry phone nearby. */
+@Composable
+private fun RelayBanner() {
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    ) {
+        Text(
+            "Sent over Bluetooth — waiting for a picker nearby. It syncs to the cloud " +
+                "automatically once you have internet again.",
+            modifier = Modifier.padding(Space.s),
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+/** Items + total for a relayed order, straight from the local mesh payload. */
+@Composable
+private fun RelayItemsCard(
+    items: List<com.railbite.core.mesh.MeshOrderPayload.Item>,
+    totalPaise: Int,
+) {
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(Modifier.padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+            Text("Items", style = MaterialTheme.typography.titleMedium)
+            items.forEach { item ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
+                    ProductThumb(item.name, Modifier.size(56.dp))
+                    Text(
+                        "${item.qty} × ${item.name}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                    )
+                    Text(Money.rupees(item.unitPricePaise * item.qty), style = MaterialTheme.typography.titleSmall)
+                }
+            }
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Total (COD)", style = MaterialTheme.typography.titleSmall)
+                Text(
+                    Money.rupees(totalPaise),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+}
+
 /**
  * The delivery code: large at the top of the order screen, with the
  * handover hint. Shown while the order is out for delivery.
  */
 @Composable
-private fun DeliveryCodeBlock(code: String) {
+private fun DeliveryCodeBlock(code: String, hint: String = "Tell this to the person at your seat. Do not share it earlier.") {
     Card(
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -217,7 +291,7 @@ private fun DeliveryCodeBlock(code: String) {
                 color = MaterialTheme.colorScheme.onBackground,
             )
             Text(
-                "Tell this to the person at your seat. Do not share it earlier.",
+                hint,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

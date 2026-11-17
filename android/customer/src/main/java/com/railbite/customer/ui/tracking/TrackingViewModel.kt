@@ -26,6 +26,11 @@ data class TrackingUiState(
     val cashConfirming: Boolean = false,
     val cashConfirmed: Boolean = false,
     val cancelled: Boolean = false,
+    /** Order travelling over the Bluetooth relay — exists only in the local outbox. */
+    val relayed: Boolean = false,
+    val relayCode: String? = null,
+    val relayItems: List<com.railbite.core.mesh.MeshOrderPayload.Item> = emptyList(),
+    val relayTotalPaise: Int = 0,
 ) {
     val delivered: Boolean get() = status == Statuses.DELIVERED
     val failed: Boolean get() = Statuses.isFailed(status)
@@ -41,6 +46,9 @@ class TrackingViewModel(
 
     private var pollJob: Job? = null
 
+    /** True while the order exists only in the local Bluetooth-relay outbox. */
+    private var relayMode = false
+
     init {
         // MQTT live updates (retained message gives instant current status)
         viewModelScope.launch {
@@ -48,12 +56,46 @@ class TrackingViewModel(
         }
         // REST fallback poll every 3 s while the order is active
         pollJob = viewModelScope.launch {
+            // Bluetooth-relay orders live in the local outbox until the cloud is
+            // reachable: follow the outbox (no cloud polling, no error noise) and
+            // switch to the normal cloud timeline as soon as the sync lands.
+            val entry = runCatching { container.meshSender.relayEntry(orderId) }.getOrNull()
+            if (entry != null && entry.state != "SYNCED") {
+                relayMode = true
+                showRelay(entry)
+                while (isActive && relayMode) {
+                    delay(5_000)
+                    val now = runCatching { container.meshSender.relayEntry(orderId) }.getOrNull()
+                    if (now == null || now.state == "SYNCED") {
+                        // The server has the order now — normal cloud timeline takes over.
+                        relayMode = false
+                        _state.update { it.copy(relayed = false) }
+                        break
+                    }
+                }
+            }
             while (isActive) {
                 loadOnce()
                 val st = _state.value.status
                 if (Statuses.isTerminal(st)) break
                 delay(3_000)
             }
+        }
+    }
+
+    /** Local offline snapshot for a relayed order (the payload carries code + items). */
+    private fun showRelay(entry: com.railbite.core.mesh.MeshEntry) {
+        val payload = com.railbite.core.mesh.MeshOrderPayload.decode(entry.payload)
+        _state.update { s ->
+            s.copy(
+                loading = false,
+                error = null,
+                relayed = true,
+                relayCode = payload?.deliveryCode,
+                relayItems = payload?.items.orEmpty(),
+                relayTotalPaise = payload?.totalPaise ?: 0,
+                status = Statuses.PLACED,
+            )
         }
     }
 

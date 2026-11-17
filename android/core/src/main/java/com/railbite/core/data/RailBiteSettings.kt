@@ -64,8 +64,10 @@ class RailBiteSettings(
     val pickerOrderId: Flow<String> = context.dataStore.data.map { it[Keys.pickerOrderId] ?: "" }
     val howItWorksShown: Flow<Boolean> = context.dataStore.data.map { it[Keys.howItWorksShown] ?: false }
     val meshNodeId: Flow<String> = context.dataStore.data.map { it[Keys.meshNodeId] ?: "" }
-    val meshRelayEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshRelayEnabled] ?: false }
-    val meshSinkEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshSinkEnabled] ?: false }
+    // Mesh relay/sink default ON: offline ordering over Bluetooth is the product's
+    // core field scenario — the toggles remain in Settings as explicit opt-outs.
+    val meshRelayEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshRelayEnabled] ?: true }
+    val meshSinkEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshSinkEnabled] ?: true }
     val menuCache: Flow<String> = context.dataStore.data.map { it[Keys.menuCache] ?: "" }
 
     /** Stable mesh node id (origin/hops identity) — generated on first use. */

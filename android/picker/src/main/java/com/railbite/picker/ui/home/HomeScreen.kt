@@ -2,6 +2,7 @@
 
 package com.railbite.picker.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -135,8 +137,12 @@ fun HomeScreen(
                             )
                         }
                     }
-                    if (state.error != null) {
-                        ErrorBar(state.error!!)
+                    when {
+                        state.error == null -> {}
+                        // Alert pipeline is up while the cloud is unreachable: orders
+                        // still arrive over the Bluetooth relay — reassure, don't alarm.
+                        state.serviceRunning -> OfflineRelayChip()
+                        else -> ErrorBar(state.error!!)
                     }
                 }
             }
@@ -201,6 +207,26 @@ fun HomeScreen(
                 )
             }
         }
+    }
+}
+
+/** Quiet inline state for "no internet, but the Bluetooth relay is listening". */
+@Composable
+private fun OfflineRelayChip() {
+    Surface(
+        shape = MaterialTheme.shapes.small,
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = Space.xs),
+    ) {
+        Text(
+            "Cloud unreachable — listening over Bluetooth",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = Space.s, vertical = Space.xs),
+        )
     }
 }
 

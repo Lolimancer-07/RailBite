@@ -68,6 +68,10 @@ open class MeshEntryStore(context: Context, private val key: Preferences.Key<Str
         write(list)
     }
 
+    /** Finds one entry by the order UUID embedded in its payload JSON. */
+    suspend fun entryOf(orderId: String): MeshEntry? =
+        all().firstOrNull { it.payload.contains("\"orderId\":\"$orderId\"") }
+
     private suspend fun write(list: List<MeshEntry>) = ds.edit {
         it[key] = MeshStore.json.encodeToString(ListSerializer(MeshEntry.serializer()), list)
     }

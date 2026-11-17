@@ -83,6 +83,17 @@ class RailBiteAlertService : Service() {
     private suspend fun connectAlerts() {
         val app = application as com.railbite.picker.RailBitePickerApp
         val container = app.container
+
+        // Bluetooth relay (offline feature) runs regardless of cloud state — with the
+        // train Wi-Fi dead it is the only path orders can take. MeshGateway.start() is
+        // idempotent, so repeated service starts are safe; permissions are checked so
+        // the scan never throws.
+        if (container.settings.meshSinkEnabled.first() &&
+            container.meshTransport.requiredPermissions().isEmpty()
+        ) {
+            runCatching { container.meshGateway.start() }
+        }
+
         val serverUrl = container.settings.serverUrl.first()
         val staffId = container.settings.staffId.first()
         if (serverUrl.isBlank() || staffId.isBlank()) return
@@ -107,11 +118,6 @@ class RailBiteAlertService : Service() {
                 }
             }
             c.start()
-
-            // Bluetooth relay (offline feature): also listen for mesh orders while ONLINE.
-            if (container.settings.meshSinkEnabled.first()) {
-                container.meshGateway.start()
-            }
         }
     }
 

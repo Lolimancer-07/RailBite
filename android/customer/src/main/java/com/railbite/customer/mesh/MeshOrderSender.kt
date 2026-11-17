@@ -40,6 +40,9 @@ class MeshOrderSender(private val container: AppContainer) {
         _pending.value = outbox.pendingCount()
     }
 
+    /** Tracking's offline view: the queued relay order, if any, with its live state. */
+    suspend fun relayEntry(orderId: String): MeshEntry? = outbox.entryOf(orderId)
+
     /** Builds the payload, queues it, and bursts it over the mesh. Returns the code. */
     suspend fun send(
         orderId: String,
