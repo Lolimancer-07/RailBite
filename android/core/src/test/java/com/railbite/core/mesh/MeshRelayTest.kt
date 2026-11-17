@@ -107,6 +107,27 @@ class MeshRelayTest {
     }
 
     @Test
+    fun `status - announcements dedupe per state, not per order`() {
+        val phone = Rake().node(5)
+        fun statusPacket(orderId: String, state: String) = MeshCodec.sign(
+            MeshPacket(
+                type = MeshPacket.TYPE_STATUS, tag = state,
+                orderId = orderId, ttl = 5, origin = "OTHER",
+                payloadB64 = MeshCodec.b64Encode(state.toByteArray()),
+                hmac8 = "", hops = listOf("NODE_1"),
+            ),
+            secret,
+        )
+
+        assertTrue(phone.relay.receive(statusPacket("st-1", MeshPacket.STATUS_ACCEPTED)))
+        // Same announcement repeated (pantry re-bursts) → deduped…
+        assertFalse(phone.relay.receive(statusPacket("st-1", MeshPacket.STATUS_ACCEPTED)))
+        // …but the next state for the SAME order must still travel, or the passenger's
+        // timeline would freeze on ACCEPTED forever.
+        assertTrue(phone.relay.receive(statusPacket("st-1", MeshPacket.STATUS_DELIVERED)))
+    }
+
+    @Test
     fun `loop - phone drops packets it originated or already relayed`() {
         val rake = Rake()
         val phone = rake.node(7)

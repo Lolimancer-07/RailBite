@@ -466,6 +466,10 @@ private fun MeshRelayCard(container: com.railbite.picker.PickerContainer, online
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
         missingPerms = container.meshTransport.requiredPermissions()
+        // Just granted: start the sink immediately, no app relaunch needed.
+        if (missingPerms.isEmpty() && sinkEnabled) {
+            scope.launch { runCatching { container.meshGateway.start() } }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -496,9 +500,11 @@ private fun MeshRelayCard(container: com.railbite.picker.PickerContainer, online
                 Column(Modifier.weight(1f)) {
                     Text("Bluetooth relay", style = MaterialTheme.typography.titleMedium)
                     Text(
-                        if (online && sinkEnabled) "Listening for offline orders nearby"
-                        else if (online) "Off — enable below to accept offline orders"
-                        else "Active while you are ONLINE",
+                        when {
+                            !sinkEnabled -> "Off — enable below to accept offline orders"
+                            missingPerms.isNotEmpty() -> "Allow Nearby devices to accept offline orders"
+                            else -> "Listening over Bluetooth — works with no internet"
+                        },
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -508,14 +514,16 @@ private fun MeshRelayCard(container: com.railbite.picker.PickerContainer, online
                     onCheckedChange = { enabled ->
                         scope.launch {
                             container.settings.setMeshSinkEnabled(enabled)
-                            if (online && enabled) {
+                            if (enabled) {
+                                // The sink runs regardless of cloud state — with the train
+                                // Wi-Fi dead the mesh is the only path orders can take.
                                 val missing = container.meshTransport.requiredPermissions()
                                 if (missing.isEmpty() && container.meshTransport.isUsable()) {
                                     container.meshGateway.start()
                                 } else {
                                     permissionLauncher.launch(missing.toTypedArray())
                                 }
-                            } else if (!enabled) {
+                            } else {
                                 container.meshGateway.stop()
                             }
                         }

@@ -6,23 +6,28 @@ package com.railbite.core.mesh
  *
  * Pipeline per received packet (same order as the simulator):
  *  1. HMAC check — drop tampered/foreign packets before they touch any state
- *  2. Dedup — LRU cache keyed by orderId (max [MeshPacket.DEDUP_CACHE_MAX]); broadcast
- *     storms and repeated re-broadcasts die here
+ *  2. Dedup — LRU cache keyed by [MeshPacket.dedupKey] (orders by orderId, statuses by
+ *     orderId+state; max [MeshPacket.DEDUP_CACHE_MAX]) — broadcast storms and repeated
+ *     re-broadcasts die here
  *  3. Loop prevention — drop when this node originated the packet or already relayed it
  *  4. TTL — decrement once per relaying phone; drop at <= 0
- *  5. Sink check — the pantry phone consumes the packet and stops flooding
+ *  5. Sink check — packet-type aware: the pantry phone consumes ORDER packets, the
+ *     passenger phone consumes STATUS packets; consumers stop flooding
  *  6. Forward — re-broadcast with ttl-1 and this node appended to hops
  */
 class MeshRelay(
     /** Stable id of this phone on the mesh (settings-generated UUID). */
     private val selfId: String,
-    /** True for the pantry phone: consumes packets instead of relaying them. */
-    private val isSink: () -> Boolean,
+    /**
+     * Packet-type aware: true for packets this phone consumes instead of relaying.
+     * The pantry phone sinks ORDER packets; the passenger phone sinks STATUS packets.
+     */
+    private val isSink: (MeshPacket) -> Boolean,
     /** Shared trip secret used for the hmac8 integrity tag. */
     private val hmacSecret: () -> String,
     /** Re-broadcast callback (transport responsibility: chunk + advertise). */
     private val forward: (MeshPacket) -> Unit,
-    /** Sink callback: a packet reached the pantry phone. */
+    /** Sink callback: a packet this phone consumes reached it. */
     private val onSink: (MeshPacket) -> Unit,
 ) {
 
@@ -41,13 +46,13 @@ class MeshRelay(
     fun receive(packet: MeshPacket): Boolean {
         if (packet.v != 1 || !MeshCodec.verify(packet, hmacSecret())) return false
 
-        // 2. Deduplication (LRU cache, max 500)
-        if (lruCache.contains(packet.orderId)) return false
+        // 2. Deduplication (LRU cache, max 500) — keyed per packet type/state
+        if (lruCache.contains(packet.dedupKey)) return false
         if (lruCache.size >= MeshPacket.DEDUP_CACHE_MAX) {
             val oldest = lruCache.firstOrNull() ?: return false
             lruCache.remove(oldest)
         }
-        lruCache.add(packet.orderId)
+        lruCache.add(packet.dedupKey)
 
         // 3. Loop prevention
         if (packet.origin == selfId || packet.hops.contains(selfId)) return false
@@ -56,8 +61,8 @@ class MeshRelay(
         val newTtl = packet.ttl - 1
         if (newTtl <= 0) return false
 
-        // 5. Sink check — pantry phone records and stops
-        if (isSink()) {
+        // 5. Sink check — type-aware consumer records it and stops flooding
+        if (isSink(packet)) {
             onSink(packet)
             return true
         }

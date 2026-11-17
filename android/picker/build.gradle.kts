@@ -24,8 +24,8 @@ android {
         applicationId = "com.railbite.picker"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.2.1"
+        versionCode = 6
+        versionName = "1.2.2"
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"$defaultServerUrl\"")
     }
 
@@ -94,6 +94,9 @@ dependencies {
     implementation(libs.compose.material.icons)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
+    // registerForActivityResult on an Activity requires fragment >= 1.3.0 on the
+    // classpath; firebase-messaging drags an older one in and lintVital fails.
+    implementation(libs.androidx.fragment.ktx)
 
     implementation(platform(libs.firebase.bom))
     implementation(libs.firebase.messaging)

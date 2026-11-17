@@ -46,6 +46,10 @@ class MainActivity : ComponentActivity() {
         // Relay orders placed offline flow to the cloud on their own: sync at app
         // open and again whenever connectivity returns.
         syncScope.launch { runCatching { container.meshSender.syncPending() } }
+        // Mesh duty cycle: re-broadcast pending orders until the pantry confirms and
+        // listen for its STATUS announcements (accepted / delivered) — runs for the
+        // app's lifetime and idles itself when nothing is in flight.
+        container.meshSender.startLoop()
         registerConnectivitySync()
 
         // The Bluetooth relay is on by default — make sure the runtime permissions

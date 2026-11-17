@@ -38,6 +38,11 @@ data class MeshEntry(
     val attempts: Int = 0,
     /** Picker-only: 4-digit delivery code entered at handover (for cloud replay). */
     val deliveryCode: String? = null,
+    /**
+     * Customer-only: pantry outcome heard over the mesh ([MeshPacket.STATUS_*]) —
+     * drives the passenger's offline timeline. Never downgrades once set.
+     */
+    val ack: String? = null,
 )
 
 open class MeshEntryStore(context: Context, private val key: Preferences.Key<String>) {
@@ -71,6 +76,32 @@ open class MeshEntryStore(context: Context, private val key: Preferences.Key<Str
     /** Finds one entry by the order UUID embedded in its payload JSON. */
     suspend fun entryOf(orderId: String): MeshEntry? =
         all().firstOrNull { it.payload.contains("\"orderId\":\"$orderId\"") }
+
+    /** Monotonic rank of pantry outcomes — late ACCEPTED never overwrites DELIVERED. */
+    private val ackRank = mapOf(
+        MeshPacket.STATUS_ACCEPTED to 1,
+        MeshPacket.STATUS_OUT_FOR_DELIVERY to 2,
+        MeshPacket.STATUS_DELIVERED to 3,
+        MeshPacket.STATUS_REJECTED to 3,
+    )
+
+    /**
+     * Records a pantry outcome heard over the mesh ([MeshPacket.STATUS_*]). Only
+     * upgrades — the pantry repeats its announcements, and a delayed ACCEPTED must
+     * not pull a DELIVERED order backwards.
+     */
+    suspend fun markAck(orderId: String, ack: String) {
+        val newRank = ackRank[ack] ?: return
+        val marker = "\"orderId\":\"$orderId\""
+        write(all().map {
+            if (!it.payload.contains(marker)) {
+                it
+            } else {
+                val old = ackRank[it.ack] ?: 0
+                if (newRank > old) it.copy(ack = ack) else it
+            }
+        })
+    }
 
     private suspend fun write(list: List<MeshEntry>) = ds.edit {
         it[key] = MeshStore.json.encodeToString(ListSerializer(MeshEntry.serializer()), list)

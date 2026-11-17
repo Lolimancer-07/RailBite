@@ -56,9 +56,15 @@ class MeshGateway(
             val selfId = app.container.settings.ensureMeshNodeId()
             relay = MeshRelay(
                 selfId = selfId,
-                isSink = { true },
+                // The pantry phone consumes ORDER packets; STATUS packets (pantry
+                // outcomes for passengers) are forwarded to help them flood the rake.
+                isSink = { it.type == MeshPacket.TYPE_ORDER },
                 hmacSecret = { MeshTrip.SECRET },
-                forward = { /* sink never forwards */ },
+                forward = { pkt ->
+                    // Not a sink for this packet type — re-broadcast it with the
+                    // transport's burst (MeshRelay already decremented TTL/hops).
+                    transport.advertiseBurst(pkt, seconds = 5)
+                },
                 onSink = { packet -> handleSink(packet) },
             )
             transport.startScanning { packet ->
@@ -80,11 +86,57 @@ class MeshGateway(
         val bytes = MeshCodec.b64Decode(packet.payloadB64) ?: return
         val order = MeshOrderPayload.decode(String(bytes, Charsets.UTF_8)) ?: return
         scope.launch {
+            // Dual-path dedupe: when the passenger had internet, the order already
+            // exists in the cloud and its FCM alert already fired — don't ring twice.
+            if (cloudHasOrder(order.orderId)) {
+                Log.i(TAG, "mesh order ${order.orderId} already in cloud — duplicate alert skipped")
+                return@launch
+            }
             ledger.add(MeshEntry(payload = order.encode(), createdAt = order.createdAt))
+            val alert = order.toAlert()
+            AlertBus.post(alert, source = AlertBus.SOURCE_MESH)
+            Notifications.notifyAlert(app, alert)
         }
-        val alert = order.toAlert()
-        AlertBus.post(alert, source = AlertBus.SOURCE_MESH)
-        Notifications.notifyAlert(app, alert)
+    }
+
+    /**
+     * True when the cloud already knows this order. A ~1.5 s reachability probe
+     * first, so an offline sink alerts immediately instead of stalling on a
+     * doomed request.
+     */
+    private suspend fun cloudHasOrder(orderId: String): Boolean {
+        val serverUrl = app.container.settings.serverUrl.first()
+        if (serverUrl.isBlank()) return false
+        if (!ApiClient.reachable(serverUrl, timeoutMs = 1_500)) return false
+        return ApiClient.orderExists(serverUrl, orderId)
+    }
+
+    /**
+     * Broadcasts a pantry outcome over the mesh so the passenger's timeline
+     * advances fully offline ([MeshPacket.TYPE_STATUS] floods back through relay
+     * phones; the passenger's app consumes them and maps them onto the timeline).
+     * Called on accept / handover open / delivery.
+     */
+    fun broadcastStatus(orderId: String, state: String) {
+        scope.launch {
+            val packet = MeshCodec.sign(
+                MeshPacket(
+                    type = MeshPacket.TYPE_STATUS,
+                    orderId = orderId,
+                    ttl = MeshPacket.INITIAL_TTL,
+                    origin = app.container.settings.ensureMeshNodeId(),
+                    payloadB64 = MeshCodec.b64Encode(state.toByteArray()),
+                    tag = state,
+                    hmac8 = "",
+                ),
+                MeshTrip.SECRET,
+            )
+            // Two spaced bursts: BLE delivery is opportunistic, hearing it once is enough.
+            repeat(2) { i ->
+                transport.advertiseBurst(packet, seconds = 6)
+                if (i == 0) delay(10_000)
+            }
+        }
     }
 
     private fun MeshOrderPayload.toAlert() = MqttOrderAlert(

@@ -110,9 +110,24 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                     source = "WIFI",
                 )
                 val order = container.client.api().createOrder(body)
+                // Dual-path: the cloud has the order, but also burst it over the
+                // Bluetooth mesh so a nearby pantry phone rings instantly — no
+                // waiting on FCM (the pantry phone dedupes the mesh copy).
+                val totalPaise = container.cart.totalPaise
                 container.cart.clear()
                 container.settings.setActiveOrderId(order.id)
                 container.mqtt.watchOrder(order.id)
+                if (relayPossible) {
+                    container.meshSender.burstOnly(
+                        orderId = order.id,
+                        pnr = seat.pnr,
+                        coach = seat.coach,
+                        berth = seat.berth,
+                        diners = seat.diners,
+                        items = meshItems(linesMap),
+                        totalPaise = totalPaise,
+                    )
+                }
                 onPlaced(order.id)
             } catch (e: Exception) {
                 // Cloud path failed: fall back to the Bluetooth relay when enabled
@@ -157,26 +172,30 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
         val seat = com.railbite.core.data.SeatSnapshot(container.settings).seat.first() ?: return null
         return try {
             val orderId = UUID.randomUUID().toString()
-            val items = linesMap.values.map {
-                com.railbite.core.mesh.MeshOrderPayload.Item(
-                    itemId = it.item.id,
-                    name = it.item.name,
-                    qty = it.qty,
-                    unitPricePaise = it.item.mrpPaise,
-                )
-            }
             container.meshSender.send(
                 orderId = orderId,
                 pnr = seat.pnr,
                 coach = seat.coach,
                 berth = seat.berth,
                 diners = seat.diners,
-                items = items,
+                items = meshItems(linesMap),
                 totalPaise = container.cart.totalPaise,
             )
         } catch (_: Exception) {
             null // no BT hardware/permission — surface the normal cloud error instead
         }
+    }
+
+    /** Cart snapshot for mesh payloads: names/prices ride along for offline alerts. */
+    private fun meshItems(
+        linesMap: Map<String, com.railbite.customer.CartLine>,
+    ): List<com.railbite.core.mesh.MeshOrderPayload.Item> = linesMap.values.map {
+        com.railbite.core.mesh.MeshOrderPayload.Item(
+            itemId = it.item.id,
+            name = it.item.name,
+            qty = it.qty,
+            unitPricePaise = it.item.mrpPaise,
+        )
     }
 
     private fun isUnreachable(e: Exception): Boolean {

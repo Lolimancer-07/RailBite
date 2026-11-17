@@ -90,7 +90,8 @@ fun TrackingScreen(
 
     var showPayDialog by remember { mutableStateOf(false) }
     LaunchedEffect(state.delivered) {
-        if (state.delivered && !state.cashConfirmed) showPayDialog = true
+        // Relayed orders settle in cash at the offline handover — no cloud confirm.
+        if (state.delivered && !state.cashConfirmed && !state.relayed) showPayDialog = true
     }
 
     Scaffold(
@@ -141,7 +142,12 @@ fun TrackingScreen(
                 }
                 if (state.relayed) {
                     Text(
-                        "Waiting for a picker nearby",
+                        when (state.status) {
+                            Statuses.ACCEPTED -> "Picker accepted — packing your order"
+                            Statuses.OUT_FOR_DELIVERY -> "On the way to your seat"
+                            Statuses.DELIVERED -> "Delivered — cash handover complete"
+                            else -> "Waiting for a picker nearby — your order is on the mesh"
+                        },
                         style = MaterialTheme.typography.titleSmall,
                         color = MaterialTheme.colorScheme.primary,
                     )
@@ -210,7 +216,7 @@ fun TrackingScreen(
 /** Offline hint shown instead of the standard "do not share earlier" handover line. */
 private val relayHint = "Show this to the picker when the food reaches your seat."
 
-/** Offline relay state: the order is on the mesh, waiting for a pantry phone nearby. */
+/** Offline relay state: the order is on the mesh, updates travel the same way back. */
 @Composable
 private fun RelayBanner() {
     Card(
@@ -218,8 +224,8 @@ private fun RelayBanner() {
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
     ) {
         Text(
-            "Sent over Bluetooth — waiting for a picker nearby. It syncs to the cloud " +
-                "automatically once you have internet again.",
+            "Sent over Bluetooth. Your picker's updates arrive the same way — " +
+                "no internet needed.",
             modifier = Modifier.padding(Space.s),
             style = MaterialTheme.typography.titleSmall,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -342,7 +348,8 @@ private fun StatusBanner(state: TrackingUiState) {
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
         ) {
             Text(
-                "Delivered. Enjoy your food.",
+                if (state.relayed) "Delivered — cash handover complete offline."
+                else "Delivered. Enjoy your food.",
                 modifier = Modifier.padding(Space.s),
                 color = MaterialTheme.colorScheme.onPrimaryContainer,
                 style = MaterialTheme.typography.titleSmall,

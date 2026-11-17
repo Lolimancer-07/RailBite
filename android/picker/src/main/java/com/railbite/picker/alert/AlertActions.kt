@@ -27,6 +27,12 @@ object AlertActions {
         if (AlertBus.currentSource() == AlertBus.SOURCE_MESH) {
             scope.launch {
                 app.container.meshLedger.markState(alert.orderId, "ACCEPTED")
+                // Tell the passenger over the mesh: their timeline shows "accepted"
+                // within seconds, fully offline.
+                app.container.meshGateway.broadcastStatus(
+                    alert.orderId,
+                    com.railbite.core.mesh.MeshPacket.STATUS_ACCEPTED,
+                )
                 app.container.settings.setPickerOrderId(alert.orderId)
                 AlertBus.markAccepted(alert.orderId)
                 cancelAlertNotification(context)
@@ -61,8 +67,14 @@ object AlertActions {
     fun reject(context: Context, alert: MqttOrderAlert, onDone: () -> Unit) {
         val app = context.applicationContext as RailBitePickerApp
         if (AlertBus.currentSource() == AlertBus.SOURCE_MESH) {
-            // Rejected relay order: just forget it (the passenger's relay has no re-dispatch)
-            scope.launch { app.container.meshLedger.markState(alert.orderId, "REJECTED") }
+            // Rejected relay order: tell the passenger over the mesh, then forget it.
+            scope.launch {
+                app.container.meshLedger.markState(alert.orderId, "REJECTED")
+                app.container.meshGateway.broadcastStatus(
+                    alert.orderId,
+                    com.railbite.core.mesh.MeshPacket.STATUS_REJECTED,
+                )
+            }
             cancelAlertNotification(context)
             AlertBus.clear()
             onDone()

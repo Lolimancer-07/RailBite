@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
@@ -17,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.lifecycle.lifecycleScope
 import com.railbite.core.ui.theme.RailBiteTheme
 import com.railbite.picker.alert.AlertBus
 import com.railbite.picker.alert.Notifications
@@ -31,11 +33,35 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_ORDER_ID = "openOrderId"
     }
 
+    /**
+     * Bluetooth permissions gate the offline relay sink — ask once at first open.
+     * Field-observed (2026-11-17): without this, the mesh gateway silently never
+     * starts (scan needs Nearby devices on Android 12+) and relay orders never ring.
+     */
+    private val btPermissions = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { granted ->
+        val container = (application as? RailBitePickerApp)?.container ?: return@registerForActivityResult
+        if (granted.values.all { it }) {
+            // Permissions landed: (re)start the mesh sink immediately, no relaunch needed.
+            lifecycleScope.launch { runCatching { container.meshGateway.start() } }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val container = (application as RailBitePickerApp).container
         Notifications.createChannels(this)
+
+        // Make sure the mesh sink can actually scan before the first offline order.
+        lifecycleScope.launch {
+            val sinkOn = runCatching { container.settings.meshSinkEnabled.first() }.getOrDefault(false)
+            if (sinkOn) {
+                val missing = container.meshTransport.requiredPermissions()
+                if (missing.isNotEmpty()) btPermissions.launch(missing.toTypedArray())
+            }
+        }
 
         val openOrderId = intent?.getStringExtra(EXTRA_OPEN_ORDER_ID)
         setContent {

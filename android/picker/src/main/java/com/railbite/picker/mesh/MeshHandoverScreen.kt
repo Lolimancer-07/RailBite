@@ -57,6 +57,14 @@ fun MeshHandoverScreen(
         payload = container.meshLedger.all()
             .mapNotNull { MeshOrderPayload.decode(it.payload) }
             .firstOrNull { it.orderId == orderId }
+        // Opening the handover screen means the picker is heading to the seat —
+        // announce it so the passenger's timeline flips to "on the way" offline.
+        payload?.let {
+            container.meshGateway.broadcastStatus(
+                it.orderId,
+                com.railbite.core.mesh.MeshPacket.STATUS_OUT_FOR_DELIVERY,
+            )
+        }
     }
 
     val order = payload
@@ -140,9 +148,15 @@ fun MeshHandoverScreen(
                     }
                     scope.launch {
                         container.meshLedger.markState(order.orderId, "DELIVERED", deliveryCode = code)
+                        // Announce the completed handover: the passenger's timeline
+                        // reaches "Delivered" over Bluetooth, no internet needed.
+                        container.meshGateway.broadcastStatus(
+                            order.orderId,
+                            com.railbite.core.mesh.MeshPacket.STATUS_DELIVERED,
+                        )
                         container.settings.setPickerOrderId("")
                         done = true
-                        message = "Handover complete — will sync to the cloud automatically"
+                        message = "Handover complete — passenger notified over Bluetooth"
                     }
                 },
                 enabled = code.length == 4,

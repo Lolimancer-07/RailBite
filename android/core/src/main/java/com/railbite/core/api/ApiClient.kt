@@ -91,4 +91,26 @@ object ApiClient {
                 }.getOrDefault(false)
             }
         }
+
+    /**
+     * True when the cloud already knows this order (any state). Used by the mesh
+     * sink to drop duplicate alerts for dual-path orders — the passenger posted it
+     * online AND burst it over Bluetooth, so the cloud alert already fired.
+     */
+    suspend fun orderExists(serverUrl: String, orderId: String, timeoutMs: Long = 2_000L): Boolean =
+        withContext(Dispatchers.IO) {
+            val url = normalizeServerUrl(serverUrl)
+            if (url.isEmpty()) {
+                false
+            } else {
+                val client = OkHttpClient.Builder()
+                    .connectTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                    .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
+                    .build()
+                runCatching {
+                    val request = okhttp3.Request.Builder().url("$url/orders/$orderId").build()
+                    client.newCall(request).execute().use { it.isSuccessful }
+                }.getOrDefault(false)
+            }
+        }
 }

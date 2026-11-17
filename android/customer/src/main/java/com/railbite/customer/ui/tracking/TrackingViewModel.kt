@@ -57,20 +57,25 @@ class TrackingViewModel(
         // REST fallback poll every 3 s while the order is active
         pollJob = viewModelScope.launch {
             // Bluetooth-relay orders live in the local outbox until the cloud is
-            // reachable: follow the outbox (no cloud polling, no error noise) and
-            // switch to the normal cloud timeline as soon as the sync lands.
+            // reachable: follow the outbox (no cloud polling, no error noise). Pantry
+            // outcomes arrive over the same Bluetooth mesh and advance the timeline
+            // offline; when the order syncs to the cloud the normal timeline takes over.
             val entry = runCatching { container.meshSender.relayEntry(orderId) }.getOrNull()
             if (entry != null && entry.state != "SYNCED") {
                 relayMode = true
+                container.meshSender.startLoop() // re-broadcast + ack listening while visible
                 showRelay(entry)
                 while (isActive && relayMode) {
-                    delay(5_000)
+                    delay(4_000)
                     val now = runCatching { container.meshSender.relayEntry(orderId) }.getOrNull()
-                    if (now == null || now.state == "SYNCED") {
-                        // The server has the order now — normal cloud timeline takes over.
-                        relayMode = false
-                        _state.update { it.copy(relayed = false) }
-                        break
+                    when {
+                        now == null -> Unit // keep showing the local snapshot
+                        now.state == "SYNCED" -> {
+                            // The server has the order now — normal cloud timeline takes over.
+                            relayMode = false
+                            _state.update { it.copy(relayed = false) }
+                        }
+                        else -> showRelay(now)
                     }
                 }
             }
@@ -83,18 +88,31 @@ class TrackingViewModel(
         }
     }
 
-    /** Local offline snapshot for a relayed order (the payload carries code + items). */
+    /**
+     * Local offline snapshot; pantry outcomes heard over the mesh ([MeshEntry.ack])
+     * advance the timeline — placed → accepted → delivered, all without internet.
+     */
     private fun showRelay(entry: com.railbite.core.mesh.MeshEntry) {
         val payload = com.railbite.core.mesh.MeshOrderPayload.decode(entry.payload)
+        val status = when (entry.ack) {
+            com.railbite.core.mesh.MeshPacket.STATUS_ACCEPTED -> Statuses.ACCEPTED
+            com.railbite.core.mesh.MeshPacket.STATUS_OUT_FOR_DELIVERY -> Statuses.OUT_FOR_DELIVERY
+            com.railbite.core.mesh.MeshPacket.STATUS_DELIVERED -> Statuses.DELIVERED
+            else -> Statuses.PLACED
+        }
         _state.update { s ->
             s.copy(
                 loading = false,
-                error = null,
+                error = if (entry.ack == com.railbite.core.mesh.MeshPacket.STATUS_REJECTED) {
+                    "A picker declined the order — try another pantry nearby"
+                } else {
+                    null
+                },
                 relayed = true,
                 relayCode = payload?.deliveryCode,
                 relayItems = payload?.items.orEmpty(),
                 relayTotalPaise = payload?.totalPaise ?: 0,
-                status = Statuses.PLACED,
+                status = status,
             )
         }
     }
