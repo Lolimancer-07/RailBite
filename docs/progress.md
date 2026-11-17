@@ -438,6 +438,6 @@ installed on the Redmi (Success ×2).
 **Pending:** GitHub push of `1e9055a` (no credentials configured on this machine) and the
 live offline demo (airplane mode → BT only → order → accept → handover → sync).
 
-**Security cleanup (Nov 17):** exposed Render API key revoked in the dashboard ✅. Firebase
-service-account key rotation still pending (new key → swap `GOOGLE_SERVICE_ACCOUNT_JSON` on
-Render → verify FCM → delete old key).
+**Security cleanup (Nov 17) — complete:** exposed Render API key revoked in the dashboard ✅.
+Firebase service-account key rotated ✅ — new key swapped into `GOOGLE_SERVICE_ACCOUNT_JSON` on
+Render, verified live (cloud test order → FCM alert rang on the picker phone), old key deleted.
