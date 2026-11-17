@@ -402,3 +402,38 @@ human-readable errors everywhere; no business-logic changes.
 
 **Validation:** `:core:assembleRelease`, `:customer:assembleRelease`, `:customer:test`,
 `:picker:assembleRelease`, `:picker:test` — all green (sequential single-invocation builds).
+
+## Phase 17: Offline BLE mesh ordering on by default ✅
+
+**Problem:** the full offline path already existed (BLE advertise/scan, mesh packets, outbox,
+ledger, cloud replay) but was opt-in in hidden settings and gated behind cloud checks — with the
+train Wi-Fi dead both apps just waited on the server and errored.
+
+**Change (13 files, commit `1e9055a`):**
+- `RailBiteSettings.kt` — mesh relay (customer) and sink (picker) default **ON**; Settings
+  toggles remain as explicit opt-outs.
+- `ApiClient.reachable(serverUrl, timeoutMs=2000)` — fast `/health` probe used to choose
+  between cloud and Bluetooth relay without waiting out full HTTP timeouts.
+- `MeshStore.entryOf(orderId)` — outbox lookup so tracking can follow a relayed order locally.
+- Picker `RailBiteAlertService` — starts the mesh gateway first, independent of cloud/URL;
+  permission-checked so scan never throws. Home shows "Cloud unreachable — listening over
+  Bluetooth" chip instead of the retry error while the service is up.
+- Customer cart — ~2 s probe; offline COD orders burst over Bluetooth immediately ("Sending
+  over Bluetooth…"), relay code shown at once. UPI stays online-only (relay settles in cash).
+- Customer tracking — local offline timeline for relayed orders (banner, code block with
+  offline hint, items card, "Waiting for a picker nearby"); no cloud polling; flips to the
+  cloud timeline automatically once the replay syncs. Cancel hidden while relayed.
+- Customer `MainActivity` — outbox auto-sync on app open + on every connectivity return
+  (`NetworkCallback`); Bluetooth runtime permissions requested at startup (were never
+  requested before — advertise would have failed on Android 12+).
+- Both apps 1.2.1 (versionCode 5).
+
+**Server:** no changes — mesh replay reuses existing endpoints (`source:"RELAY"`).
+
+**Validation:** `:core:assembleRelease`, `:picker:assembleRelease :picker:test`,
+`:customer:assembleRelease :customer:test` — all green (sequential module-by-module builds;
+a 3-module single invocation GC-thrashed the daemon again). APKs copied to `release/` and
+installed on the Redmi (Success ×2).
+
+**Pending:** GitHub push of `1e9055a` (no credentials configured on this machine) and the
+live offline demo (airplane mode → BT only → order → accept → handover → sync).
