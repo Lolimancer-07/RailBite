@@ -41,15 +41,15 @@ describe("Phase 10: Edge Server Outbox Worker", () => {
   it("Done when 2: Outbox worker polls unsynced outbox rows, POSTs batch to cloud API, and marks rows synced_at", async () => {
     // 1. Queue 3 items in edge server outbox
     const now = new Date().toISOString();
-    outboxRepo.append("ORDER_CREATED", { orderId: "ord-1", totalPaise: 4500 }, now);
-    outboxRepo.append("CASH_DELIVERED", { orderId: "ord-1", captainId: "c1", cashPaise: 4500 }, now);
-    outboxRepo.append(
+    await outboxRepo.append("ORDER_CREATED", { orderId: "ord-1", totalPaise: 4500 }, now);
+    await outboxRepo.append("CASH_DELIVERED", { orderId: "ord-1", captainId: "c1", cashPaise: 4500 }, now);
+    await outboxRepo.append(
       "COMPLAINT_ESCALATION",
       { id: "comp-1", orderId: "ord-1", type: "HYGIENE", text: "Stale food" },
       now
     );
 
-    const unsyncedBefore = outboxRepo.getUnsynced(10);
+    const unsyncedBefore = await outboxRepo.getUnsynced(10);
     expect(unsyncedBefore.length).toBe(3);
 
     // 2. Run worker
@@ -69,7 +69,7 @@ describe("Phase 10: Edge Server Outbox Worker", () => {
     expect(receivedBatches[0].items.length).toBe(3);
 
     // 4. Verify in edge DB that synced_at is now set
-    const unsyncedAfter = outboxRepo.getUnsynced(10);
+    const unsyncedAfter = await outboxRepo.getUnsynced(10);
     expect(unsyncedAfter.length).toBe(0);
 
     const rows = edgeDb.prepare("SELECT * FROM outbox").all() as any[];

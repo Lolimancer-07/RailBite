@@ -40,9 +40,9 @@ COPY --from=build /app/services/edge-server/dist ./dist
 COPY --from=build /app/services/edge-server/src/db/migrations ./dist/db/migrations
 COPY --from=build /app/services/edge-server/src/db/migrations ./src/db/migrations
 
-# DB lands in the working dir by default (ephemeral on Render's free plan — the server
-# re-seeds menu/staff/manifest on boot). On a paid plan mount a disk and set
-# DB_PATH=/var/data/railbite.db instead.
+# Production uses Render Postgres via DATABASE_URL (see render.yaml). When DATABASE_URL
+# is unset the server falls back to a SQLite file in the working dir — useful for local
+# runs and CI, ephemeral on Render. DB_PATH only affects that SQLite fallback.
 # ENV DB_PATH=/app/services/edge-server/railbite.db
 EXPOSE 8080
 CMD ["node", "dist/index.js"]

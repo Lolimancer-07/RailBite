@@ -1,31 +1,30 @@
 import crypto from "node:crypto";
 import type Database from "better-sqlite3";
-import {
-  getTier,
-  type ComplaintCreate,
-  type Complaint,
-} from "@railbite/shared";
+import { getTier, type ComplaintCreate, type Complaint } from "@railbite/shared";
+import { toDb, type Db } from "../db/db.js";
 import { ComplaintRepo } from "../db/repos/complaintRepo.js";
 import { OrderRepo } from "../db/repos/orderRepo.js";
 import { OutboxRepo } from "../db/repos/outboxRepo.js";
 import type { MqttPublisher } from "../mqtt/publisher.js";
 
 export class ComplaintService {
+  private db: Db;
   private complaintRepo: ComplaintRepo;
   private orderRepo: OrderRepo;
   private outboxRepo: OutboxRepo;
 
   constructor(
-    private db: Database.Database,
+    db: Db | Database.Database,
     private publisher: MqttPublisher,
   ) {
-    this.complaintRepo = new ComplaintRepo(db);
-    this.orderRepo = new OrderRepo(db);
-    this.outboxRepo = new OutboxRepo(db);
+    this.db = toDb(db);
+    this.complaintRepo = new ComplaintRepo(this.db);
+    this.orderRepo = new OrderRepo(this.db);
+    this.outboxRepo = new OutboxRepo(this.db);
   }
 
   async create(input: ComplaintCreate): Promise<Complaint> {
-    const order = this.orderRepo.findById(input.orderId);
+    const order = await this.orderRepo.findById(input.orderId);
     if (!order) {
       throw new Error(`Order not found for complaint: ${input.orderId}`);
     }
@@ -35,7 +34,7 @@ export class ComplaintService {
 
     if (tier === 2) {
       // Tier 2: Check rate limit (max 3 Tier 2 per PNR per trip)
-      const count = this.complaintRepo.countTier2ForPnr(order.pnr);
+      const count = await this.complaintRepo.countTier2ForPnr(order.pnr);
       if (count >= 3) {
         throw new Error("Rate limit exceeded: maximum 3 regulatory complaints per PNR per trip");
       }
@@ -47,7 +46,7 @@ export class ComplaintService {
           ? crypto.createHash("sha256").update(input.photoBase64).digest("hex")
           : undefined);
 
-      this.complaintRepo.create({
+      await this.complaintRepo.create({
         id: input.id,
         orderId: input.orderId,
         tier: 2,
@@ -60,7 +59,7 @@ export class ComplaintService {
       });
 
       // Write to outbox as COMPLAINT_ESCALATION
-      this.outboxRepo.append("COMPLAINT_ESCALATION", {
+      await this.outboxRepo.append("COMPLAINT_ESCALATION", {
         complaintId: input.id,
         orderId: input.orderId,
         pnr: order.pnr,
@@ -74,7 +73,7 @@ export class ComplaintService {
       // Tier 1: Target seat-side replacement within 15 minutes
       const dueAt = new Date(Date.now() + 15 * 60_000).toISOString();
 
-      this.complaintRepo.create({
+      await this.complaintRepo.create({
         id: input.id,
         orderId: input.orderId,
         tier: 1,
@@ -86,7 +85,7 @@ export class ComplaintService {
       });
 
       // Write to outbox
-      this.outboxRepo.append("COMPLAINT_TIER1", {
+      await this.outboxRepo.append("COMPLAINT_TIER1", {
         complaintId: input.id,
         orderId: input.orderId,
         pnr: order.pnr,
@@ -95,17 +94,17 @@ export class ComplaintService {
       });
     }
 
-    const complaint = this.complaintRepo.findById(input.id)!;
+    const complaint = await this.complaintRepo.findById(input.id);
+    if (!complaint) throw new Error(`Failed to load complaint after create: ${input.id}`);
     await this.publisher.publishComplaintStatus(complaint.id, { status: complaint.status });
     return complaint;
   }
 
-  getComplaint(id: string): Complaint | null {
+  async getComplaint(id: string): Promise<Complaint | null> {
     return this.complaintRepo.findById(id);
   }
 
-  listActive(): Complaint[] {
+  async listActive(): Promise<Complaint[]> {
     return this.complaintRepo.listActive();
   }
 }
-

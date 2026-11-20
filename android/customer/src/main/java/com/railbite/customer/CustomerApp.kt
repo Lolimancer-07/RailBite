@@ -18,6 +18,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -28,14 +29,18 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.railbite.customer.ui.cart.CartScreen
 import com.railbite.customer.ui.home.HomeScreen
+import com.railbite.customer.ui.login.CustomerLoginScreen
 import com.railbite.customer.ui.onboarding.OnboardingScreen
 import com.railbite.customer.ui.orders.OrdersScreen
 import com.railbite.customer.ui.report.ReportProblemScreen
 import com.railbite.customer.ui.settings.SettingsScreen
 import com.railbite.customer.ui.tracking.TrackingScreen
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 object Routes {
     const val ONBOARDING = "onboarding"
+    const val LOGIN = "login"
     const val HOME = "home"
     const val CART = "cart"
     const val ORDERS = "orders"
@@ -48,18 +53,43 @@ object Routes {
 }
 
 /**
- * Root graph: starts on onboarding on first launch, otherwise the home tab with a
- * bottom navigation bar (Home / Orders).
+ * Root graph of the customer app: auth → onboarding → home, or home → tabs.
+ * Starts on login whenever no session is stored, otherwise onboarding/home.
  */
 @Composable
 fun CustomerNavHost(graph: CustomerGraph, startDestination: String) {
     val nav = rememberNavController()
+    val scope = rememberCoroutineScope()
+
+    val session by graph.authStore.session.collectAsState()
+
+    // Session lost (refresh rejected / logged out elsewhere) → drop back to login.
+    LaunchedEffect(session, startDestination) {
+        if (session == null && startDestination != Routes.LOGIN && nav.currentDestination?.route != Routes.LOGIN) {
+            nav.navigate(Routes.LOGIN) {
+                launchSingleTop = true
+            }
+        }
+    }
 
     LaunchedEffect(Unit) {
         graph.mqtt.ensureConnected()
     }
 
     NavHost(navController = nav, startDestination = startDestination) {
+        composable(Routes.LOGIN) {
+            CustomerLoginScreen(
+                graph = graph,
+                onLoggedIn = {
+                    scope.launch {
+                        val destination = if (graph.settings.onboardingDone.first()) Routes.HOME else Routes.ONBOARDING
+                        nav.navigate(destination) {
+                            popUpTo(Routes.LOGIN) { inclusive = true }
+                        }
+                    }
+                },
+            )
+        }
         composable(Routes.ONBOARDING) {
             OnboardingScreen(
                 graph = graph,

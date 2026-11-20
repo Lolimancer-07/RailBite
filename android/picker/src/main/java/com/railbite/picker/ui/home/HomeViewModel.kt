@@ -145,7 +145,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         verified = 1,
     )
 
-    /** Signs out: goes offline server-side and clears the stored login. */
+    /** Signs out: revokes the server session and clears the stored login. */
     fun logout(onDone: () -> Unit) {
         _state.update { it.copy(online = false) }
         container.app.startService(
@@ -153,13 +153,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                 .setAction(RailBiteAlertService.ACTION_STOP),
         )
         viewModelScope.launch {
-            container.settings.setOnline(false)
-            runCatching {
-                container.client.api().setStaffOnline(
-                    container.settings.staffId.first(),
-                    RailBiteApi.OnlineRequest(false),
-                )
-            }
+            container.auth.logout()
             container.settings.clearStaff()
             onDone()
         }

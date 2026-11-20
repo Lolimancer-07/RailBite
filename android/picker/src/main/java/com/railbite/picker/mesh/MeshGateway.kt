@@ -108,7 +108,7 @@ class MeshGateway(
         val serverUrl = app.container.settings.serverUrl.first()
         if (serverUrl.isBlank()) return false
         if (!ApiClient.reachable(serverUrl, timeoutMs = 1_500)) return false
-        return ApiClient.orderExists(serverUrl, orderId)
+        return ApiClient.orderExists(serverUrl, orderId, app.container.authStore.accessToken())
     }
 
     /**

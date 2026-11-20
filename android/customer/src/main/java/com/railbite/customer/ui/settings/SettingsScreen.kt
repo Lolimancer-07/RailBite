@@ -198,6 +198,18 @@ fun SettingsScreen(
                 text = if (state.saved) "Saved" else "Save",
                 onClick = { vm.save(onBack) },
             )
+
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            Text("Account", style = MaterialTheme.typography.titleMedium)
+            val session by graph.authStore.session.collectAsState()
+            session?.let {
+                Text(
+                    "Signed in as ${it.user.phone ?: it.user.name ?: it.user.id}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            RailBiteSecondaryButton(text = "Sign out", onClick = { vm.logout(onBack) })
             Text(
                 "The RailBite cloud server is built into the app. Override it above only for testing (e.g. a laptop on the same Wi-Fi).",
                 style = MaterialTheme.typography.bodySmall,

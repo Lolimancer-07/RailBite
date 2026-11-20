@@ -44,7 +44,7 @@ export function registerMqttHandlers(
         const parsed = OrderCreateSchema.safeParse(data);
         if (parsed.success) {
           logger.info({ orderId: parsed.data.id }, "MQTT incoming new order");
-          orderService.create(parsed.data);
+          await orderService.create(parsed.data);
         } else {
           logger.warn({ errors: parsed.error }, "Invalid OrderCreate MQTT payload");
         }

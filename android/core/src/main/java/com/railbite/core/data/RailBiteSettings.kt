@@ -29,7 +29,6 @@ class RailBiteSettings(
         val diners = intPreferencesKey("diners")
         val staffId = stringPreferencesKey("staff_id")
         val staffName = stringPreferencesKey("staff_name")
-        val staffToken = stringPreferencesKey("staff_token")
         val staffZone = stringPreferencesKey("staff_zone")
         val online = booleanPreferencesKey("picker_online")
         val onboardingDone = booleanPreferencesKey("customer_onboarding_done")
@@ -56,7 +55,6 @@ class RailBiteSettings(
     val diners: Flow<Int> = context.dataStore.data.map { it[Keys.diners] ?: 1 }
     val staffId: Flow<String> = context.dataStore.data.map { it[Keys.staffId] ?: "" }
     val staffName: Flow<String> = context.dataStore.data.map { it[Keys.staffName] ?: "" }
-    val staffToken: Flow<String> = context.dataStore.data.map { it[Keys.staffToken] ?: "" }
     val staffZone: Flow<String> = context.dataStore.data.map { it[Keys.staffZone] ?: "" }
     val online: Flow<Boolean> = context.dataStore.data.map { it[Keys.online] ?: false }
     val onboardingDone: Flow<Boolean> = context.dataStore.data.map { it[Keys.onboardingDone] ?: false }
@@ -99,18 +97,16 @@ class RailBiteSettings(
 
     suspend fun setDiners(value: Int) = context.dataStore.edit { it[Keys.diners] = value }
     suspend fun setOnboardingDone() = context.dataStore.edit { it[Keys.onboardingDone] = true }
-    suspend fun setStaffLogin(staffId: String, name: String, token: String, zone: String) =
+    suspend fun setStaffLogin(staffId: String, name: String, zone: String) =
         context.dataStore.edit {
             it[Keys.staffId] = staffId
             it[Keys.staffName] = name
-            it[Keys.staffToken] = token
             it[Keys.staffZone] = zone
         }
 
     suspend fun clearStaff() = context.dataStore.edit {
         it.remove(Keys.staffId)
         it.remove(Keys.staffName)
-        it.remove(Keys.staffToken)
         it.remove(Keys.staffZone)
         it.remove(Keys.online)
         it.remove(Keys.pickerOrderId)

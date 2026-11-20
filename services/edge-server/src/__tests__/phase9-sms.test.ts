@@ -24,7 +24,7 @@ describe("Phase 9: SMS Token Path (STRETCH)", () => {
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
-    seed(db);
+    await seed(db);
 
     broker = createBroker();
     publisher = new MqttPublisher(broker.aedes);

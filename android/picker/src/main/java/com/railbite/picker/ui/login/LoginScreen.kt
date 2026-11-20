@@ -7,13 +7,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
@@ -29,7 +28,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -40,18 +39,20 @@ import com.railbite.core.ui.components.ErrorBar
 import com.railbite.core.ui.components.RailBiteButton
 import com.railbite.core.ui.components.RailBiteTextField
 import com.railbite.core.ui.theme.Space
+import com.railbite.picker.PickerGraph
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** Staff ID + PIN login (demo accounts c1-c4, PIN 1234). Token is stored in DataStore. */
+/** Staff ID + password login (bcrypt on the server; demo accounts c1-c4, password railbite123). */
 @Composable
 fun LoginScreen(
-    graph: com.railbite.picker.PickerGraph,
+    graph: PickerGraph,
     onLoggedIn: () -> Unit,
 ) {
     val vm = viewModel(key = "login") { LoginViewModel(graph.container) }
     val state by vm.state.collectAsState()
     val serverUrl by graph.settings.serverUrl.collectAsState(initial = "")
-    val focus = LocalFocusManager.current
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val scope = rememberCoroutineScope()
     var showServerDialog by remember { mutableStateOf(false) }
     var editServerUrl by remember { mutableStateOf("") }
@@ -61,7 +62,7 @@ fun LoginScreen(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(Space.xl),
+                .padding(Space.screen),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -79,28 +80,27 @@ fun LoginScreen(
                 onValueChange = vm::onStaffIdChange,
                 label = "Staff ID",
                 hint = "c1",
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                singleLine = true,
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Text, imeAction = ImeAction.Next),
             )
             Spacer(Modifier.height(Space.s))
             RailBiteTextField(
-                value = state.pin,
-                onValueChange = vm::onPinChange,
-                label = "4-digit PIN",
-                hint = "••••",
+                value = state.password,
+                onValueChange = vm::onPasswordChange,
+                label = "Password",
+                hint = "••••••••",
+                singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.NumberPassword,
-                    imeAction = ImeAction.Done,
-                ),
-                keyboardActions = KeyboardActions(onDone = {
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                keyboardActions = androidx.compose.foundation.text.KeyboardActions(onDone = {
                     focus.clearFocus()
                     vm.submit(onLoggedIn)
                 }),
             )
 
-            state.error?.let {
+            if (state.error != null) {
                 Spacer(Modifier.height(Space.s))
-                ErrorBar(it)
+                ErrorBar(state.error ?: "")
             }
 
             Spacer(Modifier.height(Space.m))
@@ -110,22 +110,20 @@ fun LoginScreen(
                     focus.clearFocus()
                     vm.submit(onLoggedIn)
                 },
-                enabled = !state.busy && state.staffId.isNotBlank() && state.pin.length == 4,
+                enabled = !state.busy && state.staffId.isNotBlank() && state.password.length >= 4,
                 busy = state.busy,
             )
 
             Spacer(Modifier.height(Space.m))
             Text(
-                "Demo logins: c1, c2, c3 or c4 · PIN 1234",
+                "Demo logins: c1, c2, c3 or c4 · password railbite123",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             Spacer(Modifier.height(Space.xl))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center,
-            ) {
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                 Text(
                     "Server: ",
                     style = MaterialTheme.typography.labelMedium,
@@ -137,61 +135,51 @@ fun LoginScreen(
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.width(Space.xs))
-                TextButton(onClick = {
-                    editServerUrl = serverUrl
-                    showServerDialog = true
-                }) {
+                TextButton(
+                    onClick = {
+                        editServerUrl = serverUrl
+                        showServerDialog = true
+                    },
+                ) {
                     Text("Change", style = MaterialTheme.typography.labelMedium)
                 }
             }
+        }
 
-            if (showServerDialog) {
-                AlertDialog(
-                    onDismissRequest = { showServerDialog = false },
-                    title = { Text("Server address") },
-                    text = {
-                        Column {
-                            Text(
-                                "Custom server URL — leave empty to use the built-in RailBite cloud server (railbite-api.onrender.com):",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Spacer(Modifier.height(Space.s))
-                            RailBiteTextField(
-                                value = editServerUrl,
-                                onValueChange = { editServerUrl = it },
-                                label = "Server URL",
-                                hint = "https://railbite-api.onrender.com",
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Uri,
-                                    autoCorrect = false,
-                                ),
-                            )
-                        }
-                    },
-                    confirmButton = {
-                        Button(
-                            onClick = {
-                                val normalized = ApiClient.normalizeServerUrl(editServerUrl)
-                                scope.launch {
-                                    graph.settings.setServerUrl(normalized)
-                                }
-                                showServerDialog = false
-                            },
-                            modifier = Modifier.heightIn(min = 44.dp),
-                        ) {
-                            Text("Save")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(
-                            onClick = { showServerDialog = false },
-                            modifier = Modifier.heightIn(min = 44.dp),
-                        ) {
-                            Text("Cancel")
-                        }
-                    },
-                )
-            }
+        if (showServerDialog) {
+            AlertDialog(
+                onDismissRequest = { showServerDialog = false },
+                title = { Text("Server address") },
+                text = {
+                    Column {
+                        Text(
+                            "Custom server URL — leave empty to use the built-in RailBite cloud server (railbite-api.onrender.com):",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(Space.s))
+                        RailBiteTextField(
+                            value = editServerUrl,
+                            onValueChange = { editServerUrl = it },
+                            label = "Server URL",
+                            hint = "https://railbite-api.onrender.com",
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrect = false),
+                        )
+                    }
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            scope.launch { graph.settings.setServerUrl(ApiClient.normalizeServerUrl(editServerUrl)) }
+                            showServerDialog = false
+                        },
+                    ) {
+                        Text("Save")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showServerDialog = false }) { Text("Cancel") }
+                },
+            )
         }
     }
 }

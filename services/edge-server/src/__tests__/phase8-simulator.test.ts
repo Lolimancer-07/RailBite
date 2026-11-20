@@ -27,7 +27,7 @@ describe("Phase 8: Simulator & Performance Metrics", () => {
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
-    seed(db);
+    await seed(db);
 
     broker = createBroker();
     publisher = new MqttPublisher(broker.aedes);

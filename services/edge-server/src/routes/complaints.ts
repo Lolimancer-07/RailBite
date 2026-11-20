@@ -1,10 +1,12 @@
 import type { FastifyPluginAsync } from "fastify";
 import { ComplaintCreateSchema } from "@railbite/shared";
 import type { ComplaintService } from "../services/complaintService.js";
+import { requireRoles } from "../auth/plugin.js";
 
 export function createComplaintRoutes(complaintService: ComplaintService): FastifyPluginAsync {
   return async (fastify) => {
     fastify.post("/complaints", async (request, reply) => {
+      if (!requireRoles(request, reply, ["customer", "admin"])) return;
       const parsed = ComplaintCreateSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(400).send({
@@ -24,13 +26,15 @@ export function createComplaintRoutes(complaintService: ComplaintService): Fasti
       }
     });
 
-    fastify.get("/complaints", async () => {
+    fastify.get("/complaints", async (request, reply) => {
+      if (!requireRoles(request, reply, ["picker", "kitchen", "admin"])) return;
       return complaintService.listActive();
     });
 
     fastify.get("/complaints/:id", async (request, reply) => {
+      if (!requireRoles(request, reply, ["picker", "kitchen", "admin"])) return;
       const { id } = request.params as { id: string };
-      const complaint = complaintService.getComplaint(id);
+      const complaint = await complaintService.getComplaint(id);
       if (!complaint) {
         return reply.status(404).send({ error: "Complaint not found" });
       }
@@ -38,4 +42,3 @@ export function createComplaintRoutes(complaintService: ComplaintService): Fasti
     });
   };
 }
-

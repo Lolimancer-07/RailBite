@@ -127,8 +127,10 @@ class RailBiteAlertService : Service() {
         val staffId = container.settings.staffId.first()
         val serverUrl = container.settings.serverUrl.first()
         if (staffId.isBlank() || serverUrl.isBlank()) return
+        // Authed client: the service holds no Activity, but the bearer token lives in
+        // the encrypted auth store, which the interceptor injects.
         runCatching {
-            ApiClient.api(serverUrl).setStaffOnline(staffId, com.railbite.core.api.RailBiteApi.OnlineRequest(value))
+            container.client.api().setStaffOnline(staffId, com.railbite.core.api.RailBiteApi.OnlineRequest(value))
         }
         container.settings.setOnline(value)
     }

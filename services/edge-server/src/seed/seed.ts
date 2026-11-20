@@ -1,33 +1,37 @@
 import crypto from "node:crypto";
+import bcrypt from "bcryptjs";
 import type Database from "better-sqlite3";
-import { getDb } from "../db/connection.js";
+import { getAppDb, openDb, toDb, type Db } from "../db/db.js";
 import { config } from "../config.js";
 
 /**
  * Prototype seed: quick-commerce demo.
- * - 15 instant (READY) products across 5 categories, believable MRPs, plenty of stock.
- * - 4 pickers (c1..c4, PIN 1234) + 1 cook kept only for kitchen plumbing/tests.
+ * - 16 instant (READY) products across 5 categories, believable MRPs, plenty of stock.
+ * - 4 pickers (c1..c4) + 1 cook. Password: `railbite123` (bcrypt); legacy PIN 1234 kept.
  * - 120-passenger manifest: PNRs 8492000001..8492000120, coaches B1..B4 & S1..S4, berths 1..15.
+ *
+ * Idempotent on purpose: safe to run on every boot and on a durable Postgres database.
+ * Existing stock levels, passwords and orders are never overwritten.
  */
-export function seed(target?: Database.Database | string) {
-  const db: Database.Database =
-    typeof target === "object" && target !== null
-      ? target
-      : getDb(typeof target === "string" ? target : undefined);
+export async function seed(target?: Db | Database.Database | string): Promise<void> {
+  const db: Db =
+    typeof target === "string"
+      ? await openDb({ sqlitePath: target })
+      : target
+        ? toDb(target)
+        : await getAppDb();
+
+  const now = new Date().toISOString();
 
   // 1. Seed Trip
-  const tripStmt = db.prepare(
-    "INSERT OR REPLACE INTO trips (id, train_no, run_date, hmac_secret, created_at) VALUES (?, ?, ?, ?, ?)",
+  await db.run(
+    `INSERT INTO trips (id, train_no, run_date, hmac_secret, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (id) DO NOTHING`,
+    [config.tripId, "12951", "2026-11-06", config.hmacSecret, now],
   );
-  const now = new Date().toISOString();
-  tripStmt.run(config.tripId, "12951", "2026-11-06", config.hmacSecret, now);
 
   // 2. Seed Menu Items (16 items: 15 instant READY across 5 categories; isVeg markers FOT-style)
-  const menuStmt = db.prepare(
-    `INSERT OR REPLACE INTO menu_items (id, name, category, track, mrp_paise, stock, prep_minutes, is_veg, active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`,
-  );
-
   const menuItems = [
     // BEVERAGES
     { id: "10000000-0000-0000-0000-000000000001", name: "Masala Chai", category: "BEVERAGES", mrpPaise: 1500, stock: 200, isVeg: true },
@@ -53,44 +57,77 @@ export function seed(target?: Database.Database | string) {
   ];
 
   for (const item of menuItems) {
-    // All items are instant ready-to-serve in the prototype (no kitchen required)
-    menuStmt.run(item.id, item.name, item.category, "READY", item.mrpPaise, item.stock, 0, item.isVeg ? 1 : 0);
+    await db.run(
+      `INSERT INTO menu_items (id, name, category, track, mrp_paise, stock, prep_minutes, is_veg, active)
+       VALUES (?, ?, ?, 'READY', ?, ?, 0, ?, 1)
+       ON CONFLICT (id) DO UPDATE SET
+         name = excluded.name,
+         category = excluded.category,
+         track = excluded.track,
+         mrp_paise = excluded.mrp_paise,
+         is_veg = excluded.is_veg`,
+      [item.id, item.name, item.category, item.mrpPaise, item.stock, item.isVeg ? 1 : 0],
+    );
   }
 
-  // 3. Seed Staff (4 Pickers with zones, 1 Cook retained for kitchen plumbing)
+  // 3. Seed Staff. Password is bcrypt("railbite123"); legacy PIN 1234 remains a fallback.
   const pinHash = crypto.createHash("sha256").update("1234").digest("hex");
-  const staffStmt = db.prepare(
-    "INSERT OR REPLACE INTO staff (id, name, role, zone_coaches, pin_hash, online) VALUES (?, ?, ?, ?, ?, ?)",
-  );
+  const passwordHash = bcrypt.hashSync("railbite123", 10);
+  const staff = [
+    { id: "c1", name: "Ramesh Kumar (Picker B1-B2)", role: "CAPTAIN", zone: ["B1", "B2"] },
+    { id: "c2", name: "Suresh Sharma (Picker B3-B4)", role: "CAPTAIN", zone: ["B3", "B4"] },
+    { id: "c3", name: "Amit Verma (Picker S1-S2)", role: "CAPTAIN", zone: ["S1", "S2"] },
+    { id: "c4", name: "Deepak Patel (Picker S3-S4)", role: "CAPTAIN", zone: ["S3", "S4"] },
+    { id: "k1", name: "Chef Rajesh (Head Cook)", role: "COOK", zone: ["PANTRY"] },
+  ];
 
-  staffStmt.run("c1", "Ramesh Kumar (Picker B1-B2)", "CAPTAIN", JSON.stringify(["B1", "B2"]), pinHash, 1);
-  staffStmt.run("c2", "Suresh Sharma (Picker B3-B4)", "CAPTAIN", JSON.stringify(["B3", "B4"]), pinHash, 1);
-  staffStmt.run("c3", "Amit Verma (Picker S1-S2)", "CAPTAIN", JSON.stringify(["S1", "S2"]), pinHash, 1);
-  staffStmt.run("c4", "Deepak Patel (Picker S3-S4)", "CAPTAIN", JSON.stringify(["S3", "S4"]), pinHash, 1);
-  staffStmt.run("k1", "Chef Rajesh (Head Cook)", "COOK", JSON.stringify(["PANTRY"]), pinHash, 1);
+  for (const member of staff) {
+    await db.run(
+      `INSERT INTO staff (id, name, role, zone_coaches, pin_hash, password_hash, online, active)
+       VALUES (?, ?, ?, ?, ?, ?, 1, 1)
+       ON CONFLICT (id) DO NOTHING`,
+      [member.id, member.name, member.role, JSON.stringify(member.zone), pinHash, passwordHash],
+    );
+    // Upgrade legacy rows (pre-auth deployments) with the demo password.
+    await db.run(
+      "UPDATE staff SET password_hash = ? WHERE id = ? AND (password_hash IS NULL OR password_hash = '')",
+      [passwordHash, member.id],
+    );
+  }
 
   // 4. Seed Manifest (120 fake passengers across B1-B4 and S1-S4)
-  const manifestStmt = db.prepare(
-    "INSERT OR REPLACE INTO manifest (pnr, coach, berth, name_hash) VALUES (?, ?, ?, ?)",
-  );
-
   const coaches = ["B1", "B2", "B3", "B4", "S1", "S2", "S3", "S4"];
   let pnrCounter = 8492000001;
 
   for (const coach of coaches) {
     for (let berth = 1; berth <= 15; berth++) {
       const pnr = String(pnrCounter++);
-      const nameHash = crypto.createHash("sha256").update(`Passenger_${coach}_${berth}`).digest("hex");
-      manifestStmt.run(pnr, coach, berth, nameHash);
+      const nameHash = crypto
+        .createHash("sha256")
+        .update(`Passenger_${coach}_${berth}`)
+        .digest("hex");
+      await db.run(
+        `INSERT INTO manifest (pnr, coach, berth, name_hash)
+         VALUES (?, ?, ?, ?)
+         ON CONFLICT (pnr, coach, berth) DO NOTHING`,
+        [pnr, coach, berth, nameHash],
+      );
     }
   }
 
   console.log(
-    "Seeding complete: 1 Trip, 16 instant Menu Items (5 categories, veg/non-veg marked), 5 Staff (4 pickers c1-c4 PIN=1234, 1 cook), 120 Passengers (PNR 8492000001-8492000120).",
+    "Seeding complete: 1 Trip, 16 instant Menu Items (5 categories, veg/non-veg marked), " +
+      "5 Staff (pickers c1-c4 / password railbite123 / legacy PIN 1234, 1 cook), " +
+      "120 Passengers (PNR 8492000001-8492000120).",
   );
 }
 
 // Run if called directly
 if (process.argv[1]?.endsWith("seed.ts") || process.argv[1]?.endsWith("seed.js")) {
-  seed();
+  seed()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error("Seed failed:", err);
+      process.exit(1);
+    });
 }

@@ -1,14 +1,15 @@
 import type Database from "better-sqlite3";
+import { toDb, type Db } from "../db/db.js";
 
 export interface OutboxWorkerOptions {
-  db: Database.Database;
+  db: Db | Database.Database;
   tripId: string;
   cloudApiUrl: string;
   pollIntervalMs?: number;
 }
 
 export class OutboxWorker {
-  private db: Database.Database;
+  private db: Db;
   private tripId: string;
   private cloudApiUrl: string;
   private pollIntervalMs: number;
@@ -17,29 +18,27 @@ export class OutboxWorker {
   private consecutiveErrors: number = 0;
 
   constructor(options: OutboxWorkerOptions) {
-    this.db = options.db;
+    this.db = toDb(options.db);
     this.tripId = options.tripId;
     this.cloudApiUrl = options.cloudApiUrl.replace(/\/$/, "");
     this.pollIntervalMs = options.pollIntervalMs || 5000;
   }
 
   async flushOnce(): Promise<{ syncedCount: number; ackedUpTo?: number }> {
-    const unsynced = this.db
-      .prepare("SELECT * FROM outbox WHERE synced_at IS NULL ORDER BY seq ASC LIMIT 50")
-      .all() as Array<{
+    const unsynced = await this.db.all<{
       seq: number;
       entity: string;
       payload: string;
       created_at: string;
       synced_at: string | null;
-    }>;
+    }>("SELECT * FROM outbox WHERE synced_at IS NULL ORDER BY seq ASC LIMIT 50");
 
     if (unsynced.length === 0) {
       return { syncedCount: 0 };
     }
 
     const items = unsynced.map((r) => ({
-      seq: r.seq,
+      seq: Number(r.seq),
       entity: r.entity,
       payload: r.payload,
       createdAt: r.created_at,
@@ -62,10 +61,10 @@ export class OutboxWorker {
       const data = (await res.json()) as { ackedUpTo: number };
       const now = new Date().toISOString();
 
-      const updateStmt = this.db.prepare(
-        "UPDATE outbox SET synced_at = ? WHERE seq <= ? AND synced_at IS NULL"
+      await this.db.run(
+        "UPDATE outbox SET synced_at = ? WHERE seq <= ? AND synced_at IS NULL",
+        [now, data.ackedUpTo],
       );
-      updateStmt.run(now, data.ackedUpTo);
 
       this.consecutiveErrors = 0;
       return { syncedCount: items.length, ackedUpTo: data.ackedUpTo };
@@ -90,13 +89,15 @@ export class OutboxWorker {
         delay = Math.min(this.pollIntervalMs * factor + jitter, 60000);
       }
 
-      this.timer = setTimeout(async () => {
-        try {
-          await this.flushOnce();
-        } catch {
-          // Handled and backed off
-        }
-        scheduleNext();
+      this.timer = setTimeout(() => {
+        void (async () => {
+          try {
+            await this.flushOnce();
+          } catch {
+            // Handled and backed off
+          }
+          scheduleNext();
+        })();
       }, delay);
     };
 
@@ -111,4 +112,3 @@ export class OutboxWorker {
     }
   }
 }
-

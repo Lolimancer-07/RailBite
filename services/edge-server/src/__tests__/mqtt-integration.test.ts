@@ -23,7 +23,7 @@ describe("Phase 2 Done-When End-to-End Verification", () => {
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
-    seed(db);
+    await seed(db);
 
     broker = createBroker();
     publisher = new MqttPublisher(broker.aedes);

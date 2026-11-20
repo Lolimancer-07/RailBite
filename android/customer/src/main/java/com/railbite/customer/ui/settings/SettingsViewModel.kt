@@ -107,6 +107,14 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** Signs out of the cloud session and clears local credentials. */
+    fun logout(onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { container.auth.logout() }
+            onDone()
+        }
+    }
+
     fun save(onSaved: () -> Unit = {}) {
         val s = _state.value
         viewModelScope.launch {

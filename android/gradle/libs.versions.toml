@@ -50,6 +50,8 @@ netty-codec-http = { group = "io.netty", name = "netty-codec-http", version.ref 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
 firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
+firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
+play-services-tasks = { group = "com.google.android.gms", name = "play-services-tasks", version = "18.2.0" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -1,3 +1,4 @@
+import { toDb, type Db } from "../db.js";
 import type Database from "better-sqlite3";
 
 export interface OutboxRow {
@@ -9,35 +10,47 @@ export interface OutboxRow {
 }
 
 export class OutboxRepo {
-  constructor(private db: Database.Database) {}
+  private db: Db;
 
-  append(entity: string, payload: unknown, createdAt: string = new Date().toISOString()): number {
-    const jsonStr = typeof payload === "string" ? payload : JSON.stringify(payload);
-    const res = this.db
-      .prepare("INSERT INTO outbox (entity, payload, created_at) VALUES (?, ?, ?)")
-      .run(entity, jsonStr, createdAt);
-    return Number(res.lastInsertRowid);
+  constructor(db: Db | Database.Database) {
+    this.db = toDb(db);
   }
 
-  getUnsynced(limit: number = 100): Array<{ seq: number; entity: string; payload: any; createdAt: string }> {
-    const rows = this.db
-      .prepare("SELECT * FROM outbox WHERE synced_at IS NULL ORDER BY seq ASC LIMIT ?")
-      .all(limit) as OutboxRow[];
+  async append(
+    entity: string,
+    payload: unknown,
+    createdAt: string = new Date().toISOString(),
+  ): Promise<void> {
+    const jsonStr = typeof payload === "string" ? payload : JSON.stringify(payload);
+    await this.db.run("INSERT INTO outbox (entity, payload, created_at) VALUES (?, ?, ?)", [
+      entity,
+      jsonStr,
+      createdAt,
+    ]);
+  }
+
+  async getUnsynced(
+    limit: number = 100,
+  ): Promise<Array<{ seq: number; entity: string; payload: any; createdAt: string }>> {
+    const rows = await this.db.all<OutboxRow>(
+      "SELECT * FROM outbox WHERE synced_at IS NULL ORDER BY seq ASC LIMIT ?",
+      [limit],
+    );
 
     return rows.map((r) => ({
-      seq: r.seq,
+      seq: Number(r.seq),
       entity: r.entity,
       payload: JSON.parse(r.payload),
       createdAt: r.created_at,
     }));
   }
 
-  markSynced(seqs: number[], syncedAt: string = new Date().toISOString()): void {
+  async markSynced(seqs: number[], syncedAt: string = new Date().toISOString()): Promise<void> {
     if (seqs.length === 0) return;
     const placeholders = seqs.map(() => "?").join(",");
-    this.db
-      .prepare(`UPDATE outbox SET synced_at = ? WHERE seq IN (${placeholders})`)
-      .run(syncedAt, ...seqs);
+    await this.db.run(
+      `UPDATE outbox SET synced_at = ? WHERE seq IN (${placeholders})`,
+      [syncedAt, ...seqs],
+    );
   }
 }
-

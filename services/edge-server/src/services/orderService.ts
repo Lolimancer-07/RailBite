@@ -1,5 +1,5 @@
-import type Database from "better-sqlite3";
 import crypto from "node:crypto";
+import type Database from "better-sqlite3";
 import {
   canTransition,
   computeTotal,
@@ -9,6 +9,7 @@ import {
   type Order,
   type OrderCreate,
 } from "@railbite/shared";
+import { toDb, type Db } from "../db/db.js";
 import { OrderRepo } from "../db/repos/orderRepo.js";
 import { MenuRepo } from "../db/repos/menuRepo.js";
 import { ManifestRepo } from "../db/repos/manifestRepo.js";
@@ -20,7 +21,11 @@ import type { MqttPublisher } from "../mqtt/publisher.js";
 import type { Dispatcher } from "../dispatch/dispatcher.js";
 
 export class StateTransitionError extends Error {
-  constructor(public from: string, public to: string, public track: string) {
+  constructor(
+    public from: string,
+    public to: string,
+    public track: string,
+  ) {
     super(`Illegal transition: ${from} -> ${to} on track ${track}`);
     this.name = "StateTransitionError";
   }
@@ -34,6 +39,7 @@ export class DeliveryCodeError extends Error {
 }
 
 export class OrderService {
+  private db: Db;
   private orderRepo: OrderRepo;
   private menuRepo: MenuRepo;
   private manifestRepo: ManifestRepo;
@@ -43,15 +49,16 @@ export class OrderService {
   private dispatcher: Dispatcher | null = null;
 
   constructor(
-    private db: Database.Database,
+    db: Db | Database.Database,
     private publisher: MqttPublisher,
   ) {
-    this.orderRepo = new OrderRepo(db);
-    this.menuRepo = new MenuRepo(db);
-    this.manifestRepo = new ManifestRepo(db);
-    this.staffRepo = new StaffRepo(db);
-    this.ledgerRepo = new LedgerRepo(db);
-    this.outboxRepo = new OutboxRepo(db);
+    this.db = toDb(db);
+    this.orderRepo = new OrderRepo(this.db);
+    this.menuRepo = new MenuRepo(this.db);
+    this.manifestRepo = new ManifestRepo(this.db);
+    this.staffRepo = new StaffRepo(this.db);
+    this.ledgerRepo = new LedgerRepo(this.db);
+    this.outboxRepo = new OutboxRepo(this.db);
   }
 
   setDispatcher(dispatcher: Dispatcher): void {
@@ -64,23 +71,23 @@ export class OrderService {
     }
   }
 
-  getOrder(id: string) {
+  async getOrder(id: string) {
     return this.orderRepo.findById(id);
   }
 
-  getOrdersByPnr(pnr: string) {
-    return this.orderRepo.findByPnr(pnr);
+  async getOrdersByPnr(pnr: string, userId?: string) {
+    return this.orderRepo.findByPnr(pnr, userId);
   }
 
-  create(input: OrderCreate): Order {
+  async create(input: OrderCreate, userId?: string): Promise<Order> {
     // 1. Check idempotency: if order id already exists, return existing order
-    const existing = this.orderRepo.findById(input.id);
+    const existing = await this.orderRepo.findById(input.id);
     if (existing) {
       return existing;
     }
 
     // 2. Fetch menu items for authoritative server-side pricing & stock
-    const menuMap = this.menuRepo.getMenuMap();
+    const menuMap = await this.menuRepo.getMenuMap();
 
     // Check all items exist
     const itemTracks: string[] = [];
@@ -99,22 +106,18 @@ export class OrderService {
     const track = determineTrack(itemTracks);
 
     // 5. Check manifest (set verified=0 if passenger not in manifest)
-    const isManifested = this.manifestRepo.checkPassenger(input.pnr, input.coach, input.berth);
+    const isManifested = await this.manifestRepo.checkPassenger(input.pnr, input.coach, input.berth);
     const verified = isManifested ? 1 : 0;
 
     const now = new Date().toISOString();
 
-    // 6. Transaction: check & decrement stock, insert order and items with INSERT OR IGNORE
-    const createTx = this.db.transaction(() => {
-      // Check & decrement stock for every item
-      for (const item of input.items) {
-        const decremented = this.menuRepo.decrementStock(item.itemId, item.qty);
-        if (!decremented) {
-          throw new Error(`Insufficient stock for item: ${item.itemId}`);
-        }
-      }
+    // 6. Transaction: insert order (idempotency guard), decrement stock, items, outbox.
+    await this.db.transaction(async (tx) => {
+      const orderRepo = new OrderRepo(tx);
+      const menuRepo = new MenuRepo(tx);
+      const outboxRepo = new OutboxRepo(tx);
 
-      const inserted = this.orderRepo.insertOrder({
+      const inserted = await orderRepo.insertOrder({
         id: input.id,
         pnr: input.pnr,
         coach: input.coach,
@@ -126,16 +129,25 @@ export class OrderService {
         totalPaise: pricing.totalPaise,
         source: input.source,
         verified,
+        userId: userId || null,
         createdAt: input.createdAt || now,
         updatedAt: now,
       });
 
       if (!inserted) {
-        // Race condition: another request inserted this id concurrently
+        // Race condition: another request inserted this id concurrently.
         return;
       }
 
-      this.orderRepo.insertOrderItems(
+      // Check & decrement stock for every item. A failure rolls the order back too.
+      for (const item of input.items) {
+        const decremented = await menuRepo.decrementStock(item.itemId, item.qty);
+        if (!decremented) {
+          throw new Error(`Insufficient stock for item: ${item.itemId}`);
+        }
+      }
+
+      await orderRepo.insertOrderItems(
         input.id,
         pricing.lineItems.map((li) => ({
           itemId: li.itemId,
@@ -144,7 +156,7 @@ export class OrderService {
         })),
       );
 
-      this.outboxRepo.append("ORDER_CREATED", {
+      await outboxRepo.append("ORDER_CREATED", {
         orderId: input.id,
         pnr: input.pnr,
         totalPaise: pricing.totalPaise,
@@ -153,28 +165,24 @@ export class OrderService {
       });
     });
 
-    createTx();
-
-    const order = this.orderRepo.findById(input.id);
+    const order = await this.orderRepo.findById(input.id);
     if (!order) {
       throw new Error(`Failed to retrieve order after creation: ${input.id}`);
     }
 
     // Publish initial status
-    this.publisher.publishOrderStatus(order.id, {
+    await this.publisher.publishOrderStatus(order.id, {
       status: order.status,
       updatedAt: order.updatedAt,
     });
 
     // 7. Dispatch based on track
     if (track === Track.READY) {
-      // READY track: assign immediately
       if (this.dispatcher) {
-        this.dispatcher.dispatchOrder(order);
+        await this.dispatcher.dispatchOrder(order);
       }
     } else {
-      // COOK track: notify kitchen display
-      this.publishKitchenQueue();
+      await this.publishKitchenQueue();
     }
 
     return order;
@@ -185,7 +193,7 @@ export class OrderService {
     toStatus: (typeof OrderStatus)[keyof typeof OrderStatus],
     metadata?: { captainId?: string; captainName?: string; etaMin?: number },
   ): Promise<Order> {
-    const order = this.orderRepo.findById(orderId);
+    const order = await this.orderRepo.findById(orderId);
     if (!order) {
       throw new Error(`Order not found: ${orderId}`);
     }
@@ -195,10 +203,10 @@ export class OrderService {
     }
 
     const now = new Date().toISOString();
-    this.orderRepo.updateStatus(orderId, toStatus, now);
+    await this.orderRepo.updateStatus(orderId, toStatus, now);
 
     // Record in outbox
-    this.outboxRepo.append("ORDER_STATUS_CHANGED", {
+    await this.outboxRepo.append("ORDER_STATUS_CHANGED", {
       orderId,
       from: order.status,
       to: toStatus,
@@ -214,22 +222,23 @@ export class OrderService {
       etaMin: metadata?.etaMin,
     });
 
-    const updated = this.orderRepo.findById(orderId)!;
+    const updated = await this.orderRepo.findById(orderId);
+    if (!updated) throw new Error(`Order disappeared during transition: ${orderId}`);
     return updated;
   }
 
   async accept(orderId: string, captainId: string): Promise<Order> {
-    const order = this.orderRepo.findById(orderId);
+    const order = await this.orderRepo.findById(orderId);
     if (!order) throw new Error(`Order not found: ${orderId}`);
 
-    const captain = this.staffRepo.findById(captainId);
+    const captain = await this.staffRepo.findById(captainId);
     const now = new Date().toISOString();
 
     if (this.dispatcher) {
       this.dispatcher.cancelTimer(orderId);
     }
 
-    this.orderRepo.updateAssignmentAccepted(orderId, captainId, now);
+    await this.orderRepo.updateAssignmentAccepted(orderId, captainId, now);
 
     const updated = await this.transition(orderId, OrderStatus.ACCEPTED, {
       captainId,
@@ -240,8 +249,8 @@ export class OrderService {
   }
 
   async pickup(orderId: string, captainId: string): Promise<Order> {
-    const captain = this.staffRepo.findById(captainId);
-    const order = this.orderRepo.findById(orderId);
+    const captain = await this.staffRepo.findById(captainId);
+    const order = await this.orderRepo.findById(orderId);
     if (!order) throw new Error(`Order not found: ${orderId}`);
 
     // FOT-style delivery code: generated when the picker leaves for delivery;
@@ -254,21 +263,20 @@ export class OrderService {
       captainId,
       captainName: captain?.name,
     });
-    this.orderRepo.setDeliveryCode(orderId, deliveryCode);
+    await this.orderRepo.setDeliveryCode(orderId, deliveryCode);
     return updated;
   }
 
   async startPacking(orderId: string, captainId?: string): Promise<Order> {
-    const order = await this.transition(orderId, OrderStatus.PACKING, captainId ? { captainId } : undefined);
-    return order;
+    return this.transition(orderId, OrderStatus.PACKING, captainId ? { captainId } : undefined);
   }
 
   async reject(orderId: string, captainId: string): Promise<void> {
     const now = new Date().toISOString();
-    this.orderRepo.updateAssignmentRejected(orderId, captainId, now);
+    await this.orderRepo.updateAssignmentRejected(orderId, captainId, now);
 
     if (this.dispatcher) {
-      this.dispatcher.handleRejection(orderId, captainId);
+      await this.dispatcher.handleRejection(orderId, captainId);
     }
   }
 
@@ -278,12 +286,12 @@ export class OrderService {
     cashPaise?: number,
     deliveryCode?: string,
   ): Promise<Order> {
-    const order = this.orderRepo.findById(orderId);
+    const order = await this.orderRepo.findById(orderId);
     if (!order) throw new Error(`Order not found: ${orderId}`);
 
     // FOT-style handover: the picker must repeat the passenger's delivery code
     // (unless the order never got one, e.g. hand-migrated flows)
-    const storedCode = this.orderRepo.getDeliveryCode(orderId);
+    const storedCode = await this.orderRepo.getDeliveryCode(orderId);
     if (storedCode && deliveryCode?.trim() !== storedCode) {
       throw new DeliveryCodeError();
     }
@@ -294,27 +302,27 @@ export class OrderService {
     const updated = await this.transition(orderId, OrderStatus.DELIVERED, { captainId });
 
     // 2. Mark assignment delivered
-    this.orderRepo.updateAssignmentDelivered(orderId, captainId, now);
+    await this.orderRepo.updateAssignmentDelivered(orderId, captainId, now);
 
     // 3. Append-only ledger record. UPI_QUEUED orders settle digitally — no cash hits the
     // ledger unless the picker explicitly reports some (the passenger confirms in-app).
-    const amount = cashPaise !== undefined
-      ? cashPaise
-      : order.paymentMode === "UPI_QUEUED"
-        ? 0
-        : order.totalPaise;
-    this.ledgerRepo.append(orderId, captainId, amount, now);
+    const amount =
+      cashPaise !== undefined
+        ? cashPaise
+        : order.paymentMode === "UPI_QUEUED"
+          ? 0
+          : order.totalPaise;
+    await this.ledgerRepo.append(orderId, captainId, amount, now);
 
     return updated;
   }
 
   /** FOT-style structured feedback, allowed only after DELIVERED */
-  submitFeedback(orderId: string, input: FeedbackCreate): {
-    received: boolean;
-    rating: number | null;
-    reasons: string[];
-  } {
-    const order = this.orderRepo.findById(orderId);
+  async submitFeedback(
+    orderId: string,
+    input: FeedbackCreate,
+  ): Promise<{ received: boolean; rating: number | null; reasons: string[] }> {
+    const order = await this.orderRepo.findById(orderId);
     if (!order) throw new Error(`Order not found: ${orderId}`);
 
     if (order.status !== OrderStatus.DELIVERED) {
@@ -326,8 +334,8 @@ export class OrderService {
       rating: input.rating ?? null,
       reasons: input.reasons ?? [],
     };
-    this.orderRepo.upsertFeedback(orderId, { ...input, now: new Date().toISOString() });
-    this.outboxRepo.append("ORDER_FEEDBACK", {
+    await this.orderRepo.upsertFeedback(orderId, { ...input, now: new Date().toISOString() });
+    await this.outboxRepo.append("ORDER_FEEDBACK", {
       orderId,
       received: saved.received,
       rating: saved.rating,
@@ -337,15 +345,18 @@ export class OrderService {
   }
 
   async confirmCash(orderId: string): Promise<boolean> {
-    const confirmed = this.ledgerRepo.confirmByPassenger(orderId);
+    const confirmed = await this.ledgerRepo.confirmByPassenger(orderId);
     if (confirmed) {
-      this.outboxRepo.append("CASH_CONFIRMED", { orderId, confirmedAt: new Date().toISOString() });
+      await this.outboxRepo.append("CASH_CONFIRMED", {
+        orderId,
+        confirmedAt: new Date().toISOString(),
+      });
     }
     return confirmed;
   }
 
   async cancel(orderId: string): Promise<Order> {
-    const order = this.orderRepo.findById(orderId);
+    const order = await this.orderRepo.findById(orderId);
     if (!order) throw new Error(`Order not found: ${orderId}`);
 
     if (order.status !== OrderStatus.PLACED && order.status !== OrderStatus.ASSIGNED) {
@@ -361,13 +372,13 @@ export class OrderService {
 
   async startCooking(orderId: string): Promise<Order> {
     const order = await this.transition(orderId, OrderStatus.COOKING);
-    this.publishKitchenQueue();
+    await this.publishKitchenQueue();
     return order;
   }
 
   async readyCooking(orderId: string): Promise<Order> {
     const order = await this.transition(orderId, OrderStatus.READY);
-    this.publishKitchenQueue();
+    await this.publishKitchenQueue();
 
     // Pass to dispatcher batcher or immediate dispatch
     if (this.dispatcher) {
@@ -377,25 +388,27 @@ export class OrderService {
     return order;
   }
 
-  publishKitchenQueue(): void {
-    const kitchenOrders = this.orderRepo.listKitchenOrders();
-    const formatted = kitchenOrders.map((ko) => {
-      const fullOrder = this.orderRepo.findById(ko.orderId);
-      return {
-        orderId: ko.orderId,
-        coach: ko.coach,
-        berth: ko.berth,
-        status: ko.status,
-        pnr: ko.pnr,
-        diners: ko.diners,
-        createdAt: ko.createdAt,
-        items: (fullOrder?.items || []).map((i) => ({
-          name: i.name || "Item",
-          qty: i.qty,
-          prepMinutes: 10,
-        })),
-      };
-    });
+  async publishKitchenQueue(): Promise<void> {
+    const kitchenOrders = await this.orderRepo.listKitchenOrders();
+    const formatted = await Promise.all(
+      kitchenOrders.map(async (ko) => {
+        const fullOrder = await this.orderRepo.findById(ko.orderId);
+        return {
+          orderId: ko.orderId,
+          coach: ko.coach,
+          berth: ko.berth,
+          status: ko.status,
+          pnr: ko.pnr,
+          diners: ko.diners,
+          createdAt: ko.createdAt,
+          items: (fullOrder?.items || []).map((i) => ({
+            name: i.name || "Item",
+            qty: i.qty,
+            prepMinutes: 10,
+          })),
+        };
+      }),
+    );
 
     this.publisher.publishKitchenQueue(formatted);
   }

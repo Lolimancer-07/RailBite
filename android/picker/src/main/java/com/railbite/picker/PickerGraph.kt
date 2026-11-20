@@ -43,7 +43,7 @@ class PickerGraph(
             if (settings.serverUrl.first().isBlank() && BuildConfig.DEFAULT_SERVER_URL.isNotBlank()) {
                 settings.setServerUrl(BuildConfig.DEFAULT_SERVER_URL)
             }
-            val loggedIn = settings.staffToken.first().isNotBlank()
+            val loggedIn = container.authStore.session.value != null
             if (loggedIn) {
                 com.railbite.picker.fcm.FcmTokenRegistrar.registerCurrentToken(container)
             }

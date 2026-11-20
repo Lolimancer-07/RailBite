@@ -1,5 +1,6 @@
-import type Database from "better-sqlite3";
 import type { Complaint } from "@railbite/shared";
+import { toDb, type Db } from "../db.js";
+import type Database from "better-sqlite3";
 
 export interface ComplaintRow {
   id: string;
@@ -15,10 +16,30 @@ export interface ComplaintRow {
   created_at: string;
 }
 
-export class ComplaintRepo {
-  constructor(private db: Database.Database) {}
+function mapComplaint(row: ComplaintRow): Complaint {
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    tier: row.tier,
+    type: row.type as any,
+    text: row.text || undefined,
+    photoPath: row.photo_path || undefined,
+    photoSha256: row.photo_sha256 || undefined,
+    photoTs: row.photo_ts || undefined,
+    status: row.status,
+    dueAt: row.due_at || undefined,
+    createdAt: row.created_at,
+  };
+}
 
-  create(complaint: {
+export class ComplaintRepo {
+  private db: Db;
+
+  constructor(db: Db | Database.Database) {
+    this.db = toDb(db);
+  }
+
+  async create(complaint: {
     id: string;
     orderId: string;
     tier: 1 | 2;
@@ -30,14 +51,12 @@ export class ComplaintRepo {
     status: "OPEN" | "REPLACEMENT_SENT" | "RESOLVED" | "ESCALATED";
     dueAt?: string;
     createdAt: string;
-  }): void {
-    this.db
-      .prepare(
-        `INSERT INTO complaints (
-          id, order_id, tier, type, text, photo_path, photo_sha256, photo_ts, status, due_at, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+  }): Promise<void> {
+    await this.db.run(
+      `INSERT INTO complaints (
+        id, order_id, tier, type, text, photo_path, photo_sha256, photo_ts, status, due_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
         complaint.id,
         complaint.orderId,
         complaint.tier,
@@ -49,61 +68,37 @@ export class ComplaintRepo {
         complaint.status,
         complaint.dueAt || null,
         complaint.createdAt,
-      );
+      ],
+    );
   }
 
-  countTier2ForPnr(pnr: string): number {
-    const row = this.db
-      .prepare(
-        `SELECT COUNT(*) as cnt 
-         FROM complaints c 
-         JOIN orders o ON o.id = c.order_id 
-         WHERE o.pnr = ? AND c.tier = 2`,
-      )
-      .get(pnr) as { cnt: number };
-    return row.cnt;
+  async countTier2ForPnr(pnr: string): Promise<number> {
+    const row = await this.db.get<{ cnt: number | string }>(
+      `SELECT COUNT(*) as cnt
+       FROM complaints c
+       JOIN orders o ON o.id = c.order_id
+       WHERE o.pnr = ? AND c.tier = 2`,
+      [pnr],
+    );
+    return Number(row?.cnt || 0);
   }
 
-  findById(id: string): Complaint | null {
-    const row = this.db.prepare("SELECT * FROM complaints WHERE id = ?").get(id) as ComplaintRow | undefined;
-    if (!row) return null;
-    return {
-      id: row.id,
-      orderId: row.order_id,
-      tier: row.tier,
-      type: row.type as any,
-      text: row.text || undefined,
-      photoPath: row.photo_path || undefined,
-      photoSha256: row.photo_sha256 || undefined,
-      photoTs: row.photo_ts || undefined,
-      status: row.status,
-      dueAt: row.due_at || undefined,
-      createdAt: row.created_at,
-    };
+  async findById(id: string): Promise<Complaint | null> {
+    const row = await this.db.get<ComplaintRow>("SELECT * FROM complaints WHERE id = ?", [id]);
+    return row ? mapComplaint(row) : null;
   }
 
-  updateStatus(id: string, status: "OPEN" | "REPLACEMENT_SENT" | "RESOLVED" | "ESCALATED"): void {
-    this.db.prepare("UPDATE complaints SET status = ? WHERE id = ?").run(status, id);
+  async updateStatus(
+    id: string,
+    status: "OPEN" | "REPLACEMENT_SENT" | "RESOLVED" | "ESCALATED",
+  ): Promise<void> {
+    await this.db.run("UPDATE complaints SET status = ? WHERE id = ?", [status, id]);
   }
 
-  listActive(): Complaint[] {
-    const rows = this.db
-      .prepare("SELECT * FROM complaints WHERE status != 'RESOLVED' ORDER BY created_at ASC")
-      .all() as ComplaintRow[];
-
-    return rows.map((row) => ({
-      id: row.id,
-      orderId: row.order_id,
-      tier: row.tier,
-      type: row.type as any,
-      text: row.text || undefined,
-      photoPath: row.photo_path || undefined,
-      photoSha256: row.photo_sha256 || undefined,
-      photoTs: row.photo_ts || undefined,
-      status: row.status,
-      dueAt: row.due_at || undefined,
-      createdAt: row.created_at,
-    }));
+  async listActive(): Promise<Complaint[]> {
+    const rows = await this.db.all<ComplaintRow>(
+      "SELECT * FROM complaints WHERE status != 'RESOLVED' ORDER BY created_at ASC",
+    );
+    return rows.map(mapComplaint);
   }
 }
-

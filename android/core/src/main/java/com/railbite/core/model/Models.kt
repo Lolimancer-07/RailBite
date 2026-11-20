@@ -93,19 +93,47 @@ data class DeliverRequest(
     val deliveryCode: String? = null,
 )
 
-/** POST /staff/login request/response. */
+/** POST /staff/login request — password is the production credential; pin is legacy. */
 @Serializable
-data class StaffLoginRequest(val staffId: String, val pin: String)
+data class StaffLoginRequest(
+    val staffId: String,
+    val password: String? = null,
+    val pin: String? = null,
+)
 
 @Serializable
 data class StaffLoginResponse(
     val staffId: String,
     val name: String,
     val role: String,
-    val zoneCoaches: List<String>,
-    val token: String,
-    val expiresAt: String,
+    val zoneCoaches: List<String> = emptyList(),
+    /** Legacy alias for the access token (pre-auth pantry APKs). */
+    val token: String = "",
+    val expiresAt: String = "",
+    val accessToken: String? = null,
+    val refreshToken: String? = null,
+    val expiresIn: String? = null,
 )
+
+// ---------- Auth (Firebase Phone Auth / staff password) ----------
+
+@Serializable
+data class FirebaseLoginRequest(val idToken: String, val name: String? = null)
+
+@Serializable
+data class DevLoginRequest(val phone: String, val name: String? = null)
+
+@Serializable
+data class RefreshRequest(val refreshToken: String)
+
+@Serializable
+data class LogoutRequest(val refreshToken: String)
+
+@Serializable
+data class MeResponse(val ok: Boolean = true, val user: com.railbite.core.auth.AuthUser)
+
+@Serializable
+data class SimpleAck(val ok: Boolean = true)
 
 /** GET /staff/:id/stats — today's picker stats. Money is integer paise. */
 @Serializable

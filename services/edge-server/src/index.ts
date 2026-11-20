@@ -1,5 +1,5 @@
 import { config } from "./config.js";
-import { getDb, closeDb } from "./db/connection.js";
+import { closeAppDb, getAppDb } from "./db/db.js";
 import { seed } from "./seed/seed.js";
 import { createBroker } from "./mqtt/broker.js";
 import { MqttPublisher } from "./mqtt/publisher.js";
@@ -9,18 +9,17 @@ import { createApp } from "./app.js";
 async function main() {
   console.log("=== Starting RailBite Edge Server ===");
   console.log(`Trip ID: ${config.tripId}`);
-  console.log(`Database: ${config.dbPath}`);
 
-  // 1. Database & Migrations
-  const db = getDb();
+  // 1. Database & Migrations (Postgres when DATABASE_URL is set, SQLite otherwise)
+  const db = await getAppDb();
+  console.log(
+    db.dialect === "postgres"
+      ? "Database: Postgres (durable)"
+      : `Database: SQLite (${config.dbPath})`,
+  );
 
-  // Auto-seed if menu_items or trips is empty
-  const itemCount = (db.prepare("SELECT COUNT(*) as cnt FROM menu_items").get() as any)?.cnt || 0;
-  const tripCount = (db.prepare("SELECT COUNT(*) as cnt FROM trips").get() as any)?.cnt || 0;
-  if (itemCount === 0 || tripCount === 0) {
-    console.log("Database empty or missing seed data. Seeding initial data...");
-    seed(db);
-  }
+  // Idempotent seed: inserts missing demo data, never wipes stock/orders/passwords.
+  await seed(db);
 
   // 2. MQTT Broker
   const broker = createBroker();
@@ -41,6 +40,11 @@ async function main() {
 
   console.log(`[HTTP+MQTT] Server listening on http://${config.host}:${config.port}`);
   console.log(`[MQTT/WS]   WebSocket endpoint: ws://${config.host}:${config.port}/mqtt`);
+  console.log(
+    config.authRequired
+      ? "[AUTH]      JWT enforced; customer=Firebase Phone Auth, picker=staff password"
+      : "[AUTH]      Disabled (AUTH_REQUIRED=false) — do not use this in production",
+  );
 
   // Optional: keep standalone TCP port 1883 if explicitly requested via ENABLE_TCP_MQTT
   if (process.env.ENABLE_TCP_MQTT === "true") {
@@ -52,14 +56,14 @@ async function main() {
   }
 
   // 6. Recover pending timers from DB
-  dispatcher.recoverPendingTimers();
+  await dispatcher.recoverPendingTimers();
 
   // Graceful shutdown
   const shutdown = async () => {
     console.log("\nShutting down gracefully...");
     await app.close();
     await broker.close();
-    closeDb();
+    await closeAppDb();
     console.log("RailBite Edge Server stopped.");
     process.exit(0);
   };

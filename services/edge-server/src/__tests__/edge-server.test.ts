@@ -28,7 +28,7 @@ describe("RailBite Edge Server Core", () => {
     db.pragma("foreign_keys = ON");
 
     runMigrations(db);
-    seed(db);
+    await seed(db);
 
     aedes = new Aedes();
     publisher = new MqttPublisher(aedes);
@@ -108,7 +108,7 @@ describe("RailBite Edge Server Core", () => {
 
     // Verify in DB that only 1 record exists
     const orderRepo = new OrderRepo(db);
-    const inDb = orderRepo.findById(orderId);
+    const inDb = await orderRepo.findById(orderId);
     expect(inDb).not.toBeNull();
     const count = (db.prepare("SELECT COUNT(*) as cnt FROM orders WHERE id = ?").get(orderId) as any).cnt;
     expect(count).toBe(1);
@@ -214,7 +214,7 @@ describe("RailBite Edge Server Core", () => {
 
     // Verify stock in database is exactly 0 and NOT negative
     const menuRepo = new MenuRepo(db);
-    const item = menuRepo.findById(itemId);
+    const item = await menuRepo.findById(itemId);
     expect(item?.stock).toBe(0);
   });
 

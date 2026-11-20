@@ -7,6 +7,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Optional: set a build-time default server URL, e.g.
 //   ./gradlew :customer:assembleRelease -PSERVER_URL=https://railbite-api.onrender.com
 val defaultServerUrl: String =
@@ -93,6 +97,12 @@ dependencies {
     implementation(libs.compose.material.icons)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
+
+    // Firebase Phone Auth — requires google-services.json for com.railbite.customer
+    // (enable "Phone" in the Firebase console + register the app's SHA-1/SHA-256).
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.play.services.tasks)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)

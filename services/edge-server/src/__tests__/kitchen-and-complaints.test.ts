@@ -26,7 +26,7 @@ describe("Phase 6 (Kitchen & Cash) and Phase 7 (Complaints) End-to-End", () => {
     db.pragma("journal_mode = WAL");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
-    seed(db);
+    await seed(db);
 
     broker = createBroker();
     publisher = new MqttPublisher(broker.aedes);
@@ -165,7 +165,7 @@ describe("Phase 6 (Kitchen & Cash) and Phase 7 (Complaints) End-to-End", () => {
 
     // 8. Verify ledger summary
     const ledger = new LedgerRepo(db);
-    const summary = ledger.getSummary();
+    const summary = await ledger.getSummary();
     const c1 = summary.find((s) => s.captainId === "c1");
     expect(c1?.expectedPaise).toBe(8000);
     expect(c1?.collectedPaise).toBe(8000);
@@ -232,7 +232,7 @@ describe("Phase 6 (Kitchen & Cash) and Phase 7 (Complaints) End-to-End", () => {
 
     // Verify written to outbox as COMPLAINT_ESCALATION
     const outbox = new OutboxRepo(db);
-    const unsynced = outbox.getUnsynced(100);
+    const unsynced = await outbox.getUnsynced(100);
     const escalation = unsynced.find((e) => e.entity === "COMPLAINT_ESCALATION");
     expect(escalation).toBeDefined();
     expect(escalation?.payload.type).toBe("OVERCHARGED");

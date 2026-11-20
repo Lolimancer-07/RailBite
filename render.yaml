@@ -1,4 +1,4 @@
-# Render Blueprint — RailBite edge server.
+# Render Blueprint — RailBite edge server + durable Postgres.
 #
 # Deploy: push this repo to GitHub → Render Dashboard → New → Blueprint → pick the repo.
 # The service name determines the subdomain: `railbite-api` serves
@@ -7,12 +7,27 @@
 # wss://<service>.onrender.com/mqtt over the same port, which the apps already speak
 # (MqttConnector picks wss when the server URL is https).
 #
+# Production spine:
+#  - `railbite-db` is a Render Postgres instance. DATABASE_URL is injected from it, so
+#    the server runs the Postgres driver instead of the local SQLite fallback.
+#  - JWT_SECRET is generated once by Render and kept across deploys (rotating it signs
+#    every session out — intentional if tokens ever leak).
+#  - AUTH_REQUIRED=true turns on the global JWT hook: every route except /health,
+#    /menu, /auth/* (except /auth/me) and the SMS webhook needs a bearer token.
+#  - Customers sign in with Firebase Phone Auth; pickers with staff ID + bcrypt password.
+#
 # Free plan notes:
-#  - the service sleeps after ~15 min idle; first request wakes it (~30-60 s).
+#  - the web service sleeps after ~15 min idle; first request wakes it (~30-60 s).
 #    Keep it warm with a cron ping on GET /health every 10 min (cron-job.org is free).
-#  - disk is ephemeral: menu/staff/PNR manifest re-seed automatically on boot
-#    (index.ts seeds when the DB is empty). Orders/cash ledger reset on restart.
-#    For durability switch to a paid plan and enable the disk below.
+#  - free Postgres expires after 30 days; upgrade the database plan before the trip.
+#    Everything (orders, users, sessions, cash ledger) now survives restarts and deploys.
+
+databases:
+  - name: railbite-db
+    databaseName: railbite
+    user: railbite
+    plan: free
+    region: singapore # keep the database and the web service in the same region
 
 services:
   - type: web
@@ -34,12 +49,19 @@ services:
         # Pinned to the apps' MeshTrip.SECRET: offline BLE-mesh packets are tagged with
         # the same secret (generateValue would break the phones' tags on redeploy).
         value: railbite-trip-secret-key-xyz
+      - key: AUTH_REQUIRED
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: railbite-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true # Render keeps the generated value across deploys
+      - key: JWT_EXPIRES_IN
+        value: 1h
+      - key: REFRESH_TOKEN_DAYS
+        value: "30"
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
-        sync: false # FCM push credentials — set in the dashboard when enabling push
-      # Optional durable DB on a paid plan:
-      # - key: DB_PATH
-      #   value: /var/data/railbite.db
-    # disk:
-    #   name: railbite-data
-    #   mountPath: /var/data
-    #   sizeGB: 1
+        sync: false # Firebase service account — set in the dashboard (never commit it)
+      - key: FIREBASE_PROJECT_ID
+        sync: false # optional; falls back to the service account's project_id

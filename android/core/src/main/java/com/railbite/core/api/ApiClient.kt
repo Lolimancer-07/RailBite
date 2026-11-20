@@ -23,6 +23,8 @@ object ApiClient {
         isLenient = true
         coerceInputValues = true
         encodeDefaults = true
+        // Never send `"password": null` — the server validates optional fields strictly.
+        explicitNulls = false
     }
 
     fun normalizeServerUrl(raw: String): String {
@@ -46,11 +48,12 @@ object ApiClient {
         }
     }
 
-    fun okHttp(): OkHttpClient =
+    fun okHttp(authInterceptor: okhttp3.Interceptor? = null): OkHttpClient =
         OkHttpClient.Builder()
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
             .writeTimeout(10, TimeUnit.SECONDS)
+            .apply { authInterceptor?.let { addInterceptor(it) } }
             .addInterceptor(
                 HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC },
             )
@@ -96,8 +99,14 @@ object ApiClient {
      * True when the cloud already knows this order (any state). Used by the mesh
      * sink to drop duplicate alerts for dual-path orders — the passenger posted it
      * online AND burst it over Bluetooth, so the cloud alert already fired.
+     * Auth is enforced on this route, so the staff bearer token is required.
      */
-    suspend fun orderExists(serverUrl: String, orderId: String, timeoutMs: Long = 2_000L): Boolean =
+    suspend fun orderExists(
+        serverUrl: String,
+        orderId: String,
+        bearerToken: String? = null,
+        timeoutMs: Long = 2_000L,
+    ): Boolean =
         withContext(Dispatchers.IO) {
             val url = normalizeServerUrl(serverUrl)
             if (url.isEmpty()) {
@@ -108,7 +117,14 @@ object ApiClient {
                     .readTimeout(timeoutMs, TimeUnit.MILLISECONDS)
                     .build()
                 runCatching {
-                    val request = okhttp3.Request.Builder().url("$url/orders/$orderId").build()
+                    val request = okhttp3.Request.Builder()
+                        .url("$url/orders/$orderId")
+                        .apply {
+                            if (!bearerToken.isNullOrBlank()) {
+                                header("Authorization", "Bearer $bearerToken")
+                            }
+                        }
+                        .build()
                     client.newCall(request).execute().use { it.isSuccessful }
                 }.getOrDefault(false)
             }

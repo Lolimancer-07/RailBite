@@ -8,4 +8,3 @@ export function createMenuRoutes(menuRepo: MenuRepo): FastifyPluginAsync {
     });
   };
 }
-
