@@ -28,3 +28,11 @@ apps/captain/ios/
 
 # kotlin compiler session/error artifacts (build noise, not source)
 android/.kotlin/
+
+# Secrets and service accounts
+*service-account*.json
+*service_account*.json
+railbite-*.json
+*.pem
+*.key
+
