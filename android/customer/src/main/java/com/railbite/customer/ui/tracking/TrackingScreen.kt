@@ -172,7 +172,9 @@ fun TrackingScreen(
                     )
                 }
 
-                if (state.relayed) {
+                if (state.status == Statuses.DELIVERED) {
+                    BillCard(state.order)
+                } else if (state.relayed) {
                     RelayItemsCard(state.relayItems, state.relayTotalPaise)
                 } else {
                     ItemsCard(state.order)
@@ -445,3 +447,112 @@ private fun ItemsCard(order: com.railbite.core.model.Order?) {
         }
     }
 }
+
+/**
+ * Clean, professional bill for a delivered order. Rendered in place of the plain
+ * items card once the order reaches DELIVERED — itemised lines, grand total,
+ * payment mode and seat/order facts, all from the design tokens.
+ */
+@Composable
+private fun BillCard(order: com.railbite.core.model.Order?) {
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Bill", style = MaterialTheme.typography.titleLarge)
+                Text(
+                    "Order #${order?.id?.take(8) ?: ""}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    "PNR ${order?.pnr ?: "—"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "Seat ${order?.coach ?: "—"} · Berth ${order?.berth ?: "—"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            order?.let {
+                Text(
+                    "Placed ${formatBillTime(it.createdAt)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            val billItems = order?.items.orEmpty()
+            if (billItems.isEmpty()) {
+                Text(
+                    "Items load when the server is reachable.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            billItems.forEach { item ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        "${item.qty} × ${item.name ?: item.itemId.take(8)}",
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                    )
+                    Text(
+                        Money.rupees(item.unitPricePaise * item.qty),
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                }
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Total", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text(
+                    Money.rupees(order?.totalPaise ?: 0),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+
+            order?.let {
+                Text(
+                    "Payment: ${if (it.paymentMode == "UPI_QUEUED") "UPI" else "COD"}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/** Formats an ISO-8601 instant for bill display. */
+private fun formatBillTime(iso: String): String = runCatching {
+    java.time.Instant.parse(iso)
+        .atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm"))
+}.getOrDefault(iso)
