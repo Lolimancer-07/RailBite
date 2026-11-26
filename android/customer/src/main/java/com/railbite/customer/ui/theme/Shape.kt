@@ -8,6 +8,7 @@ import androidx.compose.ui.unit.dp
 object RailBiteRadii {
     val Control = 8.dp
     val Button = 12.dp
+    val ChipBox = 14.dp
     val Card = 16.dp
     val ImageTile = 18.dp
     val BottomSheet = 24.dp

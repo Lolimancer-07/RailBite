@@ -130,7 +130,7 @@ fun VegMark(
     }
 }
 
-/** Flat pill category filter chip with ≥44 dp touch target. */
+/** Flat pill category filter chip with ≥44 dp touch target (solid cyan when selected per Stitch sketch). */
 @Composable
 fun CategoryChip(
     label: String,
@@ -141,8 +141,8 @@ fun CategoryChip(
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(RailBiteRadii.Pill),
-        color = if (selected) RailBitePalette.CyanTint else RailBitePalette.SurfaceCard,
-        contentColor = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.TextSecondary,
+        color = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.SurfaceCard,
+        contentColor = if (selected) Color.White else RailBitePalette.TextPrimary,
         border = BorderStroke(
             width = 1.dp,
             color = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.BorderSubtle,
@@ -152,7 +152,7 @@ fun CategoryChip(
     ) {
         Box(
             contentAlignment = Alignment.Center,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 10.dp),
         ) {
             Text(
                 text = label,
