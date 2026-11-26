@@ -1,6 +1,16 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
-import { FeedbackCreateSchema, OrderCreateSchema } from "@railbite/shared";
-import { OrderService, StateTransitionError, DeliveryCodeError } from "../services/orderService.js";
+import {
+  FeedbackCreateSchema,
+  OrderCreateSchema,
+  OrderMessageCreateSchema,
+  type OrderMessageSenderRole,
+} from "@railbite/shared";
+import {
+  OrderService,
+  OrderNotFoundError,
+  StateTransitionError,
+  DeliveryCodeError,
+} from "../services/orderService.js";
 import { effectiveStaffId, requireRoles } from "../auth/plugin.js";
 
 function customerOwns(
@@ -235,6 +245,75 @@ export function createOrderRoutes(orderService: OrderService): FastifyPluginAsyn
         }
         return { ok: true, orderId: id, passengerConfirmed: true };
       } catch (err: any) {
+        return reply.status(400).send({ error: err.message });
+      }
+    });
+
+    // GET /orders/:id/messages — chronological quick-chat history
+    fastify.get("/orders/:id/messages", async (request, reply) => {
+      if (!requireRoles(request, reply, ["customer", "picker", "admin"])) return;
+      const { id } = request.params as { id: string };
+      try {
+        const order = await orderService.getOrder(id);
+        if (!order) {
+          return reply.status(404).send({ error: "Order not found" });
+        }
+        if (!customerOwns(request, order)) {
+          return reply.status(403).send({ error: "This order belongs to another account" });
+        }
+        return await orderService.listMessages(id);
+      } catch (err: any) {
+        if (err instanceof OrderNotFoundError) {
+          return reply.status(404).send({ error: err.message });
+        }
+        return reply.status(400).send({ error: err.message });
+      }
+    });
+
+    // POST /orders/:id/messages — idempotent quick-chat message + MQTT QoS 1 broadcast
+    fastify.post("/orders/:id/messages", async (request, reply) => {
+      if (!requireRoles(request, reply, ["customer", "picker", "admin"])) return;
+      const { id } = request.params as { id: string };
+      const parsed = OrderMessageCreateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: "Invalid message data",
+          details: parsed.error.issues,
+        });
+      }
+
+      try {
+        const order = await orderService.getOrder(id);
+        if (!order) {
+          return reply.status(404).send({ error: "Order not found" });
+        }
+        if (!customerOwns(request, order)) {
+          return reply.status(403).send({ error: "This order belongs to another account" });
+        }
+
+        const auth = request.auth;
+        let senderRole: OrderMessageSenderRole = parsed.data.senderRole ?? "CUSTOMER";
+        let senderId: string | null = parsed.data.senderId ?? null;
+        if (auth?.role === "customer") {
+          senderRole = "CUSTOMER";
+          senderId = auth.sub;
+        } else if (auth?.role === "picker") {
+          senderRole = "PICKER";
+          senderId = auth.staffId || auth.sub;
+        }
+
+        const { duplicate, message } = await orderService.sendMessage(id, parsed.data, {
+          senderRole,
+          senderId,
+        });
+        return reply.status(duplicate ? 200 : 201).send(message);
+      } catch (err: any) {
+        if (err instanceof OrderNotFoundError) {
+          return reply.status(404).send({ error: err.message });
+        }
+        if (err instanceof StateTransitionError) {
+          return reply.status(409).send({ error: err.message });
+        }
         return reply.status(400).send({ error: err.message });
       }
     });

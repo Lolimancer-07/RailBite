@@ -8,9 +8,13 @@ import {
   Track,
   type Order,
   type OrderCreate,
+  type OrderMessage,
+  type OrderMessageCreate,
+  type OrderMessageSenderRole,
 } from "@railbite/shared";
 import { toDb, type Db } from "../db/db.js";
 import { OrderRepo } from "../db/repos/orderRepo.js";
+import { MessageRepo } from "../db/repos/messageRepo.js";
 import { MenuRepo } from "../db/repos/menuRepo.js";
 import { ManifestRepo } from "../db/repos/manifestRepo.js";
 import { StaffRepo } from "../db/repos/staffRepo.js";
@@ -38,9 +42,23 @@ export class DeliveryCodeError extends Error {
   }
 }
 
+export class OrderNotFoundError extends Error {
+  constructor(orderId: string) {
+    super(`Order not found: ${orderId}`);
+    this.name = "OrderNotFoundError";
+  }
+}
+
+const CHAT_ALLOWED_STATUSES: ReadonlySet<string> = new Set([
+  OrderStatus.ACCEPTED,
+  OrderStatus.PACKING,
+  OrderStatus.OUT_FOR_DELIVERY,
+]);
+
 export class OrderService {
   private db: Db;
   private orderRepo: OrderRepo;
+  private messageRepo: MessageRepo;
   private menuRepo: MenuRepo;
   private manifestRepo: ManifestRepo;
   private staffRepo: StaffRepo;
@@ -54,6 +72,7 @@ export class OrderService {
   ) {
     this.db = toDb(db);
     this.orderRepo = new OrderRepo(this.db);
+    this.messageRepo = new MessageRepo(this.db);
     this.menuRepo = new MenuRepo(this.db);
     this.manifestRepo = new ManifestRepo(this.db);
     this.staffRepo = new StaffRepo(this.db);
@@ -353,6 +372,49 @@ export class OrderService {
       });
     }
     return confirmed;
+  }
+
+  async listMessages(orderId: string): Promise<OrderMessage[]> {
+    const order = await this.orderRepo.findById(orderId);
+    if (!order) throw new OrderNotFoundError(orderId);
+    return this.messageRepo.listByOrder(orderId);
+  }
+
+  async sendMessage(
+    orderId: string,
+    input: OrderMessageCreate,
+    actor: { senderRole: OrderMessageSenderRole; senderId?: string | null },
+  ): Promise<{ duplicate: boolean; message: OrderMessage }> {
+    const order = await this.orderRepo.findById(orderId);
+    if (!order) throw new OrderNotFoundError(orderId);
+
+    if (!CHAT_ALLOWED_STATUSES.has(order.status)) {
+      throw new StateTransitionError(order.status, "MESSAGE", order.track);
+    }
+
+    const existing = await this.messageRepo.findById(input.id);
+    if (existing) {
+      if (existing.orderId !== orderId) {
+        throw new StateTransitionError(order.status, "MESSAGE_CONFLICT", order.track);
+      }
+      return { duplicate: true, message: existing };
+    }
+
+    const candidate: OrderMessage = {
+      id: input.id,
+      orderId,
+      senderRole: actor.senderRole,
+      senderId: actor.senderId ?? input.senderId ?? null,
+      presetCode: input.presetCode ?? null,
+      body: input.body,
+      createdAt: Date.now(),
+    };
+
+    const { inserted, message } = await this.messageRepo.insertIfAbsent(candidate);
+    if (inserted) {
+      await this.publisher.publishOrderChat(orderId, message);
+    }
+    return { duplicate: !inserted, message };
   }
 
   async cancel(orderId: string): Promise<Order> {

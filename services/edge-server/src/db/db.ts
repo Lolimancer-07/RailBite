@@ -276,7 +276,8 @@ function migrationsDir(): string | null {
 export function translateSqliteToPg(sql: string): string {
   return sql
     .replace(/^\s*PRAGMA[^;]*;?\s*$/gim, "")
-    .replace(/INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT/gi, "BIGSERIAL PRIMARY KEY");
+    .replace(/INTEGER\s+PRIMARY\s+KEY\s+AUTOINCREMENT/gi, "BIGSERIAL PRIMARY KEY")
+    .replace(/\bcreated_at\s+INTEGER\s+NOT\s+NULL/gi, "created_at BIGINT NOT NULL");
 }
 
 function splitStatements(sql: string): string[] {

@@ -24,6 +24,8 @@ Passenger endpoints are unauthenticated but PNR-scoped.
 | POST | `/orders/:id/deliver` | Picker | Body: `{captainId, cashPaise?, deliveryCode}` — picker must repeat the passenger's delivery code; `403` on mismatch 🔸PROTOTYPE |
 | POST | `/orders/:id/feedback` | Passenger | Body: `{received, rating?, reasons?}` — FOT-style post-delivery feedback; only for DELIVERED orders, else `409` 🔸PROTOTYPE |
 | POST | `/orders/:id/confirm-cash` | None | Passenger confirms cash paid |
+| GET | `/orders/:id/messages` | Customer / Picker | Chronological quick-chat messages for an order |
+| POST | `/orders/:id/messages` | Customer / Picker | Send preset or 120-char custom message (idempotent on `id`; `409` outside `ACCEPTED`/`PACKING`/`OUT_FOR_DELIVERY`; publishes MQTT `rb/{trip}/orders/{orderId}/chat` QoS 1) |
 | GET | `/orders/:id` | None | Passenger view includes `deliveryCode` + `feedback`; append `?role=picker` to strip the code |
 | POST | `/kitchen/:id/start` | Cook | Mark cooking started |
 | POST | `/kitchen/:id/ready` | Cook | Mark item ready |

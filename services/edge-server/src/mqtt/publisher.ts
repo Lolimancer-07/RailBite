@@ -5,6 +5,7 @@ import type {
   MqttOrderStatus,
   MqttOrderAlert,
   MqttKitchenQueueItem,
+  OrderMessage,
 } from "@railbite/shared";
 import { config } from "../config.js";
 
@@ -38,6 +39,10 @@ export class MqttPublisher extends EventEmitter {
 
   async publishOrderStatus(orderId: string, status: MqttOrderStatus, retain: boolean = true): Promise<void> {
     await this.publish(this.t.orderStatus(orderId), status, retain, 1);
+  }
+
+  async publishOrderChat(orderId: string, message: OrderMessage): Promise<void> {
+    await this.publish(this.t.orderChat(orderId), message, false, 1);
   }
 
   async publishCaptainAlert(captainId: string, alert: MqttOrderAlert): Promise<void> {

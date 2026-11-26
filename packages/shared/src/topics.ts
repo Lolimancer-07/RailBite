@@ -3,6 +3,7 @@ export function topics(tripId: string) {
   return {
     ordersNew: `${prefix}/orders/new`,
     orderStatus: (orderId: string) => `${prefix}/orders/${orderId}/status`,
+    orderChat: (orderId: string) => `${prefix}/orders/${orderId}/chat`,
     captainAlerts: (captainId: string) => `${prefix}/captain/${captainId}/alerts`,
     captainActions: (captainId: string) => `${prefix}/captain/${captainId}/actions`,
     kitchenQueue: `${prefix}/kitchen/queue`,

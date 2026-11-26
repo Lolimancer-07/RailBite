@@ -90,12 +90,13 @@ export function createBroker(): MqttBrokerInstance {
       return callback(new Error("Unauthorized subscribe topic for passenger"), null);
     }
 
-    // Captain: can subscribe to captain/{captainId}/alerts
+    // Captain: can subscribe to captain/{captainId}/alerts and order chat topics
     if (clientId.startsWith("c-")) {
       const captainId = clientId.slice(2);
       if (
         topic === `${tripPrefix}/captain/${captainId}/alerts` ||
-        topic === `${tripPrefix}/captain/+/alerts`
+        topic === `${tripPrefix}/captain/+/alerts` ||
+        (topic.startsWith(`${tripPrefix}/orders/`) && topic.endsWith("/chat"))
       ) {
         return callback(null, subscription);
       }

@@ -12,6 +12,10 @@ describe("topic builders", () => {
     expect(t.orderStatus("order-abc")).toBe("rb/TRIP123/orders/order-abc/status");
   });
 
+  it("builds orderChat topic", () => {
+    expect(t.orderChat("order-abc")).toBe("rb/TRIP123/orders/order-abc/chat");
+  });
+
   it("builds captainAlerts topic", () => {
     expect(t.captainAlerts("cap-1")).toBe("rb/TRIP123/captain/cap-1/alerts");
   });
