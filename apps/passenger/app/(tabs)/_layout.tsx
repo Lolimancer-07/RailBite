@@ -1,6 +1,7 @@
 import React from "react";
-import { Tabs } from "expo-router";
+import { Redirect, Tabs } from "expo-router";
 import { View, Text, StyleSheet } from "react-native";
+import { useSessionStore } from "../../src/store/session.js";
 import { colors } from "../../src/ui/theme.js";
 
 function TabIcon({ label, emoji, focused }: { label: string; emoji: string; focused: boolean }) {
@@ -15,6 +16,14 @@ function TabIcon({ label, emoji, focused }: { label: string; emoji: string; focu
 }
 
 export default function TabsLayout() {
+  const phone = useSessionStore((s) => s.phone);
+  const hydrated = useSessionStore((s) => s.hydrated);
+
+  // Keep the app behind phone verification (e.g. after logging out)
+  if (hydrated && !phone) {
+    return <Redirect href="/login" />;
+  }
+
   return (
     <Tabs
       screenOptions={{

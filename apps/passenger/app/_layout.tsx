@@ -36,6 +36,7 @@ export default function RootLayout() {
       >
         <Stack.Screen name="index" />
         <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="login" />
         <Stack.Screen name="onboarding" />
         <Stack.Screen name="settings" />
         <Stack.Screen name="cart" options={{ presentation: "modal" }} />

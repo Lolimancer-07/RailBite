@@ -7,6 +7,7 @@ import { colors } from "../src/ui/theme.js";
 export default function IndexScreen() {
   const router = useRouter();
   const session = useSessionStore((s) => s.session);
+  const phone = useSessionStore((s) => s.phone);
   const hydrate = useSessionStore((s) => s.hydrate);
   const hydrated = useSessionStore((s) => s.hydrated);
 
@@ -17,7 +18,9 @@ export default function IndexScreen() {
   useEffect(() => {
     if (!hydrated) return;
     const timer = setTimeout(() => {
-      if (session && session.pnr) {
+      if (!phone) {
+        router.replace("/login");
+      } else if (session && session.pnr) {
         router.replace("/(tabs)/home");
       } else {
         router.replace("/onboarding");
@@ -25,7 +28,7 @@ export default function IndexScreen() {
     }, 300);
 
     return () => clearTimeout(timer);
-  }, [hydrated, session, router]);
+  }, [hydrated, session, phone, router]);
 
   return (
     <View style={styles.container}>

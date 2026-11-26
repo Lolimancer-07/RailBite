@@ -89,6 +89,10 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
+    // Firebase's play-services-basement pins Fragment 1.1.0 transitively, which
+    // trips lint's InvalidFragmentVersionForActivityResult. Pin the current
+    // version so release builds pass lintVital.
+    implementation(libs.androidx.fragment.ktx)
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)

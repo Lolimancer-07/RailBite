@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 /** Shared graph of the customer app: settings + api client + auth + cart + mqtt + start route. */
 class CustomerGraph(
@@ -33,7 +34,11 @@ class CustomerGraph(
 
     init {
         scope.launch {
-            val done = settings.onboardingDone.first()
+            // Never leave the root on an infinite spinner if the local settings
+            // store is slow or fails to read — fall back to the login screen.
+            val done = runCatching {
+                withTimeout(2_500) { settings.onboardingDone.first() }
+            }.getOrDefault(false)
             val loggedIn = container.authStore.session.value != null
             _startDestination.value = when {
                 !loggedIn -> Routes.LOGIN

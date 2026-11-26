@@ -16,6 +16,8 @@ import { colors } from "../src/ui/theme.js";
 
 export default function SettingsScreen() {
   const router = useRouter();
+  const phone = useSessionStore((s) => s.phone);
+  const clearPhone = useSessionStore((s) => s.clearPhone);
   const [url, setUrl] = useState(getApiBaseUrl());
   const [status, setStatus] = useState<"idle" | "ok" | "fail">("idle");
 
@@ -60,6 +62,28 @@ export default function SettingsScreen() {
       { text: "Go Home", onPress: () => router.replace("/(tabs)/home") },
     ]);
   };
+
+  const handleLogout = () => {
+    Alert.alert(
+      "Log out?",
+      "You'll need to verify your phone number again. Your saved seat stays on this device.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Log out",
+          style: "destructive",
+          onPress: () => {
+            clearPhone();
+            router.replace("/login");
+          },
+        },
+      ],
+    );
+  };
+
+  const displayPhone = phone
+    ? `+91 ${phone.replace(/^\+91/, "").replace(/(\d{5})(\d{5})/, "$1 $2")}`
+    : "Not signed in";
 
   let statusLabel = "";
   let statusColor = colors.inkSoft;
@@ -107,6 +131,17 @@ export default function SettingsScreen() {
           Default comes from EXPO_PUBLIC_SERVER_URL at build time. MQTT (WebSocket, port 8883) and
           REST (port 8080) both use this host.
         </Text>
+      </View>
+
+      <View style={styles.card}>
+        <Text style={styles.label}>Account</Text>
+        <Text style={styles.phoneText}>{displayPhone}</Text>
+        <Text style={styles.accountHint}>
+          This number is used for order updates and delivery calls on this device.
+        </Text>
+        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout} activeOpacity={0.8}>
+          <Text style={styles.logoutText}>Log out</Text>
+        </TouchableOpacity>
       </View>
     </ScrollView>
   );
@@ -162,4 +197,15 @@ const styles = StyleSheet.create({
   },
   primaryText: { color: "#ffffff", fontWeight: "bold" },
   hint: { fontSize: 12, color: colors.inkSoft, marginTop: 14, lineHeight: 18 },
+  phoneText: { fontSize: 17, fontWeight: "800", color: colors.ink, letterSpacing: 0.4 },
+  accountHint: { fontSize: 12, color: colors.inkSoft, marginTop: 4, lineHeight: 17 },
+  logoutBtn: {
+    marginTop: 14,
+    borderWidth: 1.5,
+    borderColor: colors.danger,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  logoutText: { color: colors.danger, fontWeight: "bold" },
 });

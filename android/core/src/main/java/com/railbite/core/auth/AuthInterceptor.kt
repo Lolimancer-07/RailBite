@@ -53,7 +53,10 @@ class AuthInterceptor(
         }
 
         if (refreshed.isNullOrBlank()) {
-            store.clear()
+            // The demo sign-in has no server session to rotate; keep it so a
+            // 401 from an auth-enforcing deployment does not bounce the user
+            // back to the login screen.
+            if (!DemoAuth.isDemoToken(token)) store.clear()
             return response
         }
 

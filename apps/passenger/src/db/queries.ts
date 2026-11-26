@@ -242,3 +242,12 @@ export function getSetting(key: string): string | null {
   return memorySettings.get(key) ?? null;
 }
 
+export function deleteSetting(key: string): void {
+  const db = getLocalDb();
+  if (db) {
+    db.runSync("DELETE FROM settings WHERE key = ?", [key]);
+  } else {
+    memorySettings.delete(key);
+  }
+}
+
