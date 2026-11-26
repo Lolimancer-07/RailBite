@@ -10,28 +10,36 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.LocalShipping
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -40,34 +48,43 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.model.MenuItem
 import com.railbite.core.ui.EmptyState
 import com.railbite.core.ui.LoadingSkeleton
 import com.railbite.core.util.Statuses
+import com.railbite.customer.ui.components.AccountMenuSheet
 import com.railbite.customer.ui.components.CategoryChip
+import com.railbite.customer.ui.components.FilterBottomSheet
 import com.railbite.customer.ui.components.FloatingCartBar
 import com.railbite.customer.ui.components.FoodProductCard
 import com.railbite.customer.ui.components.ItemQuickViewSheet
-import com.railbite.customer.ui.components.MrpBadge
-import com.railbite.customer.ui.components.SeatHeaderBar
-import com.railbite.customer.ui.onboarding.flatTextFieldColors
+import com.railbite.customer.ui.components.SeatSetupBottomSheet
+import com.railbite.customer.ui.components.SortBottomSheet
+import com.railbite.customer.ui.components.StorefrontTopRow
+import com.railbite.customer.ui.components.StorefrontUtilityRow
+import com.railbite.customer.ui.theme.RailBiteCardBorder
 import com.railbite.customer.ui.theme.RailBiteMetrics
 import com.railbite.customer.ui.theme.RailBitePalette
 import com.railbite.customer.ui.theme.RailBiteRadii
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun HomeScreen(
     graph: com.railbite.customer.CustomerGraph,
     modifier: Modifier = Modifier,
     onOpenCart: () -> Unit,
-    onEditSeat: () -> Unit,
-    onOpenSettings: () -> Unit = onEditSeat,
+    onOpenOrders: () -> Unit,
+    onOpenSettings: () -> Unit,
     onOpenOrder: (String) -> Unit,
 ) {
     val vm = viewModel(key = "home") { HomeViewModel(graph.container) }
@@ -75,178 +92,246 @@ fun HomeScreen(
     val cartLines by vm.cartLines.collectAsState()
     val seat by vm.seatInfo.seat.collectAsState(initial = null)
     val mqttConnected by graph.mqtt.connected.collectAsState()
+    val session by graph.authStore.session.collectAsState()
+    val serverUrl by graph.settings.serverUrl.collectAsState(initial = "")
+
     var inspectedItem by remember { mutableStateOf<MenuItem?>(null) }
+    var showSeatSheet by remember { mutableStateOf(false) }
+    var showFilterSheet by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
+    var showAccountSheet by remember { mutableStateOf(false) }
+
+    val gridState = rememberLazyGridState()
+    val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
 
     val online = mqttConnected || (state.error == null && !state.loading)
+    val cartCount = cartLines.values.sumOf { it.qty }
+    val products = state.filtered
 
-    Box(
-        modifier
-            .fillMaxSize()
-            .background(RailBitePalette.Canvas),
-    ) {
-        Column(Modifier.fillMaxSize()) {
-            SeatHeaderBar(
-                seatLabel = seat?.chip ?: "Set your seat",
-                online = online,
-                onSeatClick = onEditSeat,
-                onSettingsClick = onOpenSettings,
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = RailBitePalette.Canvas,
+        bottomBar = {
+            StorefrontBottomBar(
+                activeFilterCount = state.activeFilterCount,
+                selectedSort = state.sortBy,
+                onHomeClick = {
+                    focusManager.clearFocus()
+                    scope.launch { gridState.animateScrollToItem(0) }
+                },
+                onFilterClick = { showFilterSheet = true },
+                onSortClick = { showSortSheet = true },
             )
+        },
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .consumeWindowInsets(innerPadding),
+        ) {
+            Column(Modifier.fillMaxSize()) {
+                // Wireframe Top Row: RailBite brand box + live server dot on left, tappable SeatInfoBox on right
+                StorefrontTopRow(
+                    online = online,
+                    pnr = seat?.pnr.orEmpty(),
+                    coach = seat?.coach.orEmpty(),
+                    berth = seat?.berth,
+                    onBrandClick = onOpenSettings,
+                    onSeatBoxClick = { showSeatSheet = true },
+                )
 
-            // Active order live tracker pill banner
-            ActiveOrderBanner(graph = graph, onOpenOrder = onOpenOrder)
+                // Wireframe Utility Row: SearchPill + AccountIconButton + CartIconButton
+                StorefrontUtilityRow(
+                    search = state.search,
+                    onSearchChange = vm::setSearch,
+                    cartCount = cartCount,
+                    onAccountClick = { showAccountSheet = true },
+                    onCartClick = onOpenCart,
+                )
 
-            // Offline cached menu notice (non-blocking)
-            state.error?.takeIf { state.menu.isNotEmpty() }?.let { msg ->
-                Surface(
-                    shape = RoundedCornerShape(RailBiteRadii.Button),
-                    color = RailBitePalette.SemanticAmberTint,
-                    border = BorderStroke(1.dp, RailBitePalette.SemanticAmberBorder),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 6.dp),
-                ) {
+                Spacer(Modifier.size(10.dp))
+
+                // Category Pills Row (wired directly to real server categories)
+                CategoryRow(
+                    categories = state.categories,
+                    selected = state.selectedCategory,
+                    onSelect = vm::selectCategory,
+                )
+
+                // Active order banner when a live order is underway
+                ActiveOrderBanner(graph = graph, onOpenOrder = onOpenOrder)
+
+                // Active filter/sort feedback pill or offline notice
+                if (state.activeFilterCount > 0 || state.sortBy != MenuSortOption.DEFAULT) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 4.dp),
                     ) {
+                        val summary = buildList {
+                            if (state.vegOnly) add("Pure Veg")
+                            if (state.inStockOnly) add("In Stock")
+                            state.maxPricePaise?.let { add("≤₹${it / 100}") }
+                            if (state.sortBy != MenuSortOption.DEFAULT) add(state.sortBy.label)
+                        }.joinToString(" • ")
                         Text(
-                            text = msg,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = RailBitePalette.SemanticAmber,
+                            text = "${products.size} items • $summary",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = RailBitePalette.CyanPressed,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f),
                         )
-                        TextButton(onClick = vm::refresh) {
-                            Text("Retry", color = RailBitePalette.CyanPrimary)
+                        TextButton(
+                            onClick = {
+                                vm.resetFilters()
+                                vm.setSort(MenuSortOption.DEFAULT)
+                            },
+                        ) {
+                            Text("Reset", color = RailBitePalette.CyanPrimary)
+                        }
+                    }
+                } else {
+                    state.error?.takeIf { state.menu.isNotEmpty() }?.let { msg ->
+                        Surface(
+                            shape = RoundedCornerShape(RailBiteRadii.Button),
+                            color = RailBitePalette.SemanticAmberTint,
+                            border = BorderStroke(1.dp, RailBitePalette.SemanticAmberBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 6.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    text = msg,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = RailBitePalette.SemanticAmber,
+                                    modifier = Modifier.weight(1f),
+                                )
+                                TextButton(onClick = vm::refresh) {
+                                    Text("Retry", color = RailBitePalette.CyanPrimary)
+                                }
+                            }
                         }
                     }
                 }
-            }
 
-            // Search bar
-            OutlinedTextField(
-                value = state.search,
-                onValueChange = vm::setSearch,
-                placeholder = {
-                    Text(
-                        "Search chai, biryani, samosa, water…",
-                        color = RailBitePalette.TextMuted,
+                // 2-Column Food Product Grid
+                if (state.loading) {
+                    LoadingSkeleton(
+                        rows = 6,
+                        modifier = Modifier.padding(RailBiteMetrics.ScreenPadding),
                     )
-                },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = RailBitePalette.TextSecondary,
+                } else if (products.isEmpty()) {
+                    EmptyState(
+                        title = if (state.menu.isEmpty()) "No menu available yet" else "No matching items",
+                        subtitle = if (state.menu.isEmpty()) {
+                            state.error ?: "Tap Retry when the pantry server is reachable"
+                        } else {
+                            "Clear filters or try another category/search"
+                        },
+                        modifier = Modifier.weight(1f),
                     )
-                },
-                trailingIcon = {
-                    if (state.search.isNotEmpty()) {
-                        IconButton(onClick = { vm.setSearch("") }) {
-                            Icon(
-                                imageVector = Icons.Filled.Close,
-                                contentDescription = "Clear search",
-                                tint = RailBitePalette.TextSecondary,
+                } else {
+                    LazyVerticalGrid(
+                        state = gridState,
+                        columns = GridCells.Fixed(2),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(
+                            start = RailBiteMetrics.ScreenPadding,
+                            end = RailBiteMetrics.ScreenPadding,
+                            top = 8.dp,
+                            bottom = if (cartCount > 0) 92.dp else 18.dp,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        items(products, key = { it.id }) { item ->
+                            FoodProductCard(
+                                item = item,
+                                qty = cartLines[item.id]?.qty ?: 0,
+                                onInspect = { inspectedItem = item },
+                                onAdd = { vm.addToCart(item) },
+                                onDecrement = { vm.decrement(item.id) },
                             )
                         }
                     }
-                },
-                singleLine = true,
-                shape = RoundedCornerShape(RailBiteRadii.Button),
-                colors = flatTextFieldColors(),
+                }
+            }
+
+            // Optional slim floating "View Cart" pill directly above the Home|Filter|Sort bottom bar
+            AnimatedVisibility(
+                visible = cartCount > 0,
                 modifier = Modifier
-                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
                     .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 10.dp),
-            )
-
-            // Category pills row
-            CategoryRow(
-                categories = state.categories,
-                selected = state.selectedCategory,
-                onSelect = vm::selectCategory,
-            )
-
-            val products = state.filtered
-
-            if (!state.loading && products.isNotEmpty()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 8.dp),
-                ) {
-                    Text(
-                        text = "Pantry Express",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = RailBitePalette.TextPrimary,
-                    )
-                    Text(
-                        text = "  (${products.size} item${if (products.size == 1) "" else "s"})",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = RailBitePalette.TextSecondary,
-                        modifier = Modifier.weight(1f),
-                    )
-                    MrpBadge(label = "IRCTC Regulated")
-                }
-            }
-
-            // Menu 2-column grid
-            if (state.loading) {
-                LoadingSkeleton(rows = 6, modifier = Modifier.padding(RailBiteMetrics.ScreenPadding))
-            } else if (products.isEmpty()) {
-                EmptyState(
-                    title = if (state.menu.isEmpty()) "No menu available yet" else "Nothing matches",
-                    subtitle = if (state.menu.isEmpty()) {
-                        state.error ?: "Tap Retry when the pantry server is reachable"
-                    } else {
-                        "Try a different search keyword or switch category"
-                    },
-                    modifier = Modifier.weight(1f),
+                enter = slideInVertically { it } + fadeIn(),
+                exit = slideOutVertically { it } + fadeOut(),
+            ) {
+                FloatingCartBar(
+                    itemCount = cartCount,
+                    totalPaise = graph.cart.totalPaise,
+                    seatSummary = seat?.chip,
+                    onOpenCart = onOpenCart,
                 )
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    contentPadding = PaddingValues(
-                        start = RailBiteMetrics.ScreenPadding,
-                        end = RailBiteMetrics.ScreenPadding,
-                        top = 4.dp,
-                        bottom = 110.dp, // clearance for FloatingCartBar
-                    ),
-                    modifier = Modifier.weight(1f),
-                ) {
-                    items(products, key = { it.id }) { item ->
-                        FoodProductCard(
-                            item = item,
-                            qty = cartLines[item.id]?.qty ?: 0,
-                            onInspect = { inspectedItem = item },
-                            onAdd = { vm.addToCart(item) },
-                            onDecrement = { vm.decrement(item.id) },
-                        )
-                    }
-                }
             }
-        }
-
-        // Sticky high-contrast FloatingCartBar
-        val count = cartLines.values.sumOf { it.qty }
-        AnimatedVisibility(
-            visible = count > 0,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 12.dp),
-            enter = slideInVertically { it } + fadeIn(),
-            exit = slideOutVertically { it } + fadeOut(),
-        ) {
-            FloatingCartBar(
-                itemCount = count,
-                totalPaise = graph.cart.totalPaise,
-                seatSummary = seat?.chip,
-                onOpenCart = onOpenCart,
-            )
         }
     }
 
+    // Bottom Sheet 1: Seat Setup / Edit PNR & Berth
+    if (showSeatSheet) {
+        SeatSetupBottomSheet(
+            initialPnr = seat?.pnr.orEmpty(),
+            initialCoach = seat?.coach.orEmpty(),
+            initialBerth = seat?.berth,
+            onDismiss = { showSeatSheet = false },
+            onOpenSettings = onOpenSettings,
+            onSave = vm::updateSeat,
+        )
+    }
+
+    // Bottom Sheet 2: Filter Options (Pure Veg / In Stock / Price Cap)
+    if (showFilterSheet) {
+        FilterBottomSheet(
+            state = state,
+            onDismiss = { showFilterSheet = false },
+            onApply = vm::applyFilters,
+            onReset = vm::resetFilters,
+        )
+    }
+
+    // Bottom Sheet 3: Sort Options (Price Low-High / High-Low / Name)
+    if (showSortSheet) {
+        SortBottomSheet(
+            selectedSort = state.sortBy,
+            onDismiss = { showSortSheet = false },
+            onSelectSort = vm::setSort,
+        )
+    }
+
+    // Bottom Sheet 4: Account / Orders / Settings Quick Sheet
+    if (showAccountSheet) {
+        AccountMenuSheet(
+            userLabel = session?.user?.phone ?: session?.user?.name.orEmpty(),
+            online = online,
+            serverUrl = serverUrl,
+            onDismiss = { showAccountSheet = false },
+            onOpenOrders = onOpenOrders,
+            onEditSeat = { showSeatSheet = true },
+            onOpenSettings = onOpenSettings,
+            onSignOut = {
+                scope.launch { runCatching { graph.auth.logout() } }
+            },
+        )
+    }
+
+    // Bottom Sheet 5: Food Item Quick-View Detail Sheet
     inspectedItem?.let { item ->
         val currentQty = cartLines[item.id]?.qty ?: 0
         ItemQuickViewSheet(
@@ -263,6 +348,152 @@ fun HomeScreen(
                 }
             },
         )
+    }
+}
+
+/**
+ * Wireframe Bottom Bar (`acf3d694` + `ad2f85d4`):
+ * `Home` icon button on left, `Filter` button in middle, `Sort` button on right, with `navigationBarsPadding()`.
+ */
+@Composable
+private fun StorefrontBottomBar(
+    activeFilterCount: Int,
+    selectedSort: MenuSortOption,
+    onHomeClick: () -> Unit,
+    onFilterClick: () -> Unit,
+    onSortClick: () -> Unit,
+) {
+    Surface(
+        color = RailBitePalette.SurfaceCard,
+        shadowElevation = 0.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding(),
+        ) {
+            HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 10.dp),
+            ) {
+                // Left: Home Icon Button (44.dp+ touch target, cyan highlighted per sketch)
+                Surface(
+                    onClick = onHomeClick,
+                    shape = RoundedCornerShape(RailBiteRadii.ChipBox),
+                    color = RailBitePalette.CyanTint,
+                    border = BorderStroke(1.dp, RailBitePalette.CyanPrimary),
+                    shadowElevation = 0.dp,
+                    modifier = Modifier.size(width = 52.dp, height = RailBiteMetrics.TouchTargetMin),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Filled.Home,
+                            contentDescription = "Scroll to top of menu",
+                            tint = RailBitePalette.CyanPrimary,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+
+                // Middle: Filter button (opens FilterBottomSheet)
+                Surface(
+                    onClick = onFilterClick,
+                    shape = RoundedCornerShape(RailBiteRadii.ChipBox),
+                    color = if (activeFilterCount > 0) RailBitePalette.CyanTint else RailBitePalette.SurfaceCard,
+                    border = if (activeFilterCount > 0) {
+                        BorderStroke(1.dp, RailBitePalette.CyanPrimary)
+                    } else {
+                        RailBiteCardBorder
+                    },
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = RailBiteMetrics.TouchTargetMin),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.FilterList,
+                            contentDescription = null,
+                            tint = if (activeFilterCount > 0) RailBitePalette.CyanPrimary else RailBitePalette.DarkSlate,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            text = "Filter",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        if (activeFilterCount > 0) {
+                            Spacer(Modifier.size(6.dp))
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .background(RailBitePalette.CyanPrimary, CircleShape),
+                            ) {
+                                Text(
+                                    text = "$activeFilterCount",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = Color.White,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Right: Sort button (opens SortBottomSheet)
+                val sortActive = selectedSort != MenuSortOption.DEFAULT
+                Surface(
+                    onClick = onSortClick,
+                    shape = RoundedCornerShape(RailBiteRadii.ChipBox),
+                    color = if (sortActive) RailBitePalette.CyanTint else RailBitePalette.SurfaceCard,
+                    border = if (sortActive) {
+                        BorderStroke(1.dp, RailBitePalette.CyanPrimary)
+                    } else {
+                        RailBiteCardBorder
+                    },
+                    shadowElevation = 0.dp,
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = RailBiteMetrics.TouchTargetMin),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Tune,
+                            contentDescription = null,
+                            tint = RailBitePalette.CyanPrimary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.size(6.dp))
+                        Text(
+                            text = "Sort",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        Spacer(Modifier.size(4.dp))
+                        Icon(
+                            imageVector = Icons.Filled.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = RailBitePalette.TextSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -289,7 +520,6 @@ private fun CategoryRow(
     }
 }
 
-/** Inline banner shown while an order is live; tap opens Live Tracking. */
 @Composable
 private fun ActiveOrderBanner(
     graph: com.railbite.customer.CustomerGraph,
@@ -309,7 +539,7 @@ private fun ActiveOrderBanner(
         shape = RoundedCornerShape(RailBiteRadii.Button),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 8.dp)
+            .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 6.dp)
             .heightIn(min = RailBiteMetrics.TouchTargetMin),
     ) {
         Row(

@@ -22,7 +22,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -34,9 +33,10 @@ import com.railbite.customer.ui.theme.RailBiteRadii
 import com.railbite.customer.ui.theme.RailBiteSelectedBorder
 
 /**
- * Stitch Screen 2 Storefront product tile:
- * `#FFFFFF` flat card with `1.dp` `#E2E8F0` border, `18.dp` food image frame,
- * floating dark-slate `PricePill`, "IRCTC MRP" label, and `ADD` <-> `QuantityStepper`.
+ * Wireframe + Stitch `acf3d694` Storefront product tile:
+ * `16.dp` white card with `1.dp` `#E2E8F0` border, `18.dp` food image tile,
+ * floating dark-slate `PricePill`, "IRCTC MRP" label on bottom-left,
+ * and `ADD` / `- 1 +` `QuantityStepper` pill on bottom-right (`44.dp` touch target).
  */
 @Composable
 fun FoodProductCard(
@@ -62,11 +62,11 @@ fun FoodProductCard(
             modifier = Modifier.padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Recessed 18.dp photo container with top-right floating PricePill & bottom-left pack tag
+            // 18.dp rounded image shell with top-right PricePill & bottom-left dietary/pack pill
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(118.dp)
+                    .height(114.dp)
                     .clip(RoundedCornerShape(RailBiteRadii.ImageTile))
                     .background(RailBitePalette.ImageTile),
             ) {
@@ -130,17 +130,40 @@ fun FoodProductCard(
                 )
             }
 
-            MrpBadge(soldOut = soldOut)
+            // Bottom row: "IRCTC MRP" on left + bottom-right ADD / QuantityStepper
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    text = when {
+                        soldOut -> "Out of stock"
+                        qty > 0 -> "Qty:"
+                        else -> "IRCTC MRP"
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = when {
+                        soldOut -> RailBitePalette.SemanticRed
+                        qty > 0 -> RailBitePalette.TextSecondary
+                        else -> RailBitePalette.SemanticGreen
+                    },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .weight(1f, fill = false)
+                        .padding(end = 6.dp),
+                )
 
-            ProductAddAction(
-                qty = qty,
-                soldOut = soldOut,
-                itemName = item.name,
-                maxStock = item.stock,
-                onAdd = onAdd,
-                onDecrement = onDecrement,
-            )
+                ProductAddAction(
+                    qty = qty,
+                    soldOut = soldOut,
+                    itemName = item.name,
+                    maxStock = item.stock,
+                    onAdd = onAdd,
+                    onDecrement = onDecrement,
+                )
+            }
         }
     }
 }
-
