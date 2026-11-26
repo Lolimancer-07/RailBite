@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,9 +43,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import android.content.ContentValues
+import android.content.Context
+import android.net.Uri
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
+import android.provider.MediaStore
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.railbite.core.ui.ProductThumb
 import com.railbite.core.ui.StatusChip
 import com.railbite.core.ui.components.RailBiteButton
@@ -81,6 +91,7 @@ fun TrackingScreen(
 
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     LaunchedEffect(state.error) {
         state.error?.let {
             snackbar.showSnackbar(it)
@@ -173,7 +184,17 @@ fun TrackingScreen(
                 }
 
                 if (state.status == Statuses.DELIVERED) {
-                    BillCard(state.order)
+                    BillCard(
+                        order = state.order,
+                        onDownloadPdf = { order ->
+                            scope.launch {
+                                val uri = withContext(Dispatchers.IO) { generateBillPdf(context, order) }
+                                if (uri != null) {
+                                    snackbar.showSnackbar("Bill saved to your downloads")
+                                }
+                            }
+                        },
+                    )
                 } else if (state.relayed) {
                     RelayItemsCard(state.relayItems, state.relayTotalPaise)
                 } else {
@@ -454,7 +475,10 @@ private fun ItemsCard(order: com.railbite.core.model.Order?) {
  * payment mode and seat/order facts, all from the design tokens.
  */
 @Composable
-private fun BillCard(order: com.railbite.core.model.Order?) {
+private fun BillCard(
+    order: com.railbite.core.model.Order?,
+    onDownloadPdf: (com.railbite.core.model.Order?) -> Unit = {},
+) {
     Card(
         shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -546,9 +570,79 @@ private fun BillCard(order: com.railbite.core.model.Order?) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+
+            Spacer(Modifier.height(Space.s))
+            RailBiteSecondaryButton(
+                text = "Download PDF",
+                onClick = { order?.let(onDownloadPdf) },
+            )
         }
     }
 }
+
+/**
+ * Renders the delivered order's bill as a one-page PDF and saves it via the
+ * MediaStore (no storage permission needed on API 29+). Returns the content URI,
+ * or null when generation failed.
+ */
+private suspend fun generateBillPdf(context: Context, order: com.railbite.core.model.Order?): Uri? =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val document = PdfDocument()
+            val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
+            val page = document.startPage(pageInfo)
+            val canvas = page.canvas
+            val pageWidth = 595
+            val pageHeight = 842
+            val titlePaint = Paint().apply { textSize = 18f }
+            val bodyPaint = Paint().apply { textSize = 12f }
+
+            canvas.save()
+            var y = pageHeight - 60f
+            canvas.drawText("RailBite Bill", 40f, y, titlePaint)
+            y -= 40
+            order?.let {
+                canvas.drawText("Order #${it.id.take(8)}", 40f, y, bodyPaint)
+                y -= 20
+                canvas.drawText("PNR ${it.pnr}", 40f, y, bodyPaint)
+                y -= 20
+                canvas.drawText("Seat ${it.coach ?: "-"} · Berth ${it.berth ?: "-"}. Berth ${it.berth ?: "-"}.", 40f, y, bodyPaint)
+                y -= 20
+                canvas.drawText("Placed ${formatBillTime(it.createdAt)}", 40f, y, bodyPaint)
+                y -= 30
+                it.items.orEmpty().forEach { item ->
+                    canvas.drawText(
+                        "${item.qty} × ${item.name ?: item.itemId.take(8)} — ${Money.rupees(item.unitPricePaise * item.qty)}",
+                        40f,
+                        y,
+                        bodyPaint,
+                    )
+                    y -= 18
+                }
+                y -= 10
+                canvas.drawText("Total: ${Money.rupees(it.totalPaise ?: 0)}", 40f, y, titlePaint)
+                y -= 30
+                canvas.drawText("Payment: ${if (it.paymentMode == "UPI_QUEUED") "UPI" else "COD"}", 40f, y, bodyPaint)
+            }
+            canvas.restore()
+            document.finishPage(page)
+
+            val out = java.io.ByteArrayOutputStream()
+            document.writeTo(out)
+            document.close()
+            val bytes = out.toByteArray()
+
+            val uri = context.contentResolver.insert(
+                MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY),
+                ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "railbite-bill-${order?.id?.take(8) ?: "order"}.pdf")
+                    put(MediaStore.Images.Media.MIME_TYPE, "application/pdf")
+                },
+            ) ?: return@withContext null
+            context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: return@withContext null
+            uri
+        }.getOrNull()
+    }
 
 /** Formats an ISO-8601 instant for bill display. */
 private fun formatBillTime(iso: String): String = runCatching {
