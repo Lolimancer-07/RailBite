@@ -278,7 +278,7 @@ class CustomerLoginViewModel(
         val phone = "+91$phoneDigits"
 
         val serverSession = runCatching {
-            withTimeout(2_500) { container.auth.devLogin(phone) }
+            withTimeout(12_000) { container.auth.devLogin(phone) }
         }.getOrNull()
 
         if (serverSession == null) {
