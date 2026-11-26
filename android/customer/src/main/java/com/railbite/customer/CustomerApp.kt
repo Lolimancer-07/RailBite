@@ -62,11 +62,14 @@ fun CustomerNavHost(graph: CustomerGraph, startDestination: String) {
     val scope = rememberCoroutineScope()
 
     val session by graph.authStore.session.collectAsState()
+    val backStack by nav.currentBackStackEntryAsState()
+    val currentRoute = backStack?.destination?.route
 
-    // Session lost (refresh rejected / logged out elsewhere) → drop back to login.
-    LaunchedEffect(session, startDestination) {
-        if (session == null && startDestination != Routes.LOGIN && nav.currentDestination?.route != Routes.LOGIN) {
+    // Session lost (refresh rejected / signed out in Settings) → drop back to login.
+    LaunchedEffect(session, currentRoute) {
+        if (session == null && currentRoute != null && currentRoute != Routes.LOGIN) {
             nav.navigate(Routes.LOGIN) {
+                popUpTo(0) { inclusive = true }
                 launchSingleTop = true
             }
         }

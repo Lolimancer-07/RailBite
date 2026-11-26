@@ -208,8 +208,11 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private fun friendly(e: Exception): String {
+        val code = (e as? retrofit2.HttpException)?.code()
         val msg = e.message ?: ""
         return when {
+            code == 401 || msg.contains("401") ->
+                "Session expired — open Settings → Sign out and sign in again"
             msg.contains("Insufficient stock", ignoreCase = true) ->
                 "That item just sold out — adjust your cart and try again"
             msg.contains("PNR", ignoreCase = true) && msg.contains("manifest", ignoreCase = true) ->

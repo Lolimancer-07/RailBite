@@ -209,7 +209,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            RailBiteSecondaryButton(text = "Sign out", onClick = { vm.logout(onBack) })
+            RailBiteSecondaryButton(text = "Sign out", onClick = { vm.logout() })
             Text(
                 "The RailBite cloud server is built into the app. Override it above only for testing (e.g. a laptop on the same Wi-Fi).",
                 style = MaterialTheme.typography.bodySmall,

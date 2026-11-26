@@ -1,5 +1,8 @@
 package com.railbite.core.auth
 
+import com.railbite.core.model.DevLoginRequest
+import com.railbite.core.model.RefreshRequest
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
@@ -10,8 +13,9 @@ import okhttp3.Response
 
 /**
  * Adds the stored Bearer token to every API call and, on a 401, performs exactly
- * one refresh + retry. Refresh is serialized so parallel requests that all hit
- * 401 share a single rotation (the server revokes each refresh token on use).
+ * one refresh (or DemoAuth → real-JWT upgrade via `/auth/dev/login`) + retry.
+ * Refresh is serialized so parallel requests that all hit 401 share a single
+ * rotation (the server revokes each refresh token on use).
  *
  * When the refresh token itself is rejected the session is cleared, which the
  * app roots observe to return to the login screen.
@@ -44,9 +48,11 @@ class AuthInterceptor(
 
         val refreshed = synchronized(lock) {
             val current = store.accessToken()
-            // Another request already rotated the session while this one was in flight.
+            // Another request already rotated or upgraded the session while this one was in flight.
             if (!current.isNullOrBlank() && current != token) {
                 current
+            } else if (DemoAuth.isDemoToken(token)) {
+                upgradeDemoSession(original)
             } else {
                 refresh(original)
             }
@@ -55,7 +61,7 @@ class AuthInterceptor(
         if (refreshed.isNullOrBlank()) {
             // The demo sign-in has no server session to rotate; keep it so a
             // 401 from an auth-enforcing deployment does not bounce the user
-            // back to the login screen.
+            // back to the login screen when offline/demo-only.
             if (!DemoAuth.isDemoToken(token)) store.clear()
             return response
         }
@@ -66,28 +72,55 @@ class AuthInterceptor(
         )
     }
 
+    /** Exchanges a local demo session for a real server JWT when `/auth/dev/login` is enabled. */
+    private fun upgradeDemoSession(original: Request): String? {
+        val user = store.session.value?.user ?: return null
+        val phone = user.phone?.takeIf { it.isNotBlank() } ?: return null
+        val name = user.name?.takeUnless { it == "Demo Passenger" }
+        return exchangeSession(
+            original = original,
+            path = "/auth/dev/login",
+            serializer = DevLoginRequest.serializer(),
+            payload = DevLoginRequest(phone = phone, name = name),
+        )
+    }
+
     /** Returns the new access token, or null when the refresh token is no longer valid. */
     private fun refresh(original: Request): String? {
         val refreshToken = store.refreshToken() ?: return null
-        val body = json
-            .encodeToString(RefreshTokenRequest.serializer(), RefreshTokenRequest(refreshToken))
-            .toRequestBody(JSON)
+        return exchangeSession(
+            original = original,
+            path = "/auth/refresh",
+            serializer = RefreshRequest.serializer(),
+            payload = RefreshRequest(refreshToken),
+        )
+    }
+
+    private fun <T> exchangeSession(
+        original: Request,
+        path: String,
+        serializer: KSerializer<T>,
+        payload: T,
+    ): String? {
+        val body = json.encodeToString(serializer, payload).toRequestBody(JSON)
         val request = Request.Builder()
-            .url(original.url.newBuilder().encodedPath("/auth/refresh").query(null).build())
+            .url(original.url.newBuilder().encodedPath(path).query(null).build())
             .post(body)
             .header("Accept", "application/json")
             .build()
 
-        return refreshClient.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) return null
-            val text = response.body?.string() ?: return null
-            val parsed = runCatching {
-                json.decodeFromString(AuthResponse.serializer(), text)
-            }.getOrNull() ?: return null
-            if (parsed.accessToken.isBlank() || parsed.refreshToken.isBlank()) return null
-            store.save(parsed.toSession())
-            parsed.accessToken
-        }
+        return runCatching {
+            refreshClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val text = response.body?.string() ?: return@use null
+                val parsed = runCatching {
+                    json.decodeFromString(AuthResponse.serializer(), text)
+                }.getOrNull() ?: return@use null
+                if (parsed.accessToken.isBlank() || parsed.refreshToken.isBlank()) return@use null
+                store.save(parsed.toSession())
+                parsed.accessToken
+            }
+        }.getOrNull()
     }
 
     private fun isAuthEndpoint(path: String): Boolean =
@@ -97,6 +130,3 @@ class AuthInterceptor(
         val JSON = "application/json; charset=utf-8".toMediaType()
     }
 }
-
-@kotlinx.serialization.Serializable
-private data class RefreshTokenRequest(val refreshToken: String)

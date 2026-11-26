@@ -50,9 +50,11 @@ object ApiClient {
 
     fun okHttp(authInterceptor: okhttp3.Interceptor? = null): OkHttpClient =
         OkHttpClient.Builder()
-            .connectTimeout(5, TimeUnit.SECONDS)
-            .readTimeout(10, TimeUnit.SECONDS)
-            .writeTimeout(10, TimeUnit.SECONDS)
+            // Tolerate Render free-tier cold starts (~15–30s) on login/order calls;
+            // reachable() keeps a dedicated 2s probe for offline Bluetooth relay fallback.
+            .connectTimeout(15, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
             .apply { authInterceptor?.let { addInterceptor(it) } }
             .addInterceptor(
                 HttpLoggingInterceptor().apply { level = HttpLoggingInterceptor.Level.BASIC },
