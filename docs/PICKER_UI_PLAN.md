@@ -47,3 +47,4 @@
 - Canvas `#F4F6F8`, Cards `#FFFFFF`, Image Tiles `#F1F5F9`, Dark Anchor `#0F172A`, Cyan Primary `#0891B2` (`#ECFEFF` tint, `#0E7490` pressed), Semantic Green `#16A34A`, Semantic Amber `#D97706`, Semantic Red `#DC2626`, Hairline Border `1.dp` `#E2E8F0`.
 - Radii: `8.dp` PIN slots, `12.dp` buttons/inputs, `16.dp` cards, `18.dp` food tiles, `24.dp` top corners on `ModalBottomSheet`, `999.dp` pills.
 - Tabular numerals (`fontFeatureSettings = "tnum"`) across all `₹` currency amounts, SLA countdowns, timers, order tags, and 4-digit PINs.
+

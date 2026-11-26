@@ -53,8 +53,13 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
         mutex.withLock {
             if (connector != null) return
             tripId = withTimeoutOrNull(1_500L) { fetchTripId() } ?: RailBiteTopics.DEFAULT_TRIP_ID
+            val wsOverride = settings.mqttWsUrl.first()
             val clientId = "p-" + randomId()
-            val c = MqttConnector.fromServerUrl(serverUrl, clientId)
+            val c = MqttConnector.fromServerUrl(
+                serverUrl = serverUrl,
+                clientId = clientId,
+                mqttWsUrlOverride = wsOverride,
+            )
             connector = c
             scope.launch {
                 c.start()

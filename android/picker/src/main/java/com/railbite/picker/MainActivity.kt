@@ -19,7 +19,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
-import com.railbite.core.ui.theme.RailBiteTheme
+import com.railbite.picker.ui.theme.RailBitePickerTheme
 import com.railbite.picker.alert.AlertBus
 import com.railbite.picker.alert.Notifications
 import com.railbite.picker.alert.RailBiteAlertService
@@ -65,7 +65,7 @@ class MainActivity : ComponentActivity() {
 
         val openOrderId = intent?.getStringExtra(EXTRA_OPEN_ORDER_ID)
         setContent {
-            RailBiteTheme {
+            RailBitePickerTheme {
                 PickerRoot(container, initialOpenOrderId = openOrderId)
             }
         }

@@ -108,12 +108,14 @@ class PickerChatMqtt(private val settings: RailBiteSettings) {
     private suspend fun connectLocked(staffId: String, serverUrl: String) {
         connector?.stop()
         currentStaffId = staffId
+        val wsOverride = settings.mqttWsUrl.first()
         tripId = withTimeoutOrNull(1_500L) {
             runCatching { ApiClient.testConnection(serverUrl).tripId }.getOrNull()
         }?.takeIf { it.isNotBlank() } ?: RailBiteTopics.DEFAULT_TRIP_ID
         val c = MqttConnector.fromServerUrl(
             serverUrl = serverUrl,
             clientId = "c-$staffId-chat",
+            mqttWsUrlOverride = wsOverride,
             onConnected = { _connected.value = true },
             onDisconnected = { _connected.value = false },
         )

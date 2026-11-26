@@ -32,6 +32,7 @@ data class OrderItem(
     val qty: Int,
     val unitPricePaise: Int,
     val name: String? = null,
+    val category: String? = null,
 )
 
 /** Passenger feedback stored on the order ("Did you receive this order?" + stars). */
@@ -158,6 +159,27 @@ data class LedgerSummaryRow(
     val collectedPaise: Int,
     val passengerConfirmedPaise: Int,
     val mismatch: Boolean,
+)
+
+/** Per-order entry returned by GET /staff/{id}/ledger. */
+@Serializable
+data class LedgerEntry(
+    val orderId: String,
+    val coach: String,
+    val berth: Int,
+    val paymentMode: String,
+    val totalPaise: Int,
+    val collectedPaise: Int,
+    val passengerConfirmed: Boolean,
+    val deliveredAt: String,
+)
+
+/** GET /staff/{id}/ledger response payload. */
+@Serializable
+data class StaffLedgerResponse(
+    val staffId: String,
+    val summary: PickerStats,
+    val entries: List<LedgerEntry> = emptyList(),
 )
 
 // ---------- MQTT payloads (packages/shared/src/schemas/mqtt.ts) ----------

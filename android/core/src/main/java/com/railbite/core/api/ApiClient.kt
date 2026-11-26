@@ -31,10 +31,44 @@ object ApiClient {
         var url = raw.trim()
         if (url.isEmpty()) return ""
         if (!url.startsWith("http://") && !url.startsWith("https://")) {
-            url = "https://$url"
+            val bareHost = url.substringBefore("/")
+            val isLanOrPort = bareHost.contains(":") ||
+                bareHost.startsWith("192.168.") ||
+                bareHost.startsWith("10.") ||
+                bareHost.startsWith("127.") ||
+                Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(bareHost) ||
+                bareHost.equals("localhost", ignoreCase = true)
+            url = if (isLanOrPort) "http://$url" else "https://$url"
         }
         while (url.endsWith("/")) url = url.dropLast(1)
         return url
+    }
+
+    /** Normalizes a custom WebSocket URL or derives `ws(s)://<host>:<port>/mqtt` from [serverUrl]. */
+    fun deriveMqttWsUrl(serverUrl: String, overrideWsUrl: String = ""): String {
+        val rawOverride = overrideWsUrl.trim()
+        if (rawOverride.isNotEmpty()) {
+            val normalized = when {
+                rawOverride.startsWith("ws://", ignoreCase = true) ||
+                    rawOverride.startsWith("wss://", ignoreCase = true) -> rawOverride
+                rawOverride.startsWith("http://", ignoreCase = true) -> "ws://" + rawOverride.removePrefix("http://")
+                rawOverride.startsWith("https://", ignoreCase = true) -> "wss://" + rawOverride.removePrefix("https://")
+                else -> "ws://$rawOverride"
+            }
+            val uri = runCatching { java.net.URI(normalized) }.getOrNull()
+            return if (uri != null && uri.path.isNullOrBlank()) {
+                normalized.trimEnd('/') + "/mqtt"
+            } else {
+                normalized
+            }
+        }
+        val http = normalizeServerUrl(serverUrl)
+        if (http.isEmpty()) return ""
+        return when {
+            http.startsWith("https://") -> "wss://" + http.removePrefix("https://") + "/mqtt"
+            http.startsWith("http://") -> "ws://" + http.removePrefix("http://") + "/mqtt"
+            else -> ""
+        }
     }
 
     /** Extracts the host from a server URL for the MQTT broker connection. */

@@ -102,12 +102,17 @@ fun OrderProgressScreen(
     graph: com.railbite.picker.PickerGraph,
     orderId: String,
     onBack: () -> Unit,
+    startChatOpen: Boolean = false,
 ) {
     val vm = viewModel(key = "progress-$orderId") {
         OrderProgressViewModel(graph.container, orderId)
     }
     val state by vm.state.collectAsState()
     val context = LocalContext.current
+
+    LaunchedEffect(startChatOpen) {
+        if (startChatOpen) vm.openChat()
+    }
 
     LaunchedEffect(vm) {
         vm.incomingCustomerAlerts.collect {

@@ -10,7 +10,9 @@ import com.railbite.core.model.OrderCreateRequest
 import com.railbite.core.model.OrderMessage
 import com.railbite.core.model.OrderMessageCreateRequest
 import com.railbite.core.model.PickerStats
+import com.railbite.core.model.StaffLedgerResponse
 import com.railbite.core.model.StaffLoginResponse
+import com.railbite.core.mqtt.MqttConnector
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.builtins.serializer
 import org.junit.Assert.assertEquals
@@ -288,5 +290,41 @@ class ModelDeserializationTest {
         val encoded = json.encodeToString(OrderMessageCreateRequest.serializer(), req)
         assertTrue(encoded.contains("\"presetCode\":\"WHERE_ARE_YOU\""))
         assertTrue(encoded.contains("\"body\":\"Where are you?\""))
+    }
+
+    @Test
+    fun staff_ledger_response_and_lan_urls_decode() {
+        val raw = """
+            {
+              "staffId": "c1",
+              "summary": {
+                "staffId": "c1", "staffName": "Ramesh Kumar", "date": "2026-11-27",
+                "ordersDelivered": 1, "expectedPaise": 1500, "collectedPaise": 1500,
+                "passengerConfirmedPaise": 0
+              },
+              "entries": [
+                {
+                  "orderId": "2f0c8a7e-1111-4bbb-8ccc-000000000001",
+                  "coach": "B1", "berth": 4, "paymentMode": "COD",
+                  "totalPaise": 1500, "collectedPaise": 1500,
+                  "passengerConfirmed": false, "deliveredAt": "2026-11-27T03:00:00.000Z"
+                }
+              ]
+            }
+        """.trimIndent()
+        val parsed = json.decodeFromString(StaffLedgerResponse.serializer(), raw)
+        assertEquals("c1", parsed.staffId)
+        assertEquals(1, parsed.entries.size)
+        assertEquals("B1", parsed.entries[0].coach)
+        assertEquals(1500, parsed.entries[0].collectedPaise)
+
+        assertEquals("http://192.168.1.45:8080", ApiClient.normalizeServerUrl("192.168.1.45:8080"))
+        assertEquals("https://railbite-api.onrender.com", ApiClient.normalizeServerUrl("railbite-api.onrender.com"))
+        assertEquals("ws://192.168.1.45:8080/mqtt", ApiClient.deriveMqttWsUrl("http://192.168.1.45:8080"))
+        val ep = MqttConnector.parseServerUrl("http://192.168.1.45:8080", "ws://192.168.1.45:8883/mqtt")
+        assertEquals("192.168.1.45", ep.host)
+        assertEquals(8883, ep.port)
+        assertEquals(false, ep.isSsl)
+        assertEquals("/mqtt", ep.webSocketPath)
     }
 }

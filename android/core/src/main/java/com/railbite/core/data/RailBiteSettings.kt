@@ -23,6 +23,7 @@ class RailBiteSettings(
 
     private object Keys {
         val serverUrl = stringPreferencesKey("server_url")
+        val mqttWsUrl = stringPreferencesKey("mqtt_ws_url")
         val pnr = stringPreferencesKey("pnr")
         val coach = stringPreferencesKey("coach")
         val berth = intPreferencesKey("berth")
@@ -49,6 +50,8 @@ class RailBiteSettings(
 
     /** Raw stored override ("" when none) — for the advanced settings UIs. */
     val serverUrlStored: Flow<String> = context.dataStore.data.map { it[Keys.serverUrl] ?: "" }
+    /** Optional custom MQTT WebSocket URL ("" = derived automatically from [serverUrl]). */
+    val mqttWsUrl: Flow<String> = context.dataStore.data.map { it[Keys.mqttWsUrl] ?: "" }
     val pnr: Flow<String> = context.dataStore.data.map { it[Keys.pnr] ?: "" }
     val coach: Flow<String> = context.dataStore.data.map { it[Keys.coach] ?: "" }
     val berth: Flow<Int> = context.dataStore.data.map { it[Keys.berth] ?: 0 }
@@ -88,6 +91,7 @@ class RailBiteSettings(
     }
 
     suspend fun setServerUrl(value: String) = context.dataStore.edit { it[Keys.serverUrl] = value.trim() }
+    suspend fun setMqttWsUrl(value: String) = context.dataStore.edit { it[Keys.mqttWsUrl] = value.trim() }
     suspend fun setSeat(pnr: String, coach: String, berth: Int, diners: Int) = context.dataStore.edit {
         it[Keys.pnr] = pnr.trim()
         it[Keys.coach] = coach.trim().uppercase()

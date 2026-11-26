@@ -52,26 +52,40 @@ class MqttConnector(
 
     companion object {
         private const val TAG = "RailBiteMqtt"
-        data class Endpoint(val host: String, val port: Int, val isSsl: Boolean)
+        data class Endpoint(
+            val host: String,
+            val port: Int,
+            val isSsl: Boolean,
+            val webSocketPath: String = "/mqtt",
+        )
 
-        fun parseServerUrl(serverUrl: String): Endpoint {
+        fun parseServerUrl(serverUrl: String, mqttWsUrlOverride: String = ""): Endpoint {
+            val wsOverride = mqttWsUrlOverride.trim()
+            if (wsOverride.isNotEmpty()) {
+                val normalizedWs = ApiClient.deriveMqttWsUrl(serverUrl, wsOverride)
+                return parseUri(normalizedWs)
+            }
             val normalized = ApiClient.normalizeServerUrl(serverUrl)
-            if (normalized.isBlank()) return Endpoint("localhost", 8080, false)
+            if (normalized.isBlank()) return Endpoint("", 0, false, "/mqtt")
+            return parseUri(normalized)
+        }
+
+        private fun parseUri(rawUri: String): Endpoint {
+            if (rawUri.isBlank()) return Endpoint("", 0, false, "/mqtt")
             return try {
-                val uri = URI(normalized)
-                val host = uri.host ?: "localhost"
+                val uri = URI(rawUri)
+                val host = uri.host ?: ""
                 val isSsl = uri.scheme?.equals("https", ignoreCase = true) == true ||
                     uri.scheme?.equals("wss", ignoreCase = true) == true
-                val port = if (uri.port != -1) {
-                    uri.port
-                } else if (isSsl) {
-                    443
-                } else {
-                    80
+                val port = when {
+                    uri.port != -1 -> uri.port
+                    isSsl -> 443
+                    else -> 80
                 }
-                Endpoint(host, port, isSsl)
+                val path = uri.path?.takeIf { it.isNotBlank() && it != "/" } ?: "/mqtt"
+                Endpoint(host, port, isSsl, path)
             } catch (_: Exception) {
-                Endpoint("localhost", 8080, false)
+                Endpoint("", 0, false, "/mqtt")
             }
         }
 
@@ -79,16 +93,18 @@ class MqttConnector(
             serverUrl: String,
             clientId: String,
             webSocketPath: String = "/mqtt",
+            mqttWsUrlOverride: String = "",
             onConnected: (() -> Unit)? = null,
             onDisconnected: (() -> Unit)? = null,
         ): MqttConnector {
-            val ep = parseServerUrl(serverUrl)
+            val ep = parseServerUrl(serverUrl, mqttWsUrlOverride)
+            val resolvedPath = if (mqttWsUrlOverride.isNotBlank()) ep.webSocketPath else webSocketPath
             return MqttConnector(
                 host = ep.host,
                 clientId = clientId,
                 port = ep.port,
                 isSsl = ep.isSsl,
-                webSocketPath = webSocketPath,
+                webSocketPath = resolvedPath,
                 onConnected = onConnected,
                 onDisconnected = onDisconnected,
             )
@@ -130,6 +146,7 @@ class MqttConnector(
      * Retries automatically in the background if initially unreachable.
      */
     suspend fun start(connectTimeoutMs: Long = 20_000): Boolean = withContext(Dispatchers.IO) {
+        if (host.isBlank() || port <= 0) return@withContext false
         stopped = false
         var ok = tryConnect(timeoutMs = connectTimeoutMs)
         if (!ok && !stopped) {

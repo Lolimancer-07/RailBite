@@ -15,14 +15,14 @@ object PickerRoutes {
     const val LOGIN = "login"
     const val HOME = "home"
     const val PERMISSIONS = "permissions"
-    const val ORDER = "order/{orderId}"
+    const val ORDER = "order/{orderId}?chat={chat}"
     const val CASH = "cash"
     const val MESH_ORDER = "meshOrder/{orderId}"
 
     /** OpenOrderRouter marker for offline (Bluetooth relay) handovers. */
     const val MESH_PREFIX = "mesh:"
 
-    fun order(orderId: String) = "order/$orderId"
+    fun order(orderId: String, openChat: Boolean = false) = "order/$orderId?chat=$openChat"
     fun meshOrder(orderId: String) = "meshOrder/$orderId"
 }
 

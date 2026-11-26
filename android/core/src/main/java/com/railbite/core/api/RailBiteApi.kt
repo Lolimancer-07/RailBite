@@ -17,6 +17,7 @@ import com.railbite.core.model.OrderMessageCreateRequest
 import com.railbite.core.model.PickerStats
 import com.railbite.core.model.RefreshRequest
 import com.railbite.core.model.SimpleAck
+import com.railbite.core.model.StaffLedgerResponse
 import com.railbite.core.model.StaffLoginRequest
 import com.railbite.core.model.StaffLoginResponse
 import com.railbite.core.auth.AuthResponse
@@ -114,6 +115,12 @@ interface RailBiteApi {
 
     @GET("staff/{id}/stats")
     suspend fun staffStats(@Path("id") id: String): PickerStats
+
+    @GET("staff/{id}/orders")
+    suspend fun staffOrders(@Path("id") id: String): List<Order>
+
+    @GET("staff/{id}/ledger")
+    suspend fun staffLedger(@Path("id") id: String): StaffLedgerResponse
 
     @GET("ledger/summary")
     suspend fun ledgerSummary(): List<LedgerSummaryRow>

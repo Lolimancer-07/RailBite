@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Release configuration: cleartext HTTP disallowed; TLS (HTTPS/WSS) required. -->
+<!-- Allows both TLS (HTTPS/WSS cloud) and cleartext HTTP/WS for onboard/laptop LAN servers. -->
 <network-security-config>
-    <base-config cleartextTrafficPermitted="false">
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>
