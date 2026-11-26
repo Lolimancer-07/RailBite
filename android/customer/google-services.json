@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "131615739517-d76ga5cn505ieokk4psp2l308dna751o.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.railbite.customer",
+            "certificate_hash": "5d806a970438c19a4811d58b06b9d01051d12263"
+          }
+        },
+        {
           "client_id": "131615739517-a45hkvteboag0e318nqbpfpqe2u3uqo4.apps.googleusercontent.com",
           "client_type": 3
         }
