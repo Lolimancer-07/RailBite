@@ -32,6 +32,8 @@ Passenger endpoints are unauthenticated but PNR-scoped.
 | POST | `/staff/login` | None | Returns session token |
 | POST | `/staff/:id/online` | Picker | Body: `{online:boolean}` — online/offline toggle 🔸PROTOTYPE |
 | GET | `/staff/:id/stats` | Picker | Today's orders delivered, cash collected, expected, confirmed, + `avgRating`/`feedbackCount` (passenger star feedback) 🔸PROTOTYPE |
+| GET | `/staff/:id/orders` | Picker | Active non-terminal orders (`ACCEPTED`/`PACKING`/`OUT_FOR_DELIVERY`) assigned to `:id` (`deliveryCode` stripped) |
+| GET | `/staff/:id/ledger` | Picker | Today's summary + chronological per-order cash ledger entries (`Confirmed` vs `Awaiting Passenger`) |
 | GET | `/menu` | None | Active items; each includes `isVeg` (FOT-style veg/non-veg marker) |
 | POST | `/complaints` | None | Tier determined by type |
 | GET | `/ledger/summary` | Captain | Expected vs collected cash |

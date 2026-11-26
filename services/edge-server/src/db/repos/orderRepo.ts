@@ -101,7 +101,7 @@ export class OrderRepo {
   ): Promise<
     | (Order & {
         userId?: string;
-        items: Array<{ itemId: string; qty: number; unitPricePaise: number; name?: string }>;
+        items: Array<{ itemId: string; qty: number; unitPricePaise: number; name?: string; category?: string }>;
       })
     | null
   > {
@@ -109,8 +109,8 @@ export class OrderRepo {
     if (!row) return null;
 
     const [items, feedback] = await Promise.all([
-      this.db.all<{ itemId: string; qty: number; unitPricePaise: number; name?: string }>(
-        `SELECT oi.item_id as "itemId", oi.qty, oi.unit_price_paise as "unitPricePaise", m.name
+      this.db.all<{ itemId: string; qty: number; unitPricePaise: number; name?: string; category?: string }>(
+        `SELECT oi.item_id as "itemId", oi.qty, oi.unit_price_paise as "unitPricePaise", m.name, m.category
          FROM order_items oi
          LEFT JOIN menu_items m ON m.id = oi.item_id
          WHERE oi.order_id = ?`,
@@ -138,6 +138,63 @@ export class OrderRepo {
       feedback: feedback || undefined,
       items,
     };
+  }
+
+  /** Lists non-terminal orders actively assigned to a picker (ACCEPTED / PACKING / OUT_FOR_DELIVERY). */
+  async findActiveByCaptain(
+    captainId: string,
+  ): Promise<
+    Array<
+      Order & {
+        items: Array<{ itemId: string; qty: number; unitPricePaise: number; name?: string; category?: string }>;
+      }
+    >
+  > {
+    const rows = await this.db.all<OrderRow>(
+      `SELECT DISTINCT o.*
+       FROM orders o
+       JOIN assignments a ON a.order_id = o.id
+       WHERE a.captain_id = ?
+         AND a.accepted_at IS NOT NULL
+         AND a.delivered_at IS NULL
+         AND o.status IN ('ACCEPTED', 'PACKING', 'OUT_FOR_DELIVERY')
+       ORDER BY o.updated_at DESC`,
+      [captainId],
+    );
+
+    return Promise.all(
+      rows.map(async (row) => {
+        const items = await this.db.all<{
+          itemId: string;
+          qty: number;
+          unitPricePaise: number;
+          name?: string;
+          category?: string;
+        }>(
+          `SELECT oi.item_id as "itemId", oi.qty, oi.unit_price_paise as "unitPricePaise", m.name, m.category
+           FROM order_items oi
+           LEFT JOIN menu_items m ON m.id = oi.item_id
+           WHERE oi.order_id = ?`,
+          [row.id],
+        );
+        return {
+          id: row.id,
+          pnr: row.pnr,
+          coach: row.coach,
+          berth: row.berth,
+          diners: row.diners,
+          track: row.track,
+          status: row.status,
+          paymentMode: row.payment_mode,
+          totalPaise: row.total_paise,
+          source: row.source,
+          verified: row.verified,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          items,
+        };
+      }),
+    );
   }
 
   async findByPnr(pnr: string, userId?: string): Promise<Order[]> {

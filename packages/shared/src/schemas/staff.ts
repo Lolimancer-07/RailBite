@@ -30,3 +30,15 @@ export const SessionTokenSchema = z.object({
   expiresAt: z.string().datetime(),
 });
 export type SessionToken = z.infer<typeof SessionTokenSchema>;
+
+export const LedgerEntrySchema = z.object({
+  orderId: z.string().uuid(),
+  coach: z.string(),
+  berth: z.number().int(),
+  paymentMode: z.enum(["COD", "UPI_QUEUED"]),
+  totalPaise: z.number().int(),
+  collectedPaise: z.number().int(),
+  passengerConfirmed: z.boolean(),
+  deliveredAt: z.string(),
+});
+export type LedgerEntry = z.infer<typeof LedgerEntrySchema>;

@@ -221,4 +221,50 @@ describe("Order quick-chat REST & MQTT endpoints", () => {
     expect(await checkSubscribe("c-c1-chat", chatTopic)).toBe(true);
     expect(await checkSubscribe("c-c1", chatTopic)).toBe(true);
   });
+
+  it("exposes GET /staff/:id/orders (with item categories, no deliveryCode) and GET /staff/:id/ledger", async () => {
+    const orderId = await createOrder();
+    await app.inject({ method: "POST", url: `/orders/${orderId}/accept`, payload: { captainId: "c1" } });
+
+    const queueRes = await app.inject({ method: "GET", url: "/staff/c1/orders" });
+    expect(queueRes.statusCode).toBe(200);
+    const activeOrders = JSON.parse(queueRes.body);
+    expect(activeOrders).toHaveLength(1);
+    expect(activeOrders[0].id).toBe(orderId);
+    expect(activeOrders[0].deliveryCode).toBeUndefined();
+    expect(activeOrders[0].items[0].category).toBe("BEVERAGES");
+
+    // Advance to DELIVERED and check ledger entry transitions from Awaiting -> Confirmed
+    await app.inject({ method: "POST", url: `/orders/${orderId}/packing`, payload: { captainId: "c1" } });
+    await app.inject({ method: "POST", url: `/orders/${orderId}/pickup`, payload: { captainId: "c1" } });
+    const full = JSON.parse((await app.inject({ method: "GET", url: `/orders/${orderId}` })).body);
+    await app.inject({
+      method: "POST",
+      url: `/orders/${orderId}/deliver`,
+      payload: { captainId: "c1", deliveryCode: full.deliveryCode },
+    });
+
+    const queueAfter = JSON.parse((await app.inject({ method: "GET", url: "/staff/c1/orders" })).body);
+    expect(queueAfter).toHaveLength(0);
+
+    const ledger1Res = await app.inject({ method: "GET", url: "/staff/c1/ledger" });
+    expect(ledger1Res.statusCode).toBe(200);
+    const ledger1 = JSON.parse(ledger1Res.body);
+    expect(ledger1.summary.ordersDelivered).toBe(1);
+    expect(ledger1.entries).toHaveLength(1);
+    expect(ledger1.entries[0]).toMatchObject({
+      orderId,
+      coach: "B1",
+      berth: 4,
+      paymentMode: "COD",
+      collectedPaise: 1500,
+      passengerConfirmed: false,
+    });
+
+    await app.inject({ method: "POST", url: `/orders/${orderId}/confirm-cash` });
+    const ledger2 = JSON.parse((await app.inject({ method: "GET", url: "/staff/c1/ledger" })).body);
+    expect(ledger2.entries[0].passengerConfirmed).toBe(true);
+    expect(ledger2.summary.passengerConfirmedPaise).toBe(1500);
+  });
 });
+

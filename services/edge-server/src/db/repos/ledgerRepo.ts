@@ -1,6 +1,17 @@
 import { toDb, type Db } from "../db.js";
 import type Database from "better-sqlite3";
 
+export interface StaffLedgerEntry {
+  orderId: string;
+  coach: string;
+  berth: number;
+  paymentMode: "COD" | "UPI_QUEUED";
+  totalPaise: number;
+  collectedPaise: number;
+  passengerConfirmed: boolean;
+  deliveredAt: string;
+}
+
 export interface LedgerSummaryRow {
   captainId: string;
   captainName: string;
@@ -126,5 +137,46 @@ export class LedgerRepo {
           : null,
       feedbackCount: Number((ratingRow as any)?.feedbackCount || 0),
     };
+  }
+
+  /** Per-order cash ledger entries for a staff member (newest first). */
+  async getStaffLedgerEntries(staffId: string): Promise<StaffLedgerEntry[]> {
+    const rows = await this.db.all<{
+      orderId: string;
+      coach: string;
+      berth: number;
+      paymentMode: "COD" | "UPI_QUEUED";
+      totalPaise: number;
+      collectedPaise: number;
+      passengerConfirmed: number;
+      deliveredAt: string;
+    }>(
+      `SELECT
+        l.order_id as "orderId",
+        o.coach as "coach",
+        o.berth as "berth",
+        o.payment_mode as "paymentMode",
+        o.total_paise as "totalPaise",
+        l.amount_paise as "collectedPaise",
+        l.passenger_confirmed as "passengerConfirmed",
+        l.ts as "deliveredAt"
+       FROM cash_ledger l
+       JOIN orders o ON o.id = l.order_id
+       WHERE l.captain_id = ?
+       ORDER BY l.id DESC
+       LIMIT 100`,
+      [staffId],
+    );
+
+    return rows.map((r) => ({
+      orderId: r.orderId,
+      coach: r.coach,
+      berth: Number(r.berth),
+      paymentMode: r.paymentMode,
+      totalPaise: Number(r.totalPaise),
+      collectedPaise: Number(r.collectedPaise),
+      passengerConfirmed: Boolean(r.passengerConfirmed),
+      deliveredAt: r.deliveredAt,
+    }));
   }
 }

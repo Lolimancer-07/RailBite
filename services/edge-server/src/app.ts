@@ -109,7 +109,7 @@ export async function createApp(
   await app.register(healthRoutes);
   await app.register(createAuthRoutes(authService));
   await app.register(createMenuRoutes(menuRepo));
-  await app.register(createStaffRoutes(staffRepo, ledgerRepo, authService));
+  await app.register(createStaffRoutes(staffRepo, ledgerRepo, authService, orderRepo));
   await app.register(createOrderRoutes(orderService));
   await app.register(createKitchenRoutes(orderService));
   await app.register(createComplaintRoutes(complaintService));

@@ -67,6 +67,7 @@ export const OrderSchema = z.object({
         qty: z.number().int(),
         unitPricePaise: z.number().int(),
         name: z.string().optional(),
+        category: z.string().optional(),
       }),
     )
     .optional(),
