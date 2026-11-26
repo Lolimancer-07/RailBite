@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Person
@@ -48,7 +49,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -100,7 +100,6 @@ fun TrackingScreen(
     val state by vm.state.collectAsState()
     val mqttStatuses by vm.mqttStatuses(orderId).collectAsState()
 
-    // Merge MQTT pushes into the VM state
     LaunchedEffect(mqttStatuses) {
         vm.refreshMerged(mqttStatuses)
     }
@@ -117,7 +116,6 @@ fun TrackingScreen(
 
     var showCashSheet by remember { mutableStateOf(false) }
     LaunchedEffect(state.delivered, state.cashConfirmed, state.relayed) {
-        // Relayed orders settle in cash at the offline handover — no cloud confirm.
         if (state.delivered && !state.cashConfirmed && !state.relayed) {
             showCashSheet = true
         }
@@ -189,12 +187,11 @@ fun TrackingScreen(
                 val order = state.order
                 val code = order?.deliveryCode
 
-                // Bluetooth offline notice when relayed
                 if (state.relayed) {
                     RelayBanner()
                 }
 
-                // Stitch 5-step progress timeline
+                // Stitch `5ea7ade2` 5-step Meal Journey Timeline
                 OrderProgressTimeline(
                     status = state.status,
                     etaMin = state.etaMin,
@@ -203,7 +200,7 @@ fun TrackingScreen(
                     relayed = state.relayed,
                 )
 
-                // High-contrast 4-digit Handover PIN Card
+                // Berth Delivery PIN (`HandoverPinCard`)
                 if (state.relayed && state.relayCode != null) {
                     HandoverPinCard(
                         code = state.relayCode!!,
@@ -216,32 +213,32 @@ fun TrackingScreen(
                     HandoverPinCard(
                         code = code,
                         subtitle = if (state.status == Statuses.PACKING) {
-                            "Your order is packing — share this PIN only when the runner reaches your berth."
+                            "Order is packing — share this handover PIN when the runner reaches Berth ${order.berth}."
                         } else {
-                            "Share this unique confirmation code with your delivery runner at Berth ${order.berth}."
+                            "Share this handover PIN with your delivery runner at Berth ${order.berth}."
                         },
                     )
                 }
 
-                // Runner / Captain card
+                // Assigned Runner card
                 state.captainName?.let { name ->
                     RunnerInfoCard(name = pickerDisplayName(name))
                 }
 
-                // UPI_QUEUED online payment trigger until delivered
+                // UPI_QUEUED fallback card
                 if (order?.paymentMode == "UPI_QUEUED" && state.status != Statuses.DELIVERED && !state.failed) {
                     UpiPayCard(
                         orderId = orderId,
                         totalPaise = order.totalPaise,
                         onNoUpiApp = {
                             scope.launch {
-                                snackbar.showSnackbar("No UPI app found — scan-and-pay to ${Upi.VPA}")
+                                snackbar.showSnackbar("No UPI app found — pay via any UPI app to ${Upi.VPA}")
                             }
                         },
                     )
                 }
 
-                // Post-delivery Cash Confirmation card (fallback / persistent companion to CashConfirmSheet)
+                // Cash Handover Verification Inline Card (companion to CashConfirmSheet)
                 if (state.delivered && !state.relayed) {
                     CashConfirmInlineCard(
                         totalPaise = order?.totalPaise ?: 0,
@@ -254,7 +251,6 @@ fun TrackingScreen(
                     )
                 }
 
-                // Bill / Order Summary Card
                 if (state.status == Statuses.DELIVERED) {
                     BillCard(
                         order = state.order,
@@ -273,7 +269,6 @@ fun TrackingScreen(
                     ItemsCard(state.order)
                 }
 
-                // Cancel button while cancellable
                 if ((state.status == Statuses.PLACED || state.status == Statuses.ASSIGNED) && !state.relayed) {
                     OutlinedButton(
                         onClick = vm::cancelOrder,
@@ -288,25 +283,45 @@ fun TrackingScreen(
                     }
                 }
 
-                // Tier 1 Report Issue trigger
-                TextButton(
+                // Stitch `5ea7ade2` bottom Report Issue card
+                Surface(
                     onClick = onReport,
+                    shape = RoundedCornerShape(RailBiteRadii.Card),
+                    color = RailBitePalette.SurfaceCard,
+                    border = RailBiteCardBorder,
                     modifier = Modifier
                         .fillMaxWidth()
                         .heightIn(min = RailBiteMetrics.TouchTargetMin),
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.ReportProblem,
-                        contentDescription = null,
-                        tint = RailBitePalette.SemanticRed,
-                        modifier = Modifier.size(16.dp),
-                    )
-                    Spacer(Modifier.size(6.dp))
-                    Text(
-                        text = "Item missing, cold food, or berth issue? Report Issue",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = RailBitePalette.SemanticRed,
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ReportProblem,
+                            contentDescription = null,
+                            tint = RailBitePalette.SemanticRed,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "Train diverted or berth changed?",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RailBitePalette.TextSecondary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "Report Issue",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = RailBitePalette.CyanPrimary,
+                        )
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = null,
+                            tint = RailBitePalette.CyanPrimary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
                 }
 
                 Spacer(Modifier.height(10.dp))
@@ -407,7 +422,7 @@ private fun RunnerInfoCard(name: String) {
                     )
                 }
                 Text(
-                    text = "Assigned Pantry Delivery Runner",
+                    text = "Verified Pantry Runner",
                     style = MaterialTheme.typography.bodySmall,
                     color = RailBitePalette.TextSecondary,
                 )
@@ -743,9 +758,6 @@ private fun BillCard(
     }
 }
 
-/**
- * Renders the delivered order's bill as a one-page PDF and saves it via MediaStore.
- */
 private suspend fun generateBillPdf(context: Context, order: com.railbite.core.model.Order?): Uri? =
     withContext(Dispatchers.IO) {
         runCatching {

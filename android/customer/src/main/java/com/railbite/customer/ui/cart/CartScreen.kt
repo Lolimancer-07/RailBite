@@ -21,11 +21,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
-import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.EventSeat
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Payments
-import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -43,12 +42,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.ui.EmptyState
@@ -74,6 +73,11 @@ fun CartScreen(
     val lines by vm.lines.collectAsState()
     val seat by vm.seat.collectAsState()
 
+    // Wireframe & Stitch `21ec2fa3` locks payment mode to Cash on Delivery (COD) for offline-ready berth handover.
+    LaunchedEffect(Unit) {
+        if (state.paymentMode != "COD") vm.setPaymentMode("COD")
+    }
+
     val itemCount = lines.values.sumOf { it.qty }
     val itemTotal = lines.values.sumOf { it.qty * it.item.mrpPaise }
     val deliveryFee = 0
@@ -90,7 +94,7 @@ fun CartScreen(
                     ),
                     title = {
                         Text(
-                            text = "Your Cart",
+                            text = "Cart & Checkout",
                             style = MaterialTheme.typography.titleLarge,
                         )
                     },
@@ -112,7 +116,7 @@ fun CartScreen(
                                 modifier = Modifier.padding(end = 12.dp),
                             ) {
                                 Text(
-                                    text = "${s.coach} • ${s.berth}",
+                                    text = "${s.coach} • Seat ${s.berth}",
                                     style = MaterialTheme.typography.labelMedium,
                                     color = RailBitePalette.CyanPressed,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
@@ -168,11 +172,7 @@ fun CartScreen(
                                     }
                                 } else {
                                     Text(
-                                        text = if (state.paymentMode == "UPI_QUEUED") {
-                                            "Place Order (UPI)"
-                                        } else {
-                                            "Place Order (COD)"
-                                        },
+                                        text = "Place Order (COD)",
                                         style = MaterialTheme.typography.titleSmall,
                                     )
                                     Spacer(Modifier.weight(1f))
@@ -218,6 +218,35 @@ fun CartScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // Delivering destination banner
+                item {
+                    SeatVerificationCard(
+                        pnr = seat?.pnr,
+                        coach = seat?.coach,
+                        berth = seat?.berth,
+                        diners = seat?.diners ?: 1,
+                    )
+                }
+
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Order Items ($itemCount)",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        Text(
+                            text = "Coach Door Handover",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RailBitePalette.TextSecondary,
+                        )
+                    }
+                }
+
                 items(lines.values.sortedBy { it.item.name }, key = { it.item.id }) { line ->
                     CartItemCard(
                         name = line.item.name,
@@ -231,50 +260,21 @@ fun CartScreen(
                     )
                 }
 
-                // Seat Verification Card
-                item {
-                    SeatVerificationCard(
-                        pnr = seat?.pnr,
-                        coach = seat?.coach,
-                        berth = seat?.berth,
-                        diners = seat?.diners ?: 1,
-                    )
-                }
-
                 // Bill Summary Card
                 item {
-                    BillSummaryCard(
+                    BillBreakdownCard(
                         itemTotal = itemTotal,
                         deliveryFee = deliveryFee,
                         grandTotal = grandTotal,
                     )
                 }
 
-                // Payment Method Cards (COD / UPI_QUEUED)
+                // Locked Cash on Delivery (COD) Card per Stitch `21ec2fa3`
                 item {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(
-                            text = "Payment Method",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = RailBitePalette.TextPrimary,
-                        )
-                        PaymentModeCard(
-                            title = "Cash on Delivery (COD)",
-                            subtitle = "Pay exact ${Money.rupees(grandTotal)} cash to pantry runner at ${seat?.chip ?: "your seat"}. Works offline via Bluetooth relay.",
-                            badge = "Recommended",
-                            icon = Icons.Filled.Payments,
-                            selected = state.paymentMode == "COD",
-                            onClick = { vm.setPaymentMode("COD") },
-                        )
-                        PaymentModeCard(
-                            title = "UPI (Pay in App)",
-                            subtitle = "Launch GPay, PhonePe, or Paytm directly from live order tracking.",
-                            badge = null,
-                            icon = Icons.Filled.QrCode2,
-                            selected = state.paymentMode == "UPI_QUEUED",
-                            onClick = { vm.setPaymentMode("UPI_QUEUED") },
-                        )
-                    }
+                    LockedCodPaymentCard(
+                        grandTotal = grandTotal,
+                        berth = seat?.berth,
+                    )
                 }
 
                 item { Spacer(Modifier.height(8.dp)) }
@@ -313,7 +313,7 @@ private fun SeatVerificationCard(
                 )
                 Spacer(Modifier.size(8.dp))
                 Text(
-                    text = "Seat Verification",
+                    text = "Delivering to ${if (!coach.isNullOrBlank() && berth != null && berth > 0) "Coach $coach • Seat $berth" else "Your Seat"}",
                     style = MaterialTheme.typography.titleSmall,
                     color = RailBitePalette.TextPrimary,
                     modifier = Modifier.weight(1f),
@@ -333,38 +333,17 @@ private fun SeatVerificationCard(
                     }
                 }
             }
-
-            Surface(
-                shape = RoundedCornerShape(RailBiteRadii.Button),
-                color = RailBitePalette.Canvas,
-                border = RailBiteCardBorder,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 10.dp, horizontal = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    SeatColumn(label = "COACH", value = coach ?: "—")
-                    SeatColumn(label = "BERTH", value = berth?.toString() ?: "—")
-                    SeatColumn(label = "DINERS", value = "$diners")
-                }
-            }
+            Text(
+                text = "Diners: $diners • Direct berth delivery by Pantry runner",
+                style = MaterialTheme.typography.bodySmall,
+                color = RailBitePalette.TextSecondary,
+            )
         }
     }
 }
 
 @Composable
-private fun SeatColumn(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = RailBitePalette.TextSecondary)
-        Text(value, style = MaterialTheme.typography.titleSmall, color = RailBitePalette.CyanPressed)
-    }
-}
-
-@Composable
-private fun BillSummaryCard(itemTotal: Int, deliveryFee: Int, grandTotal: Int) {
+private fun BillBreakdownCard(itemTotal: Int, deliveryFee: Int, grandTotal: Int) {
     Card(
         shape = RoundedCornerShape(RailBiteRadii.Card),
         colors = CardDefaults.cardColors(containerColor = RailBitePalette.SurfaceCard),
@@ -381,7 +360,7 @@ private fun BillSummaryCard(itemTotal: Int, deliveryFee: Int, grandTotal: Int) {
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Bill Summary", style = MaterialTheme.typography.titleSmall, color = RailBitePalette.TextPrimary)
+                Text("Bill Breakdown", style = MaterialTheme.typography.titleSmall, color = RailBitePalette.TextPrimary)
                 Surface(
                     shape = RoundedCornerShape(RailBiteRadii.Pill),
                     color = RailBitePalette.Canvas,
@@ -397,8 +376,7 @@ private fun BillSummaryCard(itemTotal: Int, deliveryFee: Int, grandTotal: Int) {
             }
 
             SummaryLine("Item Total", Money.rupees(itemTotal))
-            SummaryLine("Delivery to Berth", if (deliveryFee == 0) "FREE" else Money.rupees(deliveryFee), greenValue = deliveryFee == 0)
-            SummaryLine("Platform & Packaging Fee", "₹0 Included")
+            SummaryLine("Delivery Fee to Berth", if (deliveryFee == 0) "FREE" else Money.rupees(deliveryFee), greenValue = deliveryFee == 0)
 
             Surface(
                 shape = RoundedCornerShape(RailBiteRadii.Button),
@@ -418,7 +396,7 @@ private fun BillSummaryCard(itemTotal: Int, deliveryFee: Int, grandTotal: Int) {
                         modifier = Modifier.size(16.dp),
                     )
                     Text(
-                        text = "Official IRCTC MRP Verified • Zero Markup",
+                        text = "Official Govt IRCTC MRP Verified • Zero Markup",
                         style = MaterialTheme.typography.labelSmall,
                         color = RailBitePalette.SemanticGreen,
                     )
@@ -433,8 +411,8 @@ private fun BillSummaryCard(itemTotal: Int, deliveryFee: Int, grandTotal: Int) {
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Column {
-                    Text("To Pay", style = MaterialTheme.typography.titleMedium, color = RailBitePalette.TextPrimary)
-                    Text("Inclusive of all pantry charges", style = MaterialTheme.typography.bodySmall, color = RailBitePalette.TextSecondary)
+                    Text("Total to Pay", style = MaterialTheme.typography.titleMedium, color = RailBitePalette.TextPrimary)
+                    Text("Inclusive of all local taxes", style = MaterialTheme.typography.bodySmall, color = RailBitePalette.TextSecondary)
                 }
                 Text(
                     text = Money.rupees(grandTotal),
@@ -459,93 +437,87 @@ private fun SummaryLine(label: String, value: String, greenValue: Boolean = fals
 }
 
 @Composable
-private fun PaymentModeCard(
-    title: String,
-    subtitle: String,
-    badge: String?,
-    icon: ImageVector,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Card(
-        onClick = onClick,
-        shape = RoundedCornerShape(RailBiteRadii.Card),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) RailBitePalette.CyanTint else RailBitePalette.SurfaceCard,
-        ),
-        border = if (selected) RailBiteSelectedBorder else RailBiteCardBorder,
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+private fun LockedCodPaymentCard(grandTotal: Int, berth: Int?) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
         ) {
+            Text(
+                text = "Payment Method",
+                style = MaterialTheme.typography.titleMedium,
+                color = RailBitePalette.TextPrimary,
+            )
             Surface(
-                shape = RoundedCornerShape(RailBiteRadii.Control),
-                color = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.ImageTile,
-                contentColor = if (selected) Color.White else RailBitePalette.TextSecondary,
-                modifier = Modifier.size(38.dp),
+                shape = RoundedCornerShape(RailBiteRadii.Pill),
+                color = RailBitePalette.SemanticGreenTint,
+                border = BorderStroke(1.dp, RailBitePalette.SemanticGreenBorder),
             ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(icon, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = RailBitePalette.TextPrimary,
-                    )
-                    if (badge != null) {
-                        Surface(
-                            shape = RoundedCornerShape(RailBiteRadii.Pill),
-                            color = RailBitePalette.SemanticGreenTint,
-                            border = BorderStroke(1.dp, RailBitePalette.SemanticGreenBorder),
-                        ) {
-                            Text(
-                                text = badge,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = RailBitePalette.SemanticGreen,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
-                        }
-                    }
-                }
                 Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = RailBitePalette.TextSecondary,
+                    text = "Offline Ready",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = RailBitePalette.SemanticGreen,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
                 )
             }
+        }
 
-            Surface(
-                shape = CircleShape,
-                color = if (selected) RailBitePalette.CyanPrimary else Color.Transparent,
-                border = BorderStroke(
-                    width = 1.5.dp,
-                    color = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.BorderSubtle,
-                ),
-                modifier = Modifier.size(22.dp),
+        Card(
+            shape = RoundedCornerShape(RailBiteRadii.Card),
+            colors = CardDefaults.cardColors(containerColor = RailBitePalette.CyanTint),
+            border = RailBiteSelectedBorder,
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.padding(14.dp),
             ) {
-                if (selected) {
+                Surface(
+                    shape = CircleShape,
+                    color = RailBitePalette.CyanPrimary,
+                    contentColor = Color.White,
+                    modifier = Modifier.size(22.dp),
+                ) {
                     Box(contentAlignment = Alignment.Center) {
+                        Icon(Icons.Filled.Check, contentDescription = "Locked", modifier = Modifier.size(14.dp))
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
                         Icon(
-                            imageVector = Icons.Filled.Check,
-                            contentDescription = "Selected",
-                            tint = Color.White,
+                            imageVector = Icons.Filled.Payments,
+                            contentDescription = null,
+                            tint = RailBitePalette.CyanPrimary,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "Cash on Delivery (COD)",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        Icon(
+                            imageVector = Icons.Filled.Lock,
+                            contentDescription = "Locked",
+                            tint = RailBitePalette.TextSecondary,
                             modifier = Modifier.size(14.dp),
                         )
                     }
+                    val seatPhrase = if (berth != null && berth > 0) "Seat $berth" else "your berth"
+                    Text(
+                        text = "Pay exact ${Money.rupees(grandTotal)} cash to the pantry runner at $seatPhrase upon delivery. Works 100% offline without mobile network or UPI delay.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RailBitePalette.TextSecondary,
+                    )
                 }
             }
         }

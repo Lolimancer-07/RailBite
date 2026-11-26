@@ -8,17 +8,25 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -39,71 +47,88 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OrdersScreen(
     graph: com.railbite.customer.CustomerGraph,
     modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
     onOpenOrder: (String) -> Unit,
 ) {
     val vm = viewModel(key = "orders") { OrdersViewModel(graph.container) }
     val state by vm.state.collectAsState()
 
-    Column(
-        modifier
-            .fillMaxSize()
-            .background(RailBitePalette.Canvas),
-    ) {
-        // Flat Header
+    Scaffold(
+        modifier = modifier.fillMaxSize(),
+        containerColor = RailBitePalette.Canvas,
+        topBar = {
+            Column(Modifier.background(RailBitePalette.SurfaceCard)) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = RailBitePalette.SurfaceCard,
+                        titleContentColor = RailBitePalette.TextPrimary,
+                    ),
+                    title = {
+                        Text(
+                            text = "My Orders",
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = RailBitePalette.TextPrimary,
+                            )
+                        }
+                    },
+                )
+                HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
+            }
+        },
+    ) { padding ->
         Column(
-            Modifier
-                .fillMaxWidth()
-                .background(RailBitePalette.SurfaceCard)
-                .statusBarsPadding(),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .navigationBarsPadding(),
         ) {
-            Text(
-                text = "My Orders",
-                style = MaterialTheme.typography.titleLarge,
-                color = RailBitePalette.TextPrimary,
-                modifier = Modifier.padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 14.dp),
-            )
-            HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
-        }
-
-        if (state.loading) {
-            LoadingSkeleton(rows = 4, modifier = Modifier.padding(RailBiteMetrics.ScreenPadding))
-        } else if (state.active.isEmpty() && state.past.isEmpty() && state.relayPending.isEmpty()) {
-            EmptyState(
-                title = "No orders yet",
-                subtitle = "Your active and past train orders will appear here",
-            )
-        } else {
-            LazyColumn(
-                contentPadding = PaddingValues(
-                    start = RailBiteMetrics.ScreenPadding,
-                    end = RailBiteMetrics.ScreenPadding,
-                    top = 14.dp,
-                    bottom = 24.dp,
-                ),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                if (state.relayPending.isNotEmpty()) {
-                    item { SectionHeader("Sent via Bluetooth Relay") }
-                    items(state.relayPending, key = { it.orderId }) { RelayOrderCard(it) }
-                }
-                if (state.active.isNotEmpty()) {
-                    item { SectionHeader("Active") }
-                    items(state.active, key = { it.id }) { OrderCard(it, onOpenOrder) }
-                }
-                if (state.past.isNotEmpty()) {
-                    item { SectionHeader("Past") }
-                    items(state.past, key = { it.id }) { OrderCard(it, onOpenOrder) }
+            if (state.loading) {
+                LoadingSkeleton(rows = 4, modifier = Modifier.padding(RailBiteMetrics.ScreenPadding))
+            } else if (state.active.isEmpty() && state.past.isEmpty() && state.relayPending.isEmpty()) {
+                EmptyState(
+                    title = "No orders yet",
+                    subtitle = "Your active and past train orders will appear here",
+                )
+            } else {
+                LazyColumn(
+                    contentPadding = PaddingValues(
+                        start = RailBiteMetrics.ScreenPadding,
+                        end = RailBiteMetrics.ScreenPadding,
+                        top = 14.dp,
+                        bottom = 24.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    if (state.relayPending.isNotEmpty()) {
+                        item { SectionHeader("Sent via Bluetooth Relay") }
+                        items(state.relayPending, key = { it.orderId }) { RelayOrderCard(it) }
+                    }
+                    if (state.active.isNotEmpty()) {
+                        item { SectionHeader("Active") }
+                        items(state.active, key = { it.id }) { OrderCard(it, onOpenOrder) }
+                    }
+                    if (state.past.isNotEmpty()) {
+                        item { SectionHeader("Past") }
+                        items(state.past, key = { it.id }) { OrderCard(it, onOpenOrder) }
+                    }
                 }
             }
         }
     }
 }
 
-/** Offline relay order waiting for the cloud — shows the handover code. */
 @Composable
 private fun RelayOrderCard(p: com.railbite.core.mesh.MeshOrderPayload) {
     Card(
