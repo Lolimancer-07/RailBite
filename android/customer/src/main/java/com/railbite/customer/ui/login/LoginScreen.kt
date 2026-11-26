@@ -50,11 +50,12 @@ import com.railbite.core.ui.theme.Space
 import kotlinx.coroutines.launch
 
 /**
- * Customer auth gate: real phone number + SMS OTP via Firebase Phone Auth.
+ * Customer auth gate: real phone number + OTP.
  *
  * Uses Firebase Phone Auth to send a genuine SMS to a +91 number. When
  * Firebase can't be reached (no config, no Play Services, quota, reCAPTCHA),
- * the screen surfaces an error; there is no demo code path any more.
+ * the screen falls back to a demo code generated on-device and shown above
+ * the field, so sign-in always completes.
  */
 @Composable
 fun CustomerLoginScreen(
@@ -127,7 +128,7 @@ fun CustomerLoginScreen(
                     value = state.otp,
                     onValueChange = vm::onOtpChange,
                     label = "6-digit OTP",
-                    hint = "Enter the SMS code",
+                    hint = if (state.demoMode) "Enter the demo code" else "Enter the SMS code",
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Number,
@@ -139,6 +140,9 @@ fun CustomerLoginScreen(
                     }),
                 )
                 Spacer(Modifier.height(Space.s))
+                if (state.demoMode) {
+                    DemoOtpCard(code = state.demoOtp, onAutofill = vm::autofillOtp)
+                }
             }
 
             state.info?.let {
@@ -171,13 +175,22 @@ fun CustomerLoginScreen(
 
             if (state.stage == CustomerLoginStage.OTP) {
                 TextButton(onClick = { vm.resendOtp(activity) }) {
-                    Text("Resend OTP")
+                    Text(if (state.demoMode) "Generate a new code" else "Resend OTP")
+                }
+                if (!state.demoMode) {
+                    TextButton(onClick = vm::useDemoCode) {
+                        Text("SMS not arriving? Use a demo code")
+                    }
                 }
             }
 
             Spacer(Modifier.height(Space.s))
             Text(
-                "A real SMS will be sent to your number. Standard SMS rates may apply.",
+                if (state.demoMode) {
+                    "Demo mode — no SMS is sent. The OTP is generated on this device and shown above."
+                } else {
+                    "A real SMS will be sent to your number. Standard SMS rates may apply."
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -253,6 +266,50 @@ fun CustomerLoginScreen(
     }
 }
 
+@Composable
+private fun DemoOtpCard(code: String, onAutofill: () -> Unit) {
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("DEMO OTP", style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.weight(1f))
+                Text("No SMS is sent", style = MaterialTheme.typography.labelSmall)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    code,
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onAutofill) {
+                    Text("Autofill")
+                }
+            }
+            Text(
+                "This code is generated on the device. Use it to continue.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
 private fun Context.findActivity(): Activity? {
     var current: Context = this
     while (current is ContextWrapper) {
@@ -262,5 +319,3 @@ private fun Context.findActivity(): Activity? {
     return current as? Activity
 }
 
-private fun formatPhone(digits: String): String =
-    if (digits.length <= 5) digits else "${digits.take(5)} ${digits.drop(5)}"
