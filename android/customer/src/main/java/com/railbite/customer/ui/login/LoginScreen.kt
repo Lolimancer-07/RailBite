@@ -8,15 +8,19 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,7 +38,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.api.ApiClient
@@ -45,19 +50,24 @@ import com.railbite.core.ui.theme.Space
 import kotlinx.coroutines.launch
 
 /**
- * Customer auth gate: Firebase Phone Auth (SMS code) or local demo sign-in.
- * Token-driven UI — colours/typography/spacing come only from the design tokens.
+ * Customer auth gate: real phone number + OTP.
+ *
+ * Uses Firebase Phone Auth to send a genuine SMS to a +91 number. When
+ * Firebase can't be reached (no config, no Play Services, quota, reCAPTCHA),
+ * the screen falls back to a demo code generated on-device and shown above
+ * the field, so sign-in always completes.
  */
 @Composable
 fun CustomerLoginScreen(
     graph: com.railbite.customer.CustomerGraph,
     onLoggedIn: () -> Unit,
 ) {
-    val context = LocalContext.current
-    val activity = remember(context) { context.findActivity() }
-    val vm: CustomerLoginViewModel = viewModel(key = "customer-login") { CustomerLoginViewModel(graph.container, activity, onLoggedIn) }
+    val vm: CustomerLoginViewModel = viewModel(key = "customer-login") {
+        CustomerLoginViewModel(graph.container, onLoggedIn)
+    }
     val state by vm.state.collectAsState()
     val serverUrl by graph.settings.serverUrl.collectAsState(initial = "")
+    val activity = LocalContext.current.findActivity()
     val focus = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     var showServerDialog by remember { mutableStateOf(false) }
@@ -68,6 +78,7 @@ fun CustomerLoginScreen(
             Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
+                .imePadding()
                 .padding(Space.screen),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
@@ -81,71 +92,117 @@ fun CustomerLoginScreen(
 
             Spacer(Modifier.height(Space.xl))
 
-            RailBiteTextField(
-                value = state.phone,
-                onValueChange = vm::onPhoneChange,
-                label = "Mobile number",
-                hint = "+91 98765 43210",
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
-            )
-            Spacer(Modifier.height(Space.s))
-
-            if (state.stage == CustomerLoginStage.OTP) {
+            if (state.stage == CustomerLoginStage.PHONE) {
+                RailBiteTextField(
+                    value = state.phone,
+                    onValueChange = vm::onPhoneChange,
+                    label = "Mobile number (+91)",
+                    hint = "98765 43210",
+                    supportingText = "We'll text a 6-digit code to this number",
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
+                    keyboardActions = KeyboardActions(onDone = {
+                        focus.clearFocus()
+                        vm.sendOtp(activity)
+                    }),
+                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "Code for +91 ${formatPhone(state.phone)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = vm::changeNumber) {
+                        Text("Change")
+                    }
+                }
                 RailBiteTextField(
                     value = state.otp,
                     onValueChange = vm::onOtpChange,
-                    label = "SMS code",
-                    hint = "6-digit code",
+                    label = "6-digit OTP",
+                    hint = if (state.demoMode) "Enter the demo code" else "Enter the SMS code",
                     singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword, imeAction = ImeAction.Done),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done,
+                    ),
                     keyboardActions = KeyboardActions(onDone = {
                         focus.clearFocus()
                         vm.verifyCode()
                     }),
                 )
                 Spacer(Modifier.height(Space.s))
+                if (state.demoMode) {
+                    DemoOtpCard(code = state.demoOtp, onAutofill = vm::autofillOtp)
+                }
             }
 
-            if (state.error != null) {
+            state.info?.let {
                 Spacer(Modifier.height(Space.s))
-                ErrorBar(state.error ?: "")
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+
+            state.error?.let {
+                Spacer(Modifier.height(Space.s))
+                ErrorBar(it)
             }
 
             Spacer(Modifier.height(Space.m))
 
             RailBiteButton(
-                text = when {
-                    state.devMode -> "Continue with demo sign-in"
-                    state.stage == CustomerLoginStage.OTP -> "Verify & continue"
-                    else -> "Send OTP"
-                },
+                text = if (state.stage == CustomerLoginStage.OTP) "Verify & continue" else "Send OTP",
                 onClick = {
                     focus.clearFocus()
-                    when {
-                        state.devMode -> vm.sendOtp()
-                        state.stage == CustomerLoginStage.OTP -> vm.verifyCode()
-                        else -> vm.sendOtp()
-                    }
+                    if (state.stage == CustomerLoginStage.OTP) vm.verifyCode() else vm.sendOtp(activity)
                 },
-                enabled = !state.busy && !state.devMode && (if (state.stage == CustomerLoginStage.OTP) state.codeValid else state.phoneValid),
+                enabled = !state.busy &&
+                    (if (state.stage == CustomerLoginStage.OTP) state.codeValid else state.phoneValid),
                 busy = state.busy,
             )
 
-            Spacer(Modifier.height(Space.m))
-
-            if (state.devMode) {
-                Text(
-                    "Demo mode — this build has no Firebase config, so sign in via the local demo server.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            if (state.stage == CustomerLoginStage.OTP) {
+                TextButton(onClick = { vm.resendOtp(activity) }) {
+                    Text(if (state.demoMode) "Generate a new code" else "Resend OTP")
+                }
+                if (!state.demoMode) {
+                    TextButton(onClick = vm::useDemoCode) {
+                        Text("SMS not arriving? Use a demo code")
+                    }
+                }
             }
+
+            Spacer(Modifier.height(Space.s))
+            Text(
+                if (state.demoMode) {
+                    "Demo mode — no SMS is sent. The OTP is generated on this device and shown above."
+                } else {
+                    "A real SMS will be sent to your number. Standard SMS rates may apply."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
 
             Spacer(Modifier.height(Space.xl))
 
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
                 Text(
                     "Server: ",
                     style = MaterialTheme.typography.labelMedium,
@@ -155,6 +212,9 @@ fun CustomerLoginScreen(
                     if (serverUrl.isNotBlank()) serverUrl else "Not configured",
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.primary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
                 )
                 Spacer(Modifier.width(Space.xs))
                 TextButton(
@@ -206,8 +266,56 @@ fun CustomerLoginScreen(
     }
 }
 
-fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
+@Composable
+private fun DemoOtpCard(code: String, onAutofill: () -> Unit) {
+    Card(
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            Modifier.padding(Space.m),
+            verticalArrangement = Arrangement.spacedBy(Space.xs),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("DEMO OTP", style = MaterialTheme.typography.labelSmall)
+                Spacer(Modifier.weight(1f))
+                Text("No SMS is sent", style = MaterialTheme.typography.labelSmall)
+            }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(
+                    code,
+                    style = MaterialTheme.typography.headlineSmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onAutofill) {
+                    Text("Autofill")
+                }
+            }
+            Text(
+                "This code is generated on the device. Use it to continue.",
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
 }
+
+private fun Context.findActivity(): Activity? {
+    var current: Context = this
+    while (current is ContextWrapper) {
+        if (current is Activity) return current
+        current = current.baseContext
+    }
+    return current as? Activity
+}
+

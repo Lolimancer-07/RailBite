@@ -68,6 +68,11 @@ class EncryptedAuthStore(context: Context) : AuthStore {
     }
 
     private fun load(): AuthSession? {
+        // One-time migration: builds before the real phone/OTP gate saved a demo
+        // session under "session" and jumped straight to onboarding. Drop that
+        // legacy blob so the login screen is shown once after upgrading; sessions
+        // saved from here on live under "session_v2" and persist normally.
+        prefs.edit().remove(LEGACY_KEY_SESSION).apply()
         val raw = prefs.getString(KEY_SESSION, null) ?: return null
         return runCatching {
             val decoded = decrypt(raw)
@@ -118,7 +123,8 @@ class EncryptedAuthStore(context: Context) : AuthStore {
 
     private companion object {
         const val PREFS_NAME = "railbite_auth"
-        const val KEY_SESSION = "session"
+        const val KEY_SESSION = "session_v2"
+        const val LEGACY_KEY_SESSION = "session"
         const val KEY_ALIAS = "railbite_auth_key"
         const val ANDROID_KEYSTORE = "AndroidKeyStore"
         const val TRANSFORMATION = "AES/GCM/NoPadding"

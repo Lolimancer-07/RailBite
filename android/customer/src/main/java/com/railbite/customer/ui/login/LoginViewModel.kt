@@ -5,25 +5,23 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseException
-import com.google.firebase.auth.AuthResult
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthInvalidCredentialsException
-import com.google.firebase.auth.FirebaseAuthMissingActivityForRecaptchaException
-import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
-import com.google.android.gms.tasks.Task
 import com.railbite.core.auth.AuthSession
+import com.railbite.core.auth.AuthUser
+import com.railbite.core.auth.DemoAuth
 import com.railbite.customer.AppContainer
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import retrofit2.HttpException
+import kotlinx.coroutines.withTimeout
 import java.util.concurrent.TimeUnit
+import kotlin.random.Random
 
 enum class CustomerLoginStage {
     PHONE,
@@ -34,170 +32,317 @@ data class CustomerLoginUiState(
     val stage: CustomerLoginStage = CustomerLoginStage.PHONE,
     val phone: String = "",
     val otp: String = "",
+    /**
+     * Code generated on the device. Only set while the app is in demo mode —
+     * empty means a real SMS was requested through Firebase Phone Auth.
+     */
+    val demoOtp: String = "",
     val busy: Boolean = false,
     val error: String? = null,
     val info: String? = null,
-    val devMode: Boolean = false,
 ) {
-    val phoneValid: Boolean get() = phone.filter(Char::isDigit).length == 10
-    val codeValid: Boolean get() = otp.filter(Char::isDigit).length == 6
+    val phoneValid: Boolean get() = phone.length == 10 && phone.first() in '6'..'9'
+    val codeValid: Boolean get() = otp.length == 6
+
+    /** True when no SMS was sent and the code above is displayed on screen. */
+    val demoMode: Boolean get() = demoOtp.isNotBlank()
+
+    /** True while waiting on a real Firebase SMS challenge. */
+    val smsMode: Boolean get() = stage == CustomerLoginStage.OTP && demoOtp.isBlank()
 }
 
 /**
- * Customer sign-in: Firebase Phone Auth (SMS code) or local demo sign-in when
- * this build has no Firebase configuration. On success the session lands in the
- * shared [com.railbite.core.auth.AuthStore], which the root observes to open.
+ * Customer sign-in.
+ *
+ * Primary path: real Firebase Phone Auth — the user enters a real 10-digit
+ * Indian mobile number, Firebase sends the SMS, and the resulting ID token is
+ * exchanged for a RailBite session at POST /auth/otp/verify.
+ *
+ * Fallback path: when Firebase is not configured (no google-services.json, no
+ * Play Services, reCAPTCHA rejected, quota exhausted…) the app switches to a
+ * demo code generated on-device and shown on screen, so sign-in still works.
+ * If the server has dev-login disabled too, a local demo session is stored.
  */
 class CustomerLoginViewModel(
     private val container: AppContainer,
-    private val activity: Activity?,
     private val onLoggedIn: () -> Unit,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow<CustomerLoginUiState>(
-        CustomerLoginUiState(devMode = FirebaseApp.getApps(container.app.applicationContext).isEmpty()),
-    )
+    private val _state = MutableStateFlow(CustomerLoginUiState())
     val state: StateFlow<CustomerLoginUiState> = _state.asStateFlow()
 
-    private val _pendingVerificationId = MutableStateFlow("")
+    /** Set when Firebase sent an SMS; null means the screen is in demo mode. */
+    private var verificationId: String? = null
+    private var resendToken: PhoneAuthProvider.ForceResendingToken? = null
 
     private val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
         override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-            viewModelScope.launch {
-                runCatching { completeWithCredential(credential) }
-                    .onFailure { e -> _state.update { it.copy(busy = false, error = friendly(e)) } }
-            }
+            // Instant verification / SMS auto-retrieval: sign in without user input.
+            completeFirebaseSignIn(credential)
         }
 
-        override fun onVerificationFailed(exception: FirebaseException) {
+        override fun onVerificationFailed(e: FirebaseException) {
+            startDemoMode(
+                "SMS could not be sent (${e.message ?: "verification failed"}). " +
+                    "Use the demo code below instead.",
+            )
+        }
+
+        override fun onCodeSent(id: String, token: PhoneAuthProvider.ForceResendingToken) {
+            verificationId = id
+            resendToken = token
             _state.update {
                 it.copy(
+                    stage = CustomerLoginStage.OTP,
+                    otp = "",
+                    demoOtp = "",
                     busy = false,
-                    error = friendly(exception),
-                    stage = CustomerLoginStage.PHONE,
-                    info = if (exception is FirebaseAuthMissingActivityForRecaptchaException) {
-                        "Phone verification could not start on this build. Use the demo sign-in instead."
-                    } else null,
+                    error = null,
+                    info = "OTP sent by SMS to +91 ${formatPhone(it.phone)}.",
                 )
             }
-        }
-
-        override fun onCodeSent(verificationId: String, forceResendingToken: PhoneAuthProvider.ForceResendingToken) {
-            _pendingVerificationId.value = verificationId
-            _state.update { it.copy(stage = CustomerLoginStage.OTP, busy = false, error = null) }
-        }
-
-        override fun onCodeAutoRetrievalTimeOut(verificationId: String) {
-            // No-op: surfaced through the error/info channels if it matters later.
         }
     }
 
     fun onPhoneChange(value: String) {
-        _state.update { it.copy(phone = value.filter(Char::isDigit).take(10), error = null, stage = CustomerLoginStage.PHONE) }
+        _state.update {
+            it.copy(
+                phone = value.filter(Char::isDigit).take(10),
+                error = null,
+            )
+        }
     }
 
     fun onOtpChange(value: String) {
-        _state.update { it.copy(otp = value.filter(Char::isDigit).take(6)) }
+        _state.update {
+            it.copy(
+                otp = value.filter(Char::isDigit).take(6),
+                error = null,
+            )
+        }
     }
 
-    fun sendOtp() {
+    /**
+     * Requests a real SMS through Firebase. [activity] is required for the
+     * reCAPTCHA fallback Firebase uses on devices where Play Integrity fails.
+     * A null activity (or missing Firebase config) goes straight to demo mode.
+     */
+    fun sendOtp(activity: Activity?) {
         val s = _state.value
         if (s.busy) return
-        if (!s.phoneValid) {
-            _state.update { it.copy(error = "Enter a 10-digit mobile number to receive the SMS code") }
+
+        validatePhone(s.phone)?.let { message ->
+            _state.update { it.copy(error = message) }
             return
         }
-        if (s.devMode) {
-            viewModelScope.launch { loginViaDev() }
+
+        val auth = firebaseAuth()
+        if (auth == null || activity == null) {
+            startDemoMode(
+                "Firebase Phone Auth is not available on this build — " +
+                    "using the on-screen demo code.",
+            )
             return
         }
-        val ctx = activity ?: run {
-            _state.update { it.copy(busy = false, error = "Phone verification is unavailable in this context — use the demo sign-in") }
-            return
-        }
-        _state.update { it.copy(busy = true, error = null, stage = CustomerLoginStage.OTP) }
-        val options = PhoneAuthOptions.newBuilder(FirebaseAuth.getInstance())
+
+        _state.update { it.copy(busy = true, error = null, info = "Requesting SMS…") }
+        val builder = PhoneAuthOptions.newBuilder(auth)
             .setPhoneNumber("+91${s.phone}")
             .setTimeout(60L, TimeUnit.SECONDS)
-            .setActivity(ctx)
+            .setActivity(activity)
             .setCallbacks(callbacks)
-            .build()
-        PhoneAuthProvider.verifyPhoneNumber(options)
+        resendToken?.let(builder::setForceResendingToken)
+
+        runCatching { PhoneAuthProvider.verifyPhoneNumber(builder.build()) }
+            .onFailure {
+                startDemoMode(
+                    "Could not start SMS verification (${it.message}). " +
+                        "Use the demo code below.",
+                )
+            }
+    }
+
+    fun resendOtp(activity: Activity?) {
+        if (_state.value.busy) return
+        if (verificationId == null) {
+            _state.update {
+                it.copy(
+                    otp = "",
+                    demoOtp = newCode(),
+                    error = null,
+                    info = "A new demo code was generated.",
+                )
+            }
+        } else {
+            sendOtp(activity)
+        }
+    }
+
+    fun changeNumber() {
+        verificationId = null
+        resendToken = null
+        _state.update {
+            it.copy(
+                stage = CustomerLoginStage.PHONE,
+                otp = "",
+                demoOtp = "",
+                error = null,
+                info = null,
+            )
+        }
+    }
+
+    fun autofillOtp() {
+        _state.update { it.copy(otp = it.demoOtp, error = null) }
+    }
+
+    /** Escape hatch when SMS never arrives: switch to the on-screen code. */
+    fun useDemoCode() {
+        if (_state.value.stage != CustomerLoginStage.OTP) return
+        startDemoMode("Demo code generated on this device — no SMS is sent.")
     }
 
     fun verifyCode() {
         val s = _state.value
-        if (s.busy || !s.codeValid) return
-        val verificationId = _pendingVerificationId.value
-        if (verificationId.isBlank()) {
-            _state.update { it.copy(busy = false, error = "Verification was not started — press Send OTP again") }
+        if (s.busy) return
+        if (!s.codeValid) {
+            _state.update { it.copy(error = "Enter the 6-digit OTP") }
             return
         }
-        _state.update { it.copy(busy = true, error = null) }
+
+        val id = verificationId
+        if (id != null) {
+            _state.update { it.copy(busy = true, error = null, info = null) }
+            viewModelScope.launch {
+                try {
+                    val auth = firebaseAuth() ?: error("Firebase is not configured")
+                    val credential = PhoneAuthProvider.getCredential(id, s.otp)
+                    signInWithFirebase(auth, credential)
+                } catch (e: Exception) {
+                    _state.update {
+                        it.copy(busy = false, otp = "", error = friendlyError(e))
+                    }
+                }
+            }
+            return
+        }
+
+        if (s.otp != s.demoOtp) {
+            _state.update {
+                it.copy(
+                    otp = "",
+                    error = "Incorrect OTP. Check the demo code and try again.",
+                    info = null,
+                )
+            }
+            return
+        }
+
+        _state.update { it.copy(busy = true, error = null, info = null) }
+        viewModelScope.launch { demoSignIn(s.phone) }
+    }
+
+    private fun completeFirebaseSignIn(credential: PhoneAuthCredential) {
+        _state.update { it.copy(busy = true, error = null, info = null) }
         viewModelScope.launch {
-            runCatching { completeWithCode(verificationId, s.otp) }
-                .onFailure { e -> _state.update { it.copy(busy = false, error = friendly(e)) } }
+            try {
+                val auth = firebaseAuth() ?: error("Firebase is not configured")
+                signInWithFirebase(auth, credential)
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(busy = false, otp = "", error = friendlyError(e))
+                }
+            }
         }
     }
 
-    private suspend fun completeWithCode(verificationId: String, code: String) {
-        completeWithCredential(PhoneAuthProvider.getCredential(verificationId, code))
-    }
-
-    private suspend fun completeWithCredential(credential: PhoneAuthCredential) {
-        val authResult: AuthResult = awaitTask(FirebaseAuth.getInstance().signInWithCredential(credential))
-        val user = authResult.user ?: throw IllegalStateException("Firebase sign-in returned no user")
-        val idToken: String = awaitTask(user.getIdToken(/* forceRefresh */ true)).token ?: ""
-        val session: AuthSession = container.auth.firebaseLogin(idToken, user.displayName)
-        _state.update { it.copy(busy = false, error = null, stage = CustomerLoginStage.OTP, otp = "") }
+    /** Signs into Firebase, exchanges the ID token with the server, persists the session. */
+    private suspend fun signInWithFirebase(
+        auth: FirebaseAuth,
+        credential: PhoneAuthCredential,
+    ) {
+        val result = auth.signInWithCredential(credential).await()
+        val user = result.user ?: error("Firebase returned no user")
+        val idToken = user.getIdToken(false).await().token
+            ?: error("Firebase returned no ID token")
+        container.auth.firebaseLogin(idToken, user.displayName)
+        _state.update { it.copy(busy = false) }
         onLoggedIn()
     }
 
-    private suspend fun loginViaDev() {
-        val phone = _state.value.phone
-        runCatching { container.auth.devLogin(phone) }
-            .onSuccess { onLoggedIn() }
-            .onFailure { e -> _state.update { it.copy(busy = false, error = devError(e)) } }
-    }
+    /**
+     * Demo sign-in: try the server's dev-login (real JWT) first; if the
+     * deployment has it disabled, keep a local demo session so the app works.
+     */
+    private suspend fun demoSignIn(phoneDigits: String) {
+        val phone = "+91$phoneDigits"
 
-    private fun devError(e: Throwable): String = when (e) {
-        is HttpException -> runCatching {
-            e.response()?.errorBody()?.string()?.let { raw ->
-                Regex("\"error\"\\s*:\\s*\"([^\"]+)\"").find(raw)?.groupValues?.get(1) ?: "Demo sign-in could not be completed"
-            } ?: "Demo sign-in could not be completed"
-        }.getOrDefault("Demo sign-in could not be completed")
-        else -> e.message ?: "Could not sign in"
-    }
+        val serverSession = runCatching {
+            withTimeout(2_500) { container.auth.devLogin(phone) }
+        }.getOrNull()
 
-    private fun friendly(e: Throwable): String {
-        if (e is FirebaseAuthInvalidCredentialsException) {
-            return "That verification code is invalid. Check the SMS and try again."
+        if (serverSession == null) {
+            container.authStore.save(
+                AuthSession(
+                    accessToken = DemoAuth.ACCESS_TOKEN,
+                    refreshToken = DemoAuth.REFRESH_TOKEN,
+                    user = AuthUser(
+                        id = "demo-${phoneDigits.takeLast(4)}",
+                        name = "Demo Passenger",
+                        phone = phone,
+                        role = "customer",
+                    ),
+                ),
+            )
         }
-        val message = (e.message ?: "Phone verification failed").trim()
-        return when {
-            message.contains("reCAPTCHA", ignoreCase = true) || message.contains("Recaptcha", ignoreCase = true) ->
-                "Phone verification needs a SHA-1/SHA-256 fingerprint registered in Firebase for this build. Use the demo sign-in for now."
-            message.contains("not_enabled", ignoreCase = true) ->
-                "Phone Auth is not enabled for this Firebase project. Enable it in the Firebase console and retry."
-            message.contains("api_key_not_valid", ignoreCase = true) || message.contains("invalid-api-key", ignoreCase = true) ->
-                "This build has no valid Firebase configuration. Use the demo sign-in for now."
-            else -> message
+
+        _state.update { it.copy(busy = false) }
+        onLoggedIn()
+    }
+
+    private fun startDemoMode(reason: String) {
+        verificationId = null
+        resendToken = null
+        _state.update {
+            it.copy(
+                stage = CustomerLoginStage.OTP,
+                otp = "",
+                demoOtp = newCode(),
+                busy = false,
+                error = null,
+                info = reason,
+            )
         }
     }
 
-    private suspend fun <T> awaitTask(task: Task<T>): T {
-        val deferred = CompletableDeferred<T>()
-        task.addOnCompleteListener { t ->
-            if (t.isSuccessful) {
-                deferred.complete(t.result)
-            } else {
-                deferred.completeExceptionally(t.exception ?: RuntimeException("Task failed"))
-            }
-        }
-        return deferred.await()
+    private fun validatePhone(phone: String): String? = when {
+        phone.length != 10 -> "Enter your 10-digit mobile number"
+        phone.first() !in '6'..'9' -> "Indian mobile numbers start with 6, 7, 8 or 9"
+        else -> null
     }
 
-    override fun onCleared() {
-        super.onCleared()
+    /**
+     * The Firebase app is normally auto-initialised from google-services.json.
+     * Builds without that file (or devices without Play Services) return null
+     * and the login falls back to the demo code.
+     */
+    private fun firebaseAuth(): FirebaseAuth? = runCatching {
+        val context = container.app
+        if (FirebaseApp.getApps(context).isEmpty()) {
+            FirebaseApp.initializeApp(context)
+        }
+        FirebaseApp.getApps(context).firstOrNull()?.let { FirebaseAuth.getInstance(it) }
+    }.getOrNull()
+
+    private fun friendlyError(e: Throwable): String = when (e) {
+        is FirebaseAuthInvalidCredentialsException ->
+            "That code is incorrect or expired. Resend the OTP and try again."
+        else -> e.message?.takeIf { it.isNotBlank() }
+            ?: "Could not verify the phone number"
     }
+
+    private fun newCode(): String = Random.nextInt(1_000_000).toString().padStart(6, '0')
 }
+
+internal fun formatPhone(digits: String): String =
+    if (digits.length <= 5) digits else "${digits.take(5)} ${digits.drop(5)}"
