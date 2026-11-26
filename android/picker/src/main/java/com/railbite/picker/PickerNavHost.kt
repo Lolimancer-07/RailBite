@@ -10,7 +10,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
-import com.railbite.picker.alert.AlertActivity
+import com.railbite.picker.alert.IncomingOrderActivity
 import com.railbite.picker.mesh.MeshHandoverScreen
 import com.railbite.picker.ui.cash.CashSummaryScreen
 import com.railbite.picker.ui.home.PickerDashboardScreen
@@ -61,8 +61,8 @@ fun PickerNavHost(graph: PickerGraph, startDestination: String) {
                 onShowAlert = { orderId ->
                     // Used by the "Test alert" / "Test Ring" button
                     context.startActivity(
-                        Intent(context, AlertActivity::class.java)
-                            .putExtra(AlertActivity.EXTRA_ORDER_ID, orderId)
+                        Intent(context, IncomingOrderActivity::class.java)
+                            .putExtra(IncomingOrderActivity.EXTRA_ORDER_ID, orderId)
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
                 },

@@ -54,7 +54,7 @@ object Notifications {
         val stopIntent = PendingIntent.getService(
             context,
             1,
-            Intent(context, RailBiteAlertService::class.java).setAction(RailBiteAlertService.ACTION_STOP),
+            Intent(context, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return NotificationCompat.Builder(context, CHANNEL_STATUS)
@@ -77,7 +77,7 @@ object Notifications {
         val fullScreen = PendingIntent.getActivity(
             context,
             alert.orderId.hashCode(),
-            Intent(context, AlertActivity::class.java).putExtra(AlertActivity.EXTRA_ORDER_ID, alert.orderId),
+            Intent(context, IncomingOrderActivity::class.java).putExtra(IncomingOrderActivity.EXTRA_ORDER_ID, alert.orderId),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val itemsText = alert.items.joinToString("\n") { "${it.qty} × ${it.name}" }

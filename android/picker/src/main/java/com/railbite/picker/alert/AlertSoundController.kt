@@ -13,7 +13,7 @@ import android.os.VibratorManager
 
 /**
  * Alarm sound + repeating vibration + partial wake lock while an alert is ringing.
- * Started by AlertActivity; must always be stopped via [stop].
+ * Started by IncomingOrderActivity; must always be stopped via [stop].
  */
 @SuppressLint("WakelockTimeout")
 object AlertSoundController {

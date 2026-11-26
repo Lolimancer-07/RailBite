@@ -21,8 +21,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
 import com.railbite.picker.ui.theme.RailBitePickerTheme
 import com.railbite.picker.alert.AlertBus
+import com.railbite.picker.alert.AlertForegroundService
 import com.railbite.picker.alert.Notifications
-import com.railbite.picker.alert.RailBiteAlertService
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -114,8 +114,8 @@ private fun PickerRoot(
         if (staffId.isNotBlank()) {
             androidx.core.content.ContextCompat.startForegroundService(
                 container.app,
-                Intent(container.app, RailBiteAlertService::class.java)
-                    .setAction(RailBiteAlertService.ACTION_START),
+                Intent(container.app, AlertForegroundService::class.java)
+                    .setAction(AlertForegroundService.ACTION_START),
             )
         }
         if (initialOpenOrderId != null) OpenOrderRouter.post(initialOpenOrderId)

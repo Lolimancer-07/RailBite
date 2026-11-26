@@ -12,7 +12,7 @@ import com.railbite.core.model.OrderMessage
 import com.railbite.core.model.PickerStats
 import com.railbite.core.util.Statuses
 import com.railbite.picker.PickerContainer
-import com.railbite.picker.alert.RailBiteAlertService
+import com.railbite.picker.alert.AlertForegroundService
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -105,7 +105,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             }
         }
         viewModelScope.launch {
-            RailBiteAlertService.running.collect { running ->
+            AlertForegroundService.running.collect { running ->
                 _state.update { it.copy(serviceRunning = running) }
             }
         }
@@ -259,11 +259,11 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         if (online) {
             ContextCompat.startForegroundService(
                 app,
-                Intent(app, RailBiteAlertService::class.java).setAction(RailBiteAlertService.ACTION_START),
+                Intent(app, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_START),
             )
         } else {
             app.startService(
-                Intent(app, RailBiteAlertService::class.java).setAction(RailBiteAlertService.ACTION_STOP),
+                Intent(app, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_STOP),
             )
         }
         viewModelScope.launch {
@@ -322,8 +322,8 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             if (_state.value.online) {
                 ContextCompat.startForegroundService(
                     container.app,
-                    Intent(container.app, RailBiteAlertService::class.java)
-                        .setAction(RailBiteAlertService.ACTION_RECONNECT),
+                    Intent(container.app, AlertForegroundService::class.java)
+                        .setAction(AlertForegroundService.ACTION_RECONNECT),
                 )
             }
             refresh()
@@ -335,8 +335,8 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         _state.update { it.copy(online = false) }
         container.chatMqtt.disconnect()
         container.app.startService(
-            Intent(container.app, RailBiteAlertService::class.java)
-                .setAction(RailBiteAlertService.ACTION_STOP),
+            Intent(container.app, AlertForegroundService::class.java)
+                .setAction(AlertForegroundService.ACTION_STOP),
         )
         viewModelScope.launch {
             container.auth.logout()

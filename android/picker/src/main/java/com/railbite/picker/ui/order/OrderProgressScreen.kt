@@ -134,6 +134,33 @@ fun OrderProgressScreen(
         }
     }
 
+    val currentOrder = state.order
+    if (currentOrder != null && (currentOrder.status == Statuses.ACCEPTED || currentOrder.status == Statuses.PACKING)) {
+        PickingChecklistScreen(
+            order = currentOrder,
+            state = state,
+            onBack = onBack,
+            onOpenChat = vm::openChat,
+            onTickItem = vm::tick,
+            onStartPickup = vm::startPickup,
+        )
+        if (state.chatOpen) {
+            PickerChatBottomSheet(
+                coach = currentOrder.coach,
+                berth = currentOrder.berth,
+                messages = state.chatMessages,
+                canSend = state.canSendChat,
+                sending = state.sendingChat,
+                error = state.chatError,
+                onSendPreset = { preset -> vm.sendChatMessage(preset.body, preset.code) },
+                onSendCustom = { text -> vm.sendChatMessage(text, null) },
+                onDismissError = vm::clearChatError,
+                onDismiss = vm::closeChat,
+            )
+        }
+        return
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(

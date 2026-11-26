@@ -3,6 +3,7 @@ package com.railbite.picker.ui.order
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.core.model.CaptainActionRequest
+import com.railbite.core.model.ChatPreset
 import com.railbite.core.model.ChatPresets
 import com.railbite.core.model.DeliverRequest
 import com.railbite.core.model.Order
@@ -25,6 +26,7 @@ import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.time.Instant
 import java.util.UUID
 
 data class ProgressUiState(
@@ -35,12 +37,14 @@ data class ProgressUiState(
     val checklist: Map<String, Boolean> = emptyMap(),
     val busy: Boolean = false,
     val message: String? = null,
+    val slaRemainingSeconds: Int = SLA_TARGET_SECONDS,
     val chatMessages: List<OrderMessage> = emptyList(),
     val unreadChatCount: Int = 0,
     val latestUnreadPreview: String? = null,
     val chatOpen: Boolean = false,
     val sendingChat: Boolean = false,
     val chatError: String? = null,
+    val quickUpdateBanner: String? = null,
 ) {
     val canSendChat: Boolean
         get() = order?.status in listOf(
@@ -50,6 +54,10 @@ data class ProgressUiState(
         )
     val chatAvailable: Boolean
         get() = canSendChat || order?.status == Statuses.DELIVERED || chatMessages.isNotEmpty()
+
+    companion object {
+        const val SLA_TARGET_SECONDS = 600
+    }
 }
 
 class OrderProgressViewModel(
@@ -83,6 +91,21 @@ class OrderProgressViewModel(
                 }
             }
         }
+        // Live 1s SLA countdown ticker computed from order.createdAt
+        viewModelScope.launch {
+            while (isActive) {
+                val createdAtIso = _state.value.order?.createdAt
+                if (!createdAtIso.isNullOrBlank()) {
+                    val createdEpoch = runCatching { Instant.parse(createdAtIso).epochSecond }.getOrNull()
+                    if (createdEpoch != null) {
+                        val elapsed = (Instant.now().epochSecond - createdEpoch).toInt().coerceAtLeast(0)
+                        val remaining = ProgressUiState.SLA_TARGET_SECONDS - elapsed
+                        _state.update { it.copy(slaRemainingSeconds = remaining) }
+                    }
+                }
+                delay(1_000)
+            }
+        }
         load()
     }
 
@@ -103,7 +126,6 @@ class OrderProgressViewModel(
         try {
             val api = container.client.api()
             var order = api.order(orderId, role = "picker")
-            // A fresh accept (from the alert) is immediately followed by the packing step
             if (order.status == Statuses.ACCEPTED && !autoPacked) {
                 autoPacked = true
                 runCatching {
@@ -111,12 +133,19 @@ class OrderProgressViewModel(
                 }
                 order = api.order(orderId, role = "picker")
             }
+            val remainingSla = runCatching {
+                val createdEpoch = Instant.parse(order.createdAt).epochSecond
+                val elapsed = (Instant.now().epochSecond - createdEpoch).toInt().coerceAtLeast(0)
+                ProgressUiState.SLA_TARGET_SECONDS - elapsed
+            }.getOrDefault(ProgressUiState.SLA_TARGET_SECONDS)
+
             _state.update { st ->
                 val incoming = order.items
                 st.copy(
                     order = order,
                     loading = false,
                     error = null,
+                    slaRemainingSeconds = remainingSla,
                     checklist = if (st.checklist.isEmpty() && incoming != null) {
                         incoming.associate { it.itemId to false }
                     } else {
@@ -142,7 +171,7 @@ class OrderProgressViewModel(
         }
     }
 
-    /** All items picked -> pick the basket up and head to the coach. */
+    /** All items picked -> transition to OUT_FOR_DELIVERY. */
     fun startPickup() {
         val s = _state.value
         if (s.busy || s.order == null) return
@@ -161,14 +190,14 @@ class OrderProgressViewModel(
     }
 
     /**
-     * Final handover. The picker must repeat the passenger's 4-digit code (403 on
-     * mismatch) and reports the cash actually collected (server defaults to the total).
+     * Final handover. Verifies the passenger's 4-digit PIN (403 on mismatch)
+     * and records exact cash collected (server defaults to order total when null).
      */
     fun deliver(code: String, cashText: String) {
         val s = _state.value
         if (s.busy || s.order == null) return
         if (code.trim().length != 4) {
-            _state.update { it.copy(message = "Enter the 4-digit code shown in the passenger's app") }
+            _state.update { it.copy(message = "Enter the 4-digit delivery PIN shown on the passenger's screen") }
             return
         }
         _state.update { it.copy(busy = true, message = null) }
@@ -222,7 +251,11 @@ class OrderProgressViewModel(
         _state.update { it.copy(chatError = null) }
     }
 
-    fun sendChatMessage(rawBody: String, presetCode: String? = null) {
+    fun sendQuickChip(preset: ChatPreset) {
+        sendChatMessage(preset.body, preset.code, showBanner = true)
+    }
+
+    fun sendChatMessage(rawBody: String, presetCode: String? = null, showBanner: Boolean = false) {
         val trimmed = rawBody.trim().take(ChatPresets.MAX_BODY_LENGTH)
         if (trimmed.isEmpty()) return
         val current = _state.value
@@ -247,7 +280,24 @@ class OrderProgressViewModel(
                     ),
                 )
                 mergeChatMessages(listOf(created), markBaselineOnly = false)
-                _state.update { it.copy(sendingChat = false) }
+                _state.update {
+                    it.copy(
+                        sendingChat = false,
+                        quickUpdateBanner = if (showBanner) "Sent: $trimmed" else it.quickUpdateBanner,
+                    )
+                }
+                if (showBanner) {
+                    launch {
+                        delay(2_500)
+                        _state.update { cur ->
+                            if (cur.quickUpdateBanner == "Sent: $trimmed") {
+                                cur.copy(quickUpdateBanner = null)
+                            } else {
+                                cur
+                            }
+                        }
+                    }
+                }
             } catch (e: HttpException) {
                 val msg = if (e.code() == 409) {
                     "Chat closed — order already completed"
@@ -319,12 +369,12 @@ class OrderProgressViewModel(
         val code = (e as? HttpException)?.code()
         return when {
             code == 403 || e.message?.contains("403") == true ->
-                "Wrong delivery code — ask the passenger to show it again"
+                "Wrong delivery PIN — ask passenger to check their Order Tracking screen"
             code == 409 || e.message?.contains("409") == true ->
                 "The order is already in that state"
             code == 404 || e.message?.contains("404") == true ->
                 "Order no longer exists"
-            else -> "Network error — check the train Wi-Fi"
+            else -> "Network error — check train Wi-Fi"
         }
     }
 }

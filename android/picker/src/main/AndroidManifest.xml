@@ -47,7 +47,7 @@
 
         <!-- Full-screen new-order alert; launches over the lock screen -->
         <activity
-            android:name=".alert.AlertActivity"
+            android:name=".alert.IncomingOrderActivity"
             android:exported="false"
             android:excludeFromRecents="true"
             android:launchMode="singleTop"
@@ -57,7 +57,7 @@
 
         <!-- Keeps the MQTT alert subscription alive while the picker is ONLINE -->
         <service
-            android:name=".alert.RailBiteAlertService"
+            android:name=".alert.AlertForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 

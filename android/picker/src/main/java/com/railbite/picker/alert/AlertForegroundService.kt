@@ -5,9 +5,9 @@ import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import com.railbite.core.api.ApiClient
+import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.mqtt.MqttConnector
 import com.railbite.core.mqtt.RailBiteTopics
-import com.railbite.core.model.MqttOrderAlert
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,13 +22,12 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 
 /**
- * Foreground service ("dataSync") that keeps the picker's MQTT subscription alive while
- * the picker is ONLINE — even when the app is closed or the phone is locked.
+ * Android 14+ foreground service ("dataSync") keeping the picker's MQTT dispatch subscription
+ * alive while the picker is ONLINE — even when locked or backgrounded.
  *
- * Started/stopped by the ONLINE toggle on the Home screen. Shows a persistent
- * "You are online" notification with a Stop action.
+ * Uses runtime-configured server URL and optional MQTT WebSocket URL from [RailBiteSettings].
  */
-class RailBiteAlertService : Service() {
+class AlertForegroundService : Service() {
 
     companion object {
         const val ACTION_START = "com.railbite.picker.action.START"
@@ -74,9 +73,8 @@ class RailBiteAlertService : Service() {
             else -> {
                 startForegroundCompat()
                 scope.launch { connectAlerts() }
-                // Re-assert server-side online state: after a server restart or a login
-                // snap-off the dispatcher would silently skip this picker even though the
-                // app shows ONLINE (the service running is the source of truth).
+                // Re-assert server-side online state so a server restart or login snap-off
+                // cannot leave the picker marked offline server-side while foregrounded.
                 scope.launch { runCatching { setOnline(true) } }
                 return START_STICKY
             }
@@ -97,10 +95,6 @@ class RailBiteAlertService : Service() {
         val app = application as com.railbite.picker.RailBitePickerApp
         val container = app.container
 
-        // Bluetooth relay (offline feature) runs regardless of cloud state — with the
-        // train Wi-Fi dead it is the only path orders can take. MeshGateway.start() is
-        // idempotent, so repeated service starts are safe; permissions are checked so
-        // the scan never throws.
         if (container.settings.meshSinkEnabled.first() &&
             container.meshTransport.requiredPermissions().isEmpty()
         ) {
@@ -108,17 +102,23 @@ class RailBiteAlertService : Service() {
         }
 
         val serverUrl = container.settings.serverUrl.first()
+        val mqttWsOverride = container.settings.mqttWsUrl.first()
         val staffId = container.settings.staffId.first()
-        if (serverUrl.isBlank() || staffId.isBlank()) return
+        if ((serverUrl.isBlank() && mqttWsOverride.isBlank()) || staffId.isBlank()) return
 
-        val tripId = runCatching { ApiClient.testConnection(serverUrl).tripId }
-            .getOrDefault(RailBiteTopics.DEFAULT_TRIP_ID)
+        val tripId = if (serverUrl.isNotBlank()) {
+            runCatching { ApiClient.testConnection(serverUrl).tripId }
+                .getOrDefault(RailBiteTopics.DEFAULT_TRIP_ID)
+        } else {
+            RailBiteTopics.DEFAULT_TRIP_ID
+        }
 
         mutex.withLock {
             if (connector != null) return
             val c = MqttConnector.fromServerUrl(
                 serverUrl = serverUrl,
                 clientId = "c-$staffId",
+                mqttWsUrlOverride = mqttWsOverride,
                 onConnected = { },
                 onDisconnected = { },
             )
@@ -140,10 +140,11 @@ class RailBiteAlertService : Service() {
         val staffId = container.settings.staffId.first()
         val serverUrl = container.settings.serverUrl.first()
         if (staffId.isBlank() || serverUrl.isBlank()) return
-        // Authed client: the service holds no Activity, but the bearer token lives in
-        // the encrypted auth store, which the interceptor injects.
         runCatching {
-            container.client.api().setStaffOnline(staffId, com.railbite.core.api.RailBiteApi.OnlineRequest(value))
+            container.client.api().setStaffOnline(
+                staffId,
+                com.railbite.core.api.RailBiteApi.OnlineRequest(value),
+            )
         }
         container.settings.setOnline(value)
     }
@@ -167,3 +168,4 @@ class RailBiteAlertService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 }
+

@@ -6,8 +6,8 @@ import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import com.railbite.core.model.MqttOrderAlert
 import com.railbite.picker.RailBitePickerApp
-import com.railbite.picker.alert.AlertActivity
 import com.railbite.picker.alert.AlertBus
+import com.railbite.picker.alert.IncomingOrderActivity
 import com.railbite.picker.alert.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -72,15 +72,15 @@ class PickerFirebaseMessagingService : FirebaseMessagingService() {
         // 2. Fire high-priority notification with full-screen intent
         Notifications.notifyAlert(applicationContext, alert)
 
-        // 3. Directly launch AlertActivity over the lock screen
+        // 3. Directly launch IncomingOrderActivity over the lock screen
         runCatching {
-            val alertIntent = Intent(applicationContext, AlertActivity::class.java).apply {
-                putExtra(AlertActivity.EXTRA_ORDER_ID, alert.orderId)
+            val alertIntent = Intent(applicationContext, IncomingOrderActivity::class.java).apply {
+                putExtra(IncomingOrderActivity.EXTRA_ORDER_ID, alert.orderId)
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
             }
             startActivity(alertIntent)
         }.onFailure { e ->
-            Log.w(TAG, "Could not start AlertActivity directly from background (handled by full-screen intent): ${e.message}")
+            Log.w(TAG, "Could not start IncomingOrderActivity directly from background (handled by full-screen intent): ${e.message}")
         }
     }
 

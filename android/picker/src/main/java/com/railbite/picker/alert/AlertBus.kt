@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.asStateFlow
 
 /**
  * In-process bus between the foreground service (which receives MQTT alerts or Bluetooth
- * relay packets) and the AlertActivity / Home screen. Holds the currently pending alert.
+ * relay packets) and IncomingOrderActivity / PickerDashboardScreen. Holds the currently pending alert.
  */
 object AlertBus {
 

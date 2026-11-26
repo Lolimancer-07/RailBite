@@ -23,7 +23,7 @@ import kotlinx.serialization.json.Json
  * Dedicated MQTT client for Picker connectivity state and order-scoped quick chat.
  *
  * Uses client ID `"c-$staffId-chat"` so it satisfies the broker's `"c-"` ACL
- * (`rb/{tripId}/orders/{orderId}/chat`) without evicting [RailBiteAlertService]'s
+ * (`rb/{tripId}/orders/{orderId}/chat`) without evicting [AlertForegroundService]'s
  * `"c-$staffId"` alert session.
  */
 class PickerChatMqtt(private val settings: RailBiteSettings) {
