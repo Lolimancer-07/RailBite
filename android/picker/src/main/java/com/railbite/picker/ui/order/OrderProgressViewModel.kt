@@ -3,14 +3,20 @@ package com.railbite.picker.ui.order
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.core.model.CaptainActionRequest
+import com.railbite.core.model.ChatPresets
 import com.railbite.core.model.DeliverRequest
 import com.railbite.core.model.Order
+import com.railbite.core.model.OrderMessage
+import com.railbite.core.model.OrderMessageCreateRequest
 import com.railbite.core.util.Statuses
 import com.railbite.picker.PickerContainer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
@@ -19,6 +25,7 @@ import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.math.BigDecimal
 import java.math.RoundingMode
+import java.util.UUID
 
 data class ProgressUiState(
     val order: Order? = null,
@@ -28,7 +35,22 @@ data class ProgressUiState(
     val checklist: Map<String, Boolean> = emptyMap(),
     val busy: Boolean = false,
     val message: String? = null,
-)
+    val chatMessages: List<OrderMessage> = emptyList(),
+    val unreadChatCount: Int = 0,
+    val latestUnreadPreview: String? = null,
+    val chatOpen: Boolean = false,
+    val sendingChat: Boolean = false,
+    val chatError: String? = null,
+) {
+    val canSendChat: Boolean
+        get() = order?.status in listOf(
+            Statuses.ACCEPTED,
+            Statuses.PACKING,
+            Statuses.OUT_FOR_DELIVERY,
+        )
+    val chatAvailable: Boolean
+        get() = canSendChat || order?.status == Statuses.DELIVERED || chatMessages.isNotEmpty()
+}
 
 class OrderProgressViewModel(
     private val container: PickerContainer,
@@ -38,10 +60,29 @@ class OrderProgressViewModel(
     private val _state = MutableStateFlow(ProgressUiState())
     val state: StateFlow<ProgressUiState> = _state.asStateFlow()
 
+    private val _incomingCustomerAlerts = MutableSharedFlow<OrderMessage>(extraBufferCapacity = 8)
+    val incomingCustomerAlerts: SharedFlow<OrderMessage> = _incomingCustomerAlerts.asSharedFlow()
+
     private var pollJob: Job? = null
     private var autoPacked = false
+    private val seenChatIds = mutableSetOf<String>()
+    private var initialChatSynced = false
 
     init {
+        viewModelScope.launch {
+            val staffId = container.settings.staffId.first()
+            if (staffId.isNotBlank()) {
+                runCatching { container.chatMqtt.watchOrder(orderId, staffId) }
+            }
+        }
+        viewModelScope.launch {
+            container.chatMqtt.orderMessages.collect { byOrder ->
+                val live = byOrder[orderId].orEmpty()
+                if (live.isNotEmpty()) {
+                    mergeChatMessages(live, markBaselineOnly = false)
+                }
+            }
+        }
         load()
     }
 
@@ -82,6 +123,13 @@ class OrderProgressViewModel(
                         st.checklist
                     },
                 )
+            }
+            if (order.status != Statuses.PLACED && order.status != Statuses.ASSIGNED) {
+                val history = runCatching { api.orderMessages(orderId) }.getOrNull()
+                if (history != null) {
+                    mergeChatMessages(history, markBaselineOnly = !initialChatSynced)
+                    initialChatSynced = true
+                }
             }
         } catch (e: Exception) {
             _state.update { it.copy(loading = false, error = friendly(e)) }
@@ -147,6 +195,118 @@ class OrderProgressViewModel(
             container.settings.setPickerOrderId("")
             onDone()
         }
+    }
+
+    fun openChat() {
+        _state.update { s ->
+            s.chatMessages.forEach { seenChatIds.add(it.id) }
+            s.copy(
+                chatOpen = true,
+                unreadChatCount = 0,
+                latestUnreadPreview = null,
+                chatError = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { container.client.api().orderMessages(orderId) }
+                .getOrNull()
+                ?.let { mergeChatMessages(it, markBaselineOnly = false) }
+        }
+    }
+
+    fun closeChat() {
+        _state.update { it.copy(chatOpen = false, chatError = null) }
+    }
+
+    fun clearChatError() {
+        _state.update { it.copy(chatError = null) }
+    }
+
+    fun sendChatMessage(rawBody: String, presetCode: String? = null) {
+        val trimmed = rawBody.trim().take(ChatPresets.MAX_BODY_LENGTH)
+        if (trimmed.isEmpty()) return
+        val current = _state.value
+        if (!current.canSendChat) {
+            _state.update { it.copy(chatError = "Chat closed — order already completed") }
+            return
+        }
+        if (current.sendingChat) return
+        _state.update { it.copy(sendingChat = true, chatError = null) }
+        val messageId = UUID.randomUUID().toString()
+        viewModelScope.launch {
+            try {
+                val staffId = container.settings.staffId.first().ifBlank { null }
+                val created = container.client.api().sendOrderMessage(
+                    orderId,
+                    OrderMessageCreateRequest(
+                        id = messageId,
+                        senderRole = "PICKER",
+                        senderId = staffId,
+                        presetCode = presetCode,
+                        body = trimmed,
+                    ),
+                )
+                mergeChatMessages(listOf(created), markBaselineOnly = false)
+                _state.update { it.copy(sendingChat = false) }
+            } catch (e: HttpException) {
+                val msg = if (e.code() == 409) {
+                    "Chat closed — order already completed"
+                } else {
+                    "Could not send message (HTTP ${e.code()})"
+                }
+                _state.update { it.copy(sendingChat = false, chatError = msg) }
+                if (e.code() == 409) refreshOnce()
+            } catch (_: Exception) {
+                _state.update {
+                    it.copy(
+                        sendingChat = false,
+                        chatError = "Message not sent — check connection",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun mergeChatMessages(incoming: List<OrderMessage>, markBaselineOnly: Boolean) {
+        if (incoming.isEmpty() && _state.value.chatMessages.isEmpty()) return
+        var notifyCustomerMsg: OrderMessage? = null
+        _state.update { s ->
+            val byId = LinkedHashMap<String, OrderMessage>()
+            s.chatMessages.forEach { byId[it.id] = it }
+            incoming.forEach { byId[it.id] = it }
+            val merged = byId.values.sortedBy { it.createdAt }
+            val terminal = Statuses.isTerminal(s.order?.status.orEmpty())
+            val newlyArrivedCustomer = if (!markBaselineOnly && !terminal) {
+                incoming.filter { msg ->
+                    msg.senderRole == "CUSTOMER" &&
+                        s.chatMessages.none { it.id == msg.id } &&
+                        msg.id !in seenChatIds
+                }.maxByOrNull { it.createdAt }
+            } else {
+                null
+            }
+            if (newlyArrivedCustomer != null) {
+                notifyCustomerMsg = newlyArrivedCustomer
+            }
+            if (s.chatOpen || (markBaselineOnly && terminal)) {
+                merged.forEach { seenChatIds.add(it.id) }
+            } else {
+                merged.filter { it.senderRole != "CUSTOMER" }.forEach { seenChatIds.add(it.id) }
+            }
+            val unseenCustomer = merged.filter { it.senderRole == "CUSTOMER" && it.id !in seenChatIds }
+            s.copy(
+                chatMessages = merged,
+                unreadChatCount = unseenCustomer.size,
+                latestUnreadPreview = unseenCustomer.lastOrNull()?.body,
+            )
+        }
+        notifyCustomerMsg?.let { _incomingCustomerAlerts.tryEmit(it) }
+    }
+
+    override fun onCleared() {
+        pollJob?.cancel()
+        container.chatMqtt.unwatchOrder(orderId)
+        super.onCleared()
     }
 
     private fun parseCash(text: String): Int? = runCatching {
