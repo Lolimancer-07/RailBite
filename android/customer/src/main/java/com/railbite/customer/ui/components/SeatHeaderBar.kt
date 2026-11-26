@@ -208,3 +208,4 @@ fun SeatHeaderBar(
         HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
     }
 }
+

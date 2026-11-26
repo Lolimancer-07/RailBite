@@ -48,3 +48,4 @@ object RailBitePalette {
     val VegGreen = Color(0xFF16A34A)
     val NonVegRed = Color(0xFFDC2626)
 }
+

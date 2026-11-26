@@ -86,3 +86,4 @@ fun railBiteCustomerTypography(): Typography = Typography(
     labelMedium = sansStyle(12, FontWeight.SemiBold, 16),
     labelSmall = sansStyle(11, FontWeight.SemiBold, 14),
 )
+

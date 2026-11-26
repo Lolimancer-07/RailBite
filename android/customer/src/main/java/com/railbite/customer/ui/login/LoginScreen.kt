@@ -355,7 +355,7 @@ fun CustomerLoginScreen(
                         onValueChange = { editServerUrl = it },
                         label = "Server URL",
                         hint = "https://railbite-api.onrender.com",
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrect = false),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrectEnabled = false),
                     )
                 }
             },

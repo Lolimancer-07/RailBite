@@ -1,5 +1,13 @@
 package com.railbite.customer.ui.tracking
 
+import android.content.ContentValues
+import android.content.Context
+import android.graphics.Paint
+import android.graphics.pdf.PdfDocument
+import android.net.Uri
+import android.provider.MediaStore
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,16 +17,24 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.ReportProblem
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -26,12 +42,15 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -42,35 +61,32 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
-import android.content.ContentValues
-import android.content.Context
-import android.net.Uri
-import android.graphics.Paint
-import android.graphics.pdf.PdfDocument
-import android.provider.MediaStore
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import com.railbite.core.ui.ProductThumb
-import com.railbite.core.ui.StatusChip
-import com.railbite.core.ui.components.RailBiteButton
-import com.railbite.core.ui.components.RailBiteSecondaryButton
-import com.railbite.core.ui.theme.Space
+import com.railbite.core.ui.LoadingSkeleton
 import com.railbite.core.util.Money
 import com.railbite.core.util.Statuses
 import com.railbite.core.util.Upi
-
-private val timelineLabels = listOf(
-    "Order placed",
-    "Picker accepted",
-    "Packing",
-    "Out for delivery",
-    "Delivered",
-)
+import com.railbite.customer.ui.components.CashConfirmInlineCard
+import com.railbite.customer.ui.components.CashConfirmSheet
+import com.railbite.customer.ui.components.FoodAssets
+import com.railbite.customer.ui.components.HandoverPinCard
+import com.railbite.customer.ui.components.OrderProgressTimeline
+import com.railbite.customer.ui.components.StatusDot
+import com.railbite.customer.ui.theme.RailBiteCardBorder
+import com.railbite.customer.ui.theme.RailBiteMetrics
+import com.railbite.customer.ui.theme.RailBiteNumericType
+import com.railbite.customer.ui.theme.RailBitePalette
+import com.railbite.customer.ui.theme.RailBiteRadii
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -99,96 +115,152 @@ fun TrackingScreen(
         }
     }
 
-    var showPayDialog by remember { mutableStateOf(false) }
-    LaunchedEffect(state.delivered) {
+    var showCashSheet by remember { mutableStateOf(false) }
+    LaunchedEffect(state.delivered, state.cashConfirmed, state.relayed) {
         // Relayed orders settle in cash at the offline handover — no cloud confirm.
-        if (state.delivered && !state.cashConfirmed && !state.relayed) showPayDialog = true
+        if (state.delivered && !state.cashConfirmed && !state.relayed) {
+            showCashSheet = true
+        }
     }
 
     Scaffold(
+        containerColor = RailBitePalette.Canvas,
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
-            TopAppBar(
-                title = { Text("Order #${orderId.take(8)}") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
+            Column(Modifier.background(RailBitePalette.SurfaceCard)) {
+                TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = RailBitePalette.SurfaceCard,
+                        titleContentColor = RailBitePalette.TextPrimary,
+                    ),
+                    title = {
+                        Text(
+                            text = "Live Order Tracking",
+                            style = MaterialTheme.typography.titleLarge,
+                        )
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "Back",
+                                tint = RailBitePalette.TextPrimary,
+                            )
+                        }
+                    },
+                    actions = {
+                        Surface(
+                            shape = RoundedCornerShape(RailBiteRadii.Pill),
+                            color = RailBitePalette.CyanTint,
+                            border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
+                            modifier = Modifier.padding(end = 12.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                            ) {
+                                StatusDot(online = !state.failed && !state.relayed)
+                                Text(
+                                    text = "#${orderId.take(8).uppercase()}",
+                                    style = RailBiteNumericType.MetaMono,
+                                    color = RailBitePalette.CyanPressed,
+                                )
+                            }
+                        }
+                    },
+                )
+                HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
+            }
         },
     ) { padding ->
         Column(
-            Modifier
+            modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .navigationBarsPadding()
                 .verticalScroll(rememberScrollState())
-                .padding(Space.screen),
-            verticalArrangement = Arrangement.spacedBy(Space.m),
+                .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (state.loading) {
-                com.railbite.core.ui.LoadingSkeleton(rows = 4)
+                LoadingSkeleton(rows = 4)
             } else {
                 val order = state.order
                 val code = order?.deliveryCode
 
+                // Bluetooth offline notice when relayed
                 if (state.relayed) {
                     RelayBanner()
-                    // The passenger's own code rides in the mesh payload — show it
-                    // immediately; the picker verifies it at handover exactly as for
-                    // cloud orders.
-                    state.relayCode?.let { DeliveryCodeBlock(it, relayHint) }
-                } else if (state.status == Statuses.OUT_FOR_DELIVERY && code != null) {
-                    DeliveryCodeBlock(code)
                 }
 
-                StatusBanner(state)
-                Timeline(state.status)
-                state.captainName?.let { name ->
-                    Text(
-                        "Your picker: ${pickerDisplayName(name)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                // Stitch 5-step progress timeline
+                OrderProgressTimeline(
+                    status = state.status,
+                    etaMin = state.etaMin,
+                    coach = order?.coach,
+                    berth = order?.berth,
+                    relayed = state.relayed,
+                )
+
+                // High-contrast 4-digit Handover PIN Card
+                if (state.relayed && state.relayCode != null) {
+                    HandoverPinCard(
+                        code = state.relayCode!!,
+                        subtitle = relayHint,
                     )
-                }
-                if (state.relayed) {
-                    Text(
-                        when (state.status) {
-                            Statuses.ACCEPTED -> "Picker accepted — packing your order"
-                            Statuses.OUT_FOR_DELIVERY -> "On the way to your seat"
-                            Statuses.DELIVERED -> "Delivered — cash handover complete"
-                            else -> "Waiting for a picker nearby — your order is on the mesh"
+                } else if (
+                    code != null &&
+                    (state.status == Statuses.PACKING || state.status == Statuses.OUT_FOR_DELIVERY)
+                ) {
+                    HandoverPinCard(
+                        code = code,
+                        subtitle = if (state.status == Statuses.PACKING) {
+                            "Your order is packing — share this PIN only when the runner reaches your berth."
+                        } else {
+                            "Share this unique confirmation code with your delivery runner at Berth ${order.berth}."
                         },
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                } else {
-                    Text(
-                        "ETA ~${state.etaMin ?: 10} mins",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.primary,
                     )
                 }
 
-                // UPI_QUEUED orders: pay (or re-open) the UPI app until delivered.
-                if (order?.paymentMode == "UPI_QUEUED" && state.status != Statuses.DELIVERED) {
+                // Runner / Captain card
+                state.captainName?.let { name ->
+                    RunnerInfoCard(name = pickerDisplayName(name))
+                }
+
+                // UPI_QUEUED online payment trigger until delivered
+                if (order?.paymentMode == "UPI_QUEUED" && state.status != Statuses.DELIVERED && !state.failed) {
                     UpiPayCard(
                         orderId = orderId,
                         totalPaise = order.totalPaise,
                         onNoUpiApp = {
                             scope.launch {
-                                snackbar.showSnackbar("No UPI app found — scan-and-pay any UPI app to ${Upi.VPA}")
+                                snackbar.showSnackbar("No UPI app found — scan-and-pay to ${Upi.VPA}")
                             }
                         },
                     )
                 }
 
+                // Post-delivery Cash Confirmation card (fallback / persistent companion to CashConfirmSheet)
+                if (state.delivered && !state.relayed) {
+                    CashConfirmInlineCard(
+                        totalPaise = order?.totalPaise ?: 0,
+                        isUpi = order?.paymentMode == "UPI_QUEUED",
+                        confirmed = state.cashConfirmed,
+                        confirming = state.cashConfirming,
+                        captainName = state.captainName,
+                        onConfirmPaid = vm::confirmCash,
+                        onReportIssue = onReport,
+                    )
+                }
+
+                // Bill / Order Summary Card
                 if (state.status == Statuses.DELIVERED) {
                     BillCard(
                         order = state.order,
-                        onDownloadPdf = { order ->
+                        onDownloadPdf = { deliveredOrder ->
                             scope.launch {
-                                val uri = withContext(Dispatchers.IO) { generateBillPdf(context, order) }
+                                val uri = withContext(Dispatchers.IO) { generateBillPdf(context, deliveredOrder) }
                                 if (uri != null) {
                                     snackbar.showSnackbar("Bill saved to your downloads")
                                 }
@@ -200,228 +272,264 @@ fun TrackingScreen(
                 } else {
                     ItemsCard(state.order)
                 }
+
+                // Cancel button while cancellable
                 if ((state.status == Statuses.PLACED || state.status == Statuses.ASSIGNED) && !state.relayed) {
-                    RailBiteSecondaryButton("Cancel order", vm::cancelOrder)
+                    OutlinedButton(
+                        onClick = vm::cancelOrder,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        border = BorderStroke(1.dp, RailBitePalette.BorderSubtle),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = RailBitePalette.TextPrimary),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = RailBiteMetrics.TouchTargetMin),
+                    ) {
+                        Text("Cancel Order", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
-                RailBiteSecondaryButton("Report a problem", onReport)
+
+                // Tier 1 Report Issue trigger
+                TextButton(
+                    onClick = onReport,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = RailBiteMetrics.TouchTargetMin),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ReportProblem,
+                        contentDescription = null,
+                        tint = RailBitePalette.SemanticRed,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.size(6.dp))
+                    Text(
+                        text = "Item missing, cold food, or berth issue? Report Issue",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = RailBitePalette.SemanticRed,
+                    )
+                }
+
+                Spacer(Modifier.height(10.dp))
             }
         }
     }
 
-    if (showPayDialog && state.delivered) {
-        val total = state.order?.totalPaise ?: 0
-        val upi = state.order?.paymentMode == "UPI_QUEUED"
-        AlertDialog(
-            onDismissRequest = { showPayDialog = false },
-            title = { Text(if (upi) "Confirm your UPI payment" else "Did you pay ${Money.rupees(total)}?") },
-            text = {
-                Text(
-                    if (upi) "Confirm so the ledger records your ${Money.rupees(total)} UPI payment."
-                    else "Confirm so the cash ledger records your payment."
-                )
+    if (showCashSheet && state.delivered && !state.cashConfirmed && !state.relayed) {
+        CashConfirmSheet(
+            totalPaise = state.order?.totalPaise ?: 0,
+            isUpi = state.order?.paymentMode == "UPI_QUEUED",
+            captainName = state.captainName,
+            confirming = state.cashConfirming,
+            onConfirmPaid = {
+                showCashSheet = false
+                vm.confirmCash()
             },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showPayDialog = false
-                        vm.confirmCash()
-                    },
-                    enabled = !state.cashConfirming,
-                ) { Text(if (upi) "Yes, I paid ${Money.rupees(total)}" else "Yes, I paid") }
-            },
-            dismissButton = {
-                TextButton(onClick = { showPayDialog = false }) { Text("Not yet") }
-            },
+            onReportMismatch = onReport,
+            onDismiss = { showCashSheet = false },
         )
     }
 }
 
-/** Offline hint shown instead of the standard "do not share earlier" handover line. */
-private val relayHint = "Show this to the picker when the food reaches your seat."
+private val relayHint = "Show this code to the pantry runner when the food reaches your seat."
 
-/** Offline relay state: the order is on the mesh, updates travel the same way back. */
 @Composable
 private fun RelayBanner() {
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+    Surface(
+        shape = RoundedCornerShape(RailBiteRadii.Card),
+        color = RailBitePalette.CyanTint,
+        border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Text(
-            "Sent over Bluetooth. Your picker's updates arrive the same way — " +
-                "no internet needed.",
-            modifier = Modifier.padding(Space.s),
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSecondaryContainer,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.padding(12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.BluetoothConnected,
+                contentDescription = null,
+                tint = RailBitePalette.CyanPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+            Text(
+                text = "Sent over Bluetooth mesh. Pantry updates travel directly phone-to-phone without internet.",
+                style = MaterialTheme.typography.bodySmall,
+                color = RailBitePalette.CyanPressed,
+            )
+        }
     }
 }
 
-/** Items + total for a relayed order, straight from the local mesh payload. */
+@Composable
+private fun RunnerInfoCard(name: String) {
+    Card(
+        shape = RoundedCornerShape(RailBiteRadii.Card),
+        colors = CardDefaults.cardColors(containerColor = RailBitePalette.SurfaceCard),
+        border = RailBiteCardBorder,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(14.dp),
+        ) {
+            Surface(
+                shape = CircleShape,
+                color = RailBitePalette.ImageTile,
+                border = RailBiteCardBorder,
+                modifier = Modifier.size(44.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.Person,
+                        contentDescription = null,
+                        tint = RailBitePalette.TextSecondary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = name,
+                        style = MaterialTheme.typography.titleSmall,
+                        color = RailBitePalette.TextPrimary,
+                    )
+                    Icon(
+                        imageVector = Icons.Filled.Verified,
+                        contentDescription = null,
+                        tint = RailBitePalette.SemanticGreen,
+                        modifier = Modifier.size(15.dp),
+                    )
+                }
+                Text(
+                    text = "Assigned Pantry Delivery Runner",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RailBitePalette.TextSecondary,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpiPayCard(orderId: String, totalPaise: Int, onNoUpiApp: () -> Unit) {
+    val context = LocalContext.current
+    Card(
+        shape = RoundedCornerShape(RailBiteRadii.Card),
+        colors = CardDefaults.cardColors(containerColor = RailBitePalette.SurfaceCard),
+        border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.QrCode2,
+                    contentDescription = null,
+                    tint = RailBitePalette.CyanPrimary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text("Pay via UPI", style = MaterialTheme.typography.titleSmall, color = RailBitePalette.TextPrimary)
+            }
+            Text(
+                text = "Queued for digital payment — pay ${Money.rupees(totalPaise)} using any installed UPI app, then confirm after delivery.",
+                style = MaterialTheme.typography.bodySmall,
+                color = RailBitePalette.TextSecondary,
+            )
+            Button(
+                onClick = { if (!Upi.launch(context, orderId, totalPaise)) onNoUpiApp() },
+                shape = RoundedCornerShape(RailBiteRadii.Button),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = RailBitePalette.CyanPrimary,
+                    contentColor = Color.White,
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(RailBiteMetrics.PrimaryButtonHeight),
+            ) {
+                Text(
+                    text = "Pay ${Money.rupees(totalPaise)} via UPI",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+        }
+    }
+}
+
+private fun pickerDisplayName(name: String): String =
+    name.substringBefore(" (Picker").trim()
+
 @Composable
 private fun RelayItemsCard(
     items: List<com.railbite.core.mesh.MeshOrderPayload.Item>,
     totalPaise: Int,
 ) {
     Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(Modifier.padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-            Text("Items", style = MaterialTheme.typography.titleMedium)
-            items.forEach { item ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-                    ProductThumb(item.name, Modifier.size(56.dp))
-                    Text(
-                        "${item.qty} × ${item.name}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
-                    )
-                    Text(Money.rupees(item.unitPricePaise * item.qty), style = MaterialTheme.typography.titleSmall)
-                }
-            }
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Total (COD)", style = MaterialTheme.typography.titleSmall)
-                Text(
-                    Money.rupees(totalPaise),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
-        }
-    }
-}
-
-/**
- * The delivery code: large at the top of the order screen, with the
- * handover hint. Shown while the order is out for delivery.
- */
-@Composable
-private fun DeliveryCodeBlock(code: String, hint: String = "Tell this to the person at your seat. Do not share it earlier.") {
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(RailBiteRadii.Card),
+        colors = CardDefaults.cardColors(containerColor = RailBitePalette.SurfaceCard),
+        border = RailBiteCardBorder,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            Modifier
-                .fillMaxWidth()
-                .padding(Space.m),
-            verticalArrangement = Arrangement.spacedBy(Space.xs),
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                "Delivery code",
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text(
-                code,
-                style = MaterialTheme.typography.displayLarge,
-                color = MaterialTheme.colorScheme.onBackground,
-            )
-            Text(
-                hint,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
-}
-
-/** UPI_QUEUED payment card: opens any installed UPI app with amount + order note prefilled. */
-@Composable
-private fun UpiPayCard(orderId: String, totalPaise: Int, onNoUpiApp: () -> Unit) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    Card(shape = MaterialTheme.shapes.medium) {
-        Column(Modifier.fillMaxWidth().padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-            Text("Payment", style = MaterialTheme.typography.titleMedium)
-            Text(
-                "This order is queued for UPI — pay ${Money.rupees(totalPaise)} with any UPI app. " +
-                    "Confirm after delivery so the ledger records it.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            RailBiteButton(
-                text = "Pay ${Money.rupees(totalPaise)} via UPI",
-                onClick = { if (!Upi.launch(context, orderId, totalPaise)) onNoUpiApp() },
-            )
-        }
-    }
-}
-
-/** Strips the "(Picker B1-B2)" suffix the server keeps in staff display names. */
-private fun pickerDisplayName(name: String): String =
-    name.substringBefore(" (Picker").trim()
-
-@Composable
-private fun StatusBanner(state: TrackingUiState) {
-    when {
-        state.failed -> Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
-        ) {
-            Text(
-                if (state.status == Statuses.CANCELLED) "Order cancelled"
-                else "No picker accepted in time — the order expired",
-                modifier = Modifier.padding(Space.s),
-                color = MaterialTheme.colorScheme.onErrorContainer,
-                style = MaterialTheme.typography.titleSmall,
-            )
-        }
-        state.delivered -> Card(
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-        ) {
-            Text(
-                if (state.relayed) "Delivered — cash handover complete offline."
-                else "Delivered. Enjoy your food.",
-                modifier = Modifier.padding(Space.s),
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                style = MaterialTheme.typography.titleSmall,
-            )
-        }
-    }
-}
-
-@Composable
-private fun Timeline(currentStatus: String) {
-    val step = Statuses.timelineStep(currentStatus)
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-    ) {
-        Column(Modifier.padding(Space.m), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("Order status", style = MaterialTheme.typography.titleMedium)
-            timelineLabels.forEachIndexed { index, label ->
-                val done = step >= index
-                val active = step == index && !Statuses.isFailed(currentStatus)
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Order Summary", style = MaterialTheme.typography.titleSmall, color = RailBitePalette.TextPrimary)
+            items.forEach { item ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
                     Box(
-                        Modifier.size(22.dp).background(
-                            when {
-                                done -> MaterialTheme.colorScheme.primary
-                                else -> MaterialTheme.colorScheme.surfaceVariant
-                            },
-                            CircleShape,
-                        ),
-                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(RailBiteRadii.Button))
+                            .background(RailBitePalette.ImageTile),
                     ) {
-                        Text(
-                            if (done) "✓" else "${index + 1}",
-                            color = if (done) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-                            style = MaterialTheme.typography.labelMedium,
+                        Image(
+                            painter = painterResource(id = FoodAssets.drawableFor(item.name)),
+                            contentDescription = item.name,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
                         )
                     }
-                    Spacer(Modifier.width(Space.s))
                     Text(
-                        label,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = if (done || active) MaterialTheme.colorScheme.onSurface
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "${item.qty}× ${item.name}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RailBitePalette.TextPrimary,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    if (active) {
-                        Spacer(Modifier.width(Space.xs))
-                        StatusChip("now", MaterialTheme.colorScheme.primary)
-                    }
+                    Text(
+                        text = Money.rupees(item.unitPricePaise * item.qty),
+                        style = RailBiteNumericType.PriceMedium,
+                        color = RailBitePalette.TextPrimary,
+                    )
                 }
+            }
+            HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Amount Payable (COD)", style = MaterialTheme.typography.titleSmall, color = RailBitePalette.TextPrimary)
+                Text(
+                    text = Money.rupees(totalPaise),
+                    style = RailBiteNumericType.PriceLarge,
+                    color = RailBitePalette.CyanPrimary,
+                )
             }
         }
     }
@@ -430,160 +538,213 @@ private fun Timeline(currentStatus: String) {
 @Composable
 private fun ItemsCard(order: com.railbite.core.model.Order?) {
     Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(RailBiteRadii.Card),
+        colors = CardDefaults.cardColors(containerColor = RailBitePalette.SurfaceCard),
+        border = RailBiteCardBorder,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(Space.m), verticalArrangement = Arrangement.spacedBy(Space.xs)) {
-            Text("Items", style = MaterialTheme.typography.titleMedium)
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
             val items = order?.items.orEmpty()
-            items.forEach { item ->
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Space.xs)) {
-                    ProductThumb(item.name ?: "", Modifier.size(56.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Order Summary", style = MaterialTheme.typography.titleSmall, color = RailBitePalette.TextPrimary)
+                if (items.isNotEmpty()) {
                     Text(
-                        "${item.qty} × ${item.name ?: item.itemId.take(8)}",
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f),
-                        maxLines = 1,
+                        text = "${items.sumOf { it.qty }} items",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RailBitePalette.TextSecondary,
                     )
-                    Text(Money.rupees(item.unitPricePaise * item.qty), style = MaterialTheme.typography.titleSmall)
                 }
             }
-            if (items.isEmpty()) Text(
-                "Items load when the server is reachable.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            items.forEach { item ->
+                val itemName = item.name ?: item.itemId.take(8)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(RoundedCornerShape(RailBiteRadii.Button))
+                            .background(RailBitePalette.ImageTile),
+                    ) {
+                        Image(
+                            painter = painterResource(id = FoodAssets.drawableFor(itemName)),
+                            contentDescription = itemName,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                    Text(
+                        text = "${item.qty}× $itemName",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RailBitePalette.TextPrimary,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = Money.rupees(item.unitPricePaise * item.qty),
+                        style = RailBiteNumericType.PriceMedium,
+                        color = RailBitePalette.TextPrimary,
+                    )
+                }
+            }
+            if (items.isEmpty()) {
                 Text(
-                    if (order?.paymentMode == "UPI_QUEUED") "Total (UPI)" else "Total (COD)",
-                    style = MaterialTheme.typography.titleSmall,
+                    text = "Items load when the server is reachable.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RailBitePalette.TextSecondary,
                 )
+            }
+            HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text("Amount Payable", style = MaterialTheme.typography.titleSmall, color = RailBitePalette.TextPrimary)
+                    Text(
+                        text = if (order?.paymentMode == "UPI_QUEUED") "Digital / UPI Queued" else "Cash on Delivery",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RailBitePalette.TextSecondary,
+                    )
+                }
                 Text(
-                    Money.rupees(order?.totalPaise ?: 0),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = Money.rupees(order?.totalPaise ?: 0),
+                    style = RailBiteNumericType.HeroTotal,
+                    color = RailBitePalette.CyanPrimary,
                 )
             }
         }
     }
 }
 
-/**
- * Clean, professional bill for a delivered order. Rendered in place of the plain
- * items card once the order reaches DELIVERED — itemised lines, grand total,
- * payment mode and seat/order facts, all from the design tokens.
- */
 @Composable
 private fun BillCard(
     order: com.railbite.core.model.Order?,
     onDownloadPdf: (com.railbite.core.model.Order?) -> Unit = {},
 ) {
     Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(RailBiteRadii.Card),
+        colors = CardDefaults.cardColors(containerColor = RailBitePalette.SurfaceCard),
+        border = RailBiteCardBorder,
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Column(
-            Modifier.fillMaxWidth().padding(Space.m),
-            verticalArrangement = Arrangement.spacedBy(Space.xs),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Bill", style = MaterialTheme.typography.titleLarge)
+                Text("Receipt & Bill", style = MaterialTheme.typography.titleMedium, color = RailBitePalette.TextPrimary)
                 Text(
-                    "Order #${order?.id?.take(8) ?: ""}",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "#${order?.id?.take(8)?.uppercase() ?: ""}",
+                    style = RailBiteNumericType.MetaMono,
+                    color = RailBitePalette.TextSecondary,
                 )
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(
-                    "PNR ${order?.pnr ?: "—"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "PNR ${order?.pnr ?: "—"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RailBitePalette.TextSecondary,
                 )
                 Text(
-                    "Seat ${order?.coach ?: "—"} · Berth ${order?.berth ?: "—"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "Seat ${order?.coach ?: "—"} • Berth ${order?.berth ?: "—"}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RailBitePalette.TextSecondary,
                 )
             }
             order?.let {
                 Text(
-                    "Placed ${formatBillTime(it.createdAt)}",
+                    text = "Placed ${formatBillTime(it.createdAt)}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = RailBitePalette.TextSecondary,
                 )
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
 
             val billItems = order?.items.orEmpty()
             if (billItems.isEmpty()) {
                 Text(
-                    "Items load when the server is reachable.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "Items load when the server is reachable.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RailBitePalette.TextSecondary,
                 )
             }
             billItems.forEach { item ->
                 Row(
-                    Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "${item.qty} × ${item.name ?: item.itemId.take(8)}",
-                        style = MaterialTheme.typography.bodyLarge,
+                        text = "${item.qty} × ${item.name ?: item.itemId.take(8)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RailBitePalette.TextPrimary,
                         modifier = Modifier.weight(1f, fill = false),
                         maxLines = 1,
                     )
                     Text(
-                        Money.rupees(item.unitPricePaise * item.qty),
-                        style = MaterialTheme.typography.titleSmall,
+                        text = Money.rupees(item.unitPricePaise * item.qty),
+                        style = RailBiteNumericType.PriceMedium,
+                        color = RailBitePalette.TextPrimary,
                     )
                 }
             }
 
-            HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+            HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
 
             Row(
-                Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("Total", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
+                Text("Total (${if (order?.paymentMode == "UPI_QUEUED") "UPI" else "COD"})", style = MaterialTheme.typography.titleSmall, color = RailBitePalette.TextPrimary)
                 Text(
-                    Money.rupees(order?.totalPaise ?: 0),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.primary,
+                    text = Money.rupees(order?.totalPaise ?: 0),
+                    style = RailBiteNumericType.PriceLarge,
+                    color = RailBitePalette.CyanPrimary,
                 )
             }
 
-            order?.let {
-                Text(
-                    "Payment: ${if (it.paymentMode == "UPI_QUEUED") "UPI" else "COD"}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            Spacer(Modifier.height(4.dp))
 
-            Spacer(Modifier.height(Space.s))
-            RailBiteSecondaryButton(
-                text = "Download PDF",
+            OutlinedButton(
                 onClick = { order?.let(onDownloadPdf) },
-            )
+                shape = RoundedCornerShape(RailBiteRadii.Button),
+                border = RailBiteCardBorder,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = RailBitePalette.TextPrimary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = RailBiteMetrics.TouchTargetMin),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Download,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                )
+                Spacer(Modifier.size(8.dp))
+                Text("Download PDF Bill", style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 }
 
 /**
- * Renders the delivered order's bill as a one-page PDF and saves it via the
- * MediaStore (no storage permission needed on API 29+). Returns the content URI,
- * or null when generation failed.
+ * Renders the delivered order's bill as a one-page PDF and saves it via MediaStore.
  */
 private suspend fun generateBillPdf(context: Context, order: com.railbite.core.model.Order?): Uri? =
     withContext(Dispatchers.IO) {
@@ -592,7 +753,6 @@ private suspend fun generateBillPdf(context: Context, order: com.railbite.core.m
             val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create()
             val page = document.startPage(pageInfo)
             val canvas = page.canvas
-            val pageWidth = 595
             val pageHeight = 842
             val titlePaint = Paint().apply { textSize = 18f }
             val bodyPaint = Paint().apply { textSize = 12f }
@@ -606,7 +766,7 @@ private suspend fun generateBillPdf(context: Context, order: com.railbite.core.m
                 y -= 20
                 canvas.drawText("PNR ${it.pnr}", 40f, y, bodyPaint)
                 y -= 20
-                canvas.drawText("Seat ${it.coach ?: "-"} · Berth ${it.berth ?: "-"}. Berth ${it.berth ?: "-"}.", 40f, y, bodyPaint)
+                canvas.drawText("Seat ${it.coach} · Berth ${it.berth}", 40f, y, bodyPaint)
                 y -= 20
                 canvas.drawText("Placed ${formatBillTime(it.createdAt)}", 40f, y, bodyPaint)
                 y -= 30
@@ -620,7 +780,7 @@ private suspend fun generateBillPdf(context: Context, order: com.railbite.core.m
                     y -= 18
                 }
                 y -= 10
-                canvas.drawText("Total: ${Money.rupees(it.totalPaise ?: 0)}", 40f, y, titlePaint)
+                canvas.drawText("Total: ${Money.rupees(it.totalPaise)}", 40f, y, titlePaint)
                 y -= 30
                 canvas.drawText("Payment: ${if (it.paymentMode == "UPI_QUEUED") "UPI" else "COD"}", 40f, y, bodyPaint)
             }
@@ -644,7 +804,6 @@ private suspend fun generateBillPdf(context: Context, order: com.railbite.core.m
         }.getOrNull()
     }
 
-/** Formats an ISO-8601 instant for bill display. */
 private fun formatBillTime(iso: String): String = runCatching {
     java.time.Instant.parse(iso)
         .atZone(java.time.ZoneId.systemDefault())
