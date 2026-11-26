@@ -49,8 +49,8 @@ Expo builds in `apps/passenger` and `apps/captain`, which are kept only as refer
 
 | App | Module | Package | Role |
 |---|---|---|---|
-| **RailBite** | `android/customer` | `com.railbite.customer` | Passenger: PNR/coach/seat onboarding, quick-commerce menu with ADD steppers + sold-out states, floating cart bar, COD/UPI order with UUID idempotency, live status timeline over MQTT, UPI pay card + payment confirm dialog (or "Did you pay ₹X?" for cash), Tier-1 report sheet |
-| **RailBite Picker** | `android/picker` | `com.railbite.picker` | Pantry staff: staff ID/PIN login, big ONLINE toggle driving a foreground service, loud full-screen order alerts that work over the lock screen (payment badge: UPI = digital / COD = cash), 60 s countdown (timeout = re-dispatch), picking checklist, 4-digit delivery-code handover with cash prefilled (₹0 for UPI orders), cash summary (expected vs collected vs confirmed) |
+| **RailBite** | `android/customer` | `com.railbite.customer` | Passenger: PNR/coach/seat onboarding, quick-commerce menu with ADD steppers + sold-out states, floating cart bar, COD/UPI order with UUID idempotency, live status timeline over MQTT, order-scoped **Message Picker** quick chat (1-tap presets + 120-char notes), UPI pay card + payment confirm dialog (or "Did you pay ₹X?" for cash), Tier-1 report sheet |
+| **RailBite Picker** | `android/picker` | `com.railbite.picker` | Pantry staff: staff ID + 4-digit PIN (`1234`) or password (`railbite123`) login, live `Connected`/`Disconnected` pill & server URL settings on Home, big ONLINE toggle driving a foreground service, loud full-screen order alerts that work over the lock screen (payment badge: UPI = digital / COD = cash), 60 s countdown (timeout = re-dispatch), picking checklist, **Quick Message** passenger chat with haptic/notification cue, 4-digit delivery-code handover with cash prefilled (₹0 for UPI orders), cash summary (expected vs collected vs confirmed) |
 
 Both install side by side and share `android/core` (models mirroring the server JSON, Retrofit/OkHttp
 client, HiveMQ MQTT wrapper with auto-reconnect, DataStore settings, Compose theme, integer-paise
@@ -275,9 +275,9 @@ cd android
 bash scripts/copy-release.sh
 ```
 
-Both apps can also have their server address changed or verified in-app anytime:
-- **Passenger App**: Tap the Settings gear icon → enter/edit the server URL.
-- **Picker App**: On the sign-in screen, tap **Change** next to Server to enter/edit the server URL.
+Both apps can also have their server address changed or verified in-app anytime (for local LAN Wi-Fi demos, run `pnpm --filter @railbite/edge-server dev` and point both apps to `http://<LAPTOP_LAN_IP>:8080`):
+- **Passenger App**: Tap Account / Settings → enter/edit the server URL.
+- **Picker App**: On the sign-in screen tap **Change**, or after login check the live `Connected`/`Disconnected` pill on Home or tap **Server → Change**.
 
 ---
 
@@ -314,11 +314,12 @@ RailBite Picker uses **FCM high-priority data messages** as the primary wake-up 
    - Sign in as `c1` / PIN `1234`.
    - Turn ONLINE toggle on.
    - Lock the phone screen.
-3. **Verification**:
+3. **Verification (1-minute two-phone walkthrough)**:
    - Within 1–2 seconds of placing the order on Phone 1, Phone 2 wakes up over the lock screen with a loud alarm sound, vibration, and 60-second countdown alert.
-   - Tap **ACCEPT** on Phone 2 → item checklist appears.
-   - Complete checklist → Phone 1 receives live status updates and reveals the secret 4-digit delivery code.
-   - Deliver with cash collected → confirm delivery.
+   - Tap **ACCEPT** on Phone 2 → item checklist appears (`PACKING`), and both apps unlock order-scoped quick chat (`"Where are you?"` / `"I'm here at your seat"`).
+   - Tap **Quick Message** on Picker (or **Message Picker** on Customer) to exchange real-time preset or custom messages over MQTT; chat locks automatically on `DELIVERED` / `CANCELLED`.
+   - Complete checklist → Phone 1 receives live status updates and reveals the secret 4-digit delivery PIN.
+   - Deliver with cash collected + handover PIN → confirm delivery & cash ledger.
 
 ---
 
