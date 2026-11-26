@@ -6,6 +6,7 @@ import com.railbite.core.data.RailBiteSettings
 import com.railbite.core.mqtt.MqttConnector
 import com.railbite.core.mqtt.RailBiteTopics
 import com.railbite.core.model.MqttOrderStatus
+import com.railbite.core.model.OrderMessage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
 
 /**
@@ -37,6 +39,10 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
     private val _orderStatuses = MutableStateFlow<Map<String, MqttOrderStatus>>(emptyMap())
     val orderStatuses: StateFlow<Map<String, MqttOrderStatus>> = _orderStatuses.asStateFlow()
 
+    /** orderId -> live quick-chat messages received over MQTT. */
+    private val _orderMessages = MutableStateFlow<Map<String, List<OrderMessage>>>(emptyMap())
+    val orderMessages: StateFlow<Map<String, List<OrderMessage>>> = _orderMessages.asStateFlow()
+
     val connected: StateFlow<Boolean>
         get() = connector?.connected ?: MutableStateFlow(false)
 
@@ -46,6 +52,7 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
         if (serverUrl.isBlank()) return
         mutex.withLock {
             if (connector != null) return
+            tripId = withTimeoutOrNull(1_500L) { fetchTripId() } ?: RailBiteTopics.DEFAULT_TRIP_ID
             val clientId = "p-" + randomId()
             val c = MqttConnector.fromServerUrl(serverUrl, clientId)
             connector = c
@@ -65,7 +72,7 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
         }
     }
 
-    /** Subscribes to an order's status topic and returns the shared status flow. */
+    /** Subscribes to an order's status and chat topics. */
     suspend fun watchOrder(orderId: String) {
         ensureConnected()
         val c = connector ?: return
@@ -75,11 +82,26 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
                 _orderStatuses.update { it + (orderId to status) }
             }
         }
+        c.subscribe(RailBiteTopics.orderChat(tripId, orderId)) { payload ->
+            runCatching {
+                val msg = json.decodeFromString<OrderMessage>(payload.decodeToString())
+                _orderMessages.update { prev ->
+                    val current = prev[orderId].orEmpty()
+                    if (current.any { it.id == msg.id }) {
+                        prev
+                    } else {
+                        prev + (orderId to (current + msg).sortedBy { it.createdAt })
+                    }
+                }
+            }
+        }
     }
 
     fun unwatchOrder(orderId: String) {
         connector?.unsubscribe(RailBiteTopics.orderStatus(tripId, orderId))
+        connector?.unsubscribe(RailBiteTopics.orderChat(tripId, orderId))
         _orderStatuses.update { it - orderId }
+        _orderMessages.update { it - orderId }
     }
 
     fun disconnect() {

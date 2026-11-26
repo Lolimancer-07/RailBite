@@ -12,6 +12,8 @@ import com.railbite.core.model.MeResponse
 import com.railbite.core.model.MenuItem
 import com.railbite.core.model.Order
 import com.railbite.core.model.OrderCreateRequest
+import com.railbite.core.model.OrderMessage
+import com.railbite.core.model.OrderMessageCreateRequest
 import com.railbite.core.model.PickerStats
 import com.railbite.core.model.RefreshRequest
 import com.railbite.core.model.SimpleAck
@@ -72,6 +74,15 @@ interface RailBiteApi {
 
     @POST("orders/{id}/feedback")
     suspend fun submitFeedback(@Path("id") id: String, @Body body: FeedbackRequest): FeedbackAck
+
+    @GET("orders/{id}/messages")
+    suspend fun orderMessages(@Path("id") id: String): List<OrderMessage>
+
+    @POST("orders/{id}/messages")
+    suspend fun sendOrderMessage(
+        @Path("id") id: String,
+        @Body body: OrderMessageCreateRequest,
+    ): OrderMessage
 
     @POST("staff/login")
     suspend fun staffLogin(@Body body: StaffLoginRequest): StaffLoginResponse

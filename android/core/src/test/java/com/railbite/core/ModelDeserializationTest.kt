@@ -7,6 +7,8 @@ import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.model.MqttOrderStatus
 import com.railbite.core.model.Order
 import com.railbite.core.model.OrderCreateRequest
+import com.railbite.core.model.OrderMessage
+import com.railbite.core.model.OrderMessageCreateRequest
 import com.railbite.core.model.PickerStats
 import com.railbite.core.model.StaffLoginResponse
 import kotlinx.serialization.builtins.ListSerializer
@@ -256,5 +258,35 @@ class ModelDeserializationTest {
         // no prices ever leave the client
         assertTrue(!encoded.contains("Price"))
         assertTrue(!encoded.contains("paise"))
+    }
+
+    @Test
+    fun order_message_decodes_and_create_request_encodes() {
+        val raw = """
+            {
+              "id": "550e8400-e29b-41d4-a716-446655440000",
+              "orderId": "2f0c8a7e-1111-4bbb-8ccc-000000000001",
+              "senderRole": "PICKER",
+              "senderId": "c1",
+              "presetCode": "IM_HERE",
+              "body": "I'm here at your seat",
+              "createdAt": 1731492060000
+            }
+        """.trimIndent()
+        val msg = json.decodeFromString(OrderMessage.serializer(), raw)
+        assertEquals("PICKER", msg.senderRole)
+        assertEquals("c1", msg.senderId)
+        assertEquals("IM_HERE", msg.presetCode)
+        assertEquals(1731492060000L, msg.createdAt)
+
+        val req = OrderMessageCreateRequest(
+            id = "550e8400-e29b-41d4-a716-446655440001",
+            senderRole = "CUSTOMER",
+            presetCode = "WHERE_ARE_YOU",
+            body = "Where are you?",
+        )
+        val encoded = json.encodeToString(OrderMessageCreateRequest.serializer(), req)
+        assertTrue(encoded.contains("\"presetCode\":\"WHERE_ARE_YOU\""))
+        assertTrue(encoded.contains("\"body\":\"Where are you?\""))
     }
 }

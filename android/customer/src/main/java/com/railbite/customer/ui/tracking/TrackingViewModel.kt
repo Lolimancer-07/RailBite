@@ -4,8 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.customer.AppContainer
 import com.railbite.core.api.RailBiteApi
+import com.railbite.core.model.ChatPresets
 import com.railbite.core.model.MqttOrderStatus
 import com.railbite.core.model.Order
+import com.railbite.core.model.OrderMessage
+import com.railbite.core.model.OrderMessageCreateRequest
 import com.railbite.core.util.Statuses
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -15,6 +18,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
+import java.util.UUID
 
 data class TrackingUiState(
     val loading: Boolean = true,
@@ -31,9 +36,23 @@ data class TrackingUiState(
     val relayCode: String? = null,
     val relayItems: List<com.railbite.core.mesh.MeshOrderPayload.Item> = emptyList(),
     val relayTotalPaise: Int = 0,
+    val messages: List<OrderMessage> = emptyList(),
+    val unreadCount: Int = 0,
+    val chatOpen: Boolean = false,
+    val chatBanner: OrderMessage? = null,
+    val sendingMessage: Boolean = false,
+    val chatError: String? = null,
 ) {
     val delivered: Boolean get() = status == Statuses.DELIVERED
     val failed: Boolean get() = Statuses.isFailed(status)
+    val canSendChat: Boolean
+        get() = !relayed && (
+            status == Statuses.ACCEPTED ||
+                status == Statuses.PACKING ||
+                status == Statuses.OUT_FOR_DELIVERY
+            )
+    val chatAvailable: Boolean
+        get() = !relayed && (canSendChat || status == Statuses.DELIVERED || messages.isNotEmpty())
 }
 
 class TrackingViewModel(
@@ -45,6 +64,8 @@ class TrackingViewModel(
     val state: StateFlow<TrackingUiState> = _state.asStateFlow()
 
     private var pollJob: Job? = null
+    private val seenMessageIds = mutableSetOf<String>()
+    private var initialChatSynced = false
 
     /** True while the order exists only in the local Bluetooth-relay outbox. */
     private var relayMode = false
@@ -53,6 +74,14 @@ class TrackingViewModel(
         // MQTT live updates (retained message gives instant current status)
         viewModelScope.launch {
             runCatching { container.mqtt.watchOrder(orderId) }
+        }
+        viewModelScope.launch {
+            container.mqtt.orderMessages.collect { byOrder ->
+                val live = byOrder[orderId].orEmpty()
+                if (live.isNotEmpty()) {
+                    mergeMessages(live, markBaselineOnly = false)
+                }
+            }
         }
         // REST fallback poll every 3 s while the order is active
         pollJob = viewModelScope.launch {
@@ -150,6 +179,13 @@ class TrackingViewModel(
                     error = null,
                 )
             }
+            if (order.status != Statuses.PLACED && order.status != Statuses.ASSIGNED) {
+                val history = runCatching { api.orderMessages(orderId) }.getOrNull()
+                if (history != null) {
+                    mergeMessages(history, markBaselineOnly = !initialChatSynced)
+                    initialChatSynced = true
+                }
+            }
             if (Statuses.isTerminal(order.status)) {
                 container.settings.setActiveOrderId("")
             }
@@ -185,6 +221,106 @@ class TrackingViewModel(
             } catch (e: Exception) {
                 _state.update { it.copy(error = "Cannot cancel: ${e.message}") }
             }
+        }
+    }
+
+    fun openChat() {
+        _state.update { s ->
+            s.messages.forEach { seenMessageIds.add(it.id) }
+            s.copy(
+                chatOpen = true,
+                unreadCount = 0,
+                chatBanner = null,
+                chatError = null,
+            )
+        }
+        viewModelScope.launch {
+            runCatching { container.client.api().orderMessages(orderId) }
+                .getOrNull()
+                ?.let { mergeMessages(it, markBaselineOnly = false) }
+        }
+    }
+
+    fun closeChat() {
+        _state.update { it.copy(chatOpen = false, chatError = null) }
+    }
+
+    fun clearChatBanner() {
+        _state.update { it.copy(chatBanner = null) }
+    }
+
+    fun clearChatError() {
+        _state.update { it.copy(chatError = null) }
+    }
+
+    fun sendChatMessage(rawBody: String, presetCode: String? = null) {
+        val trimmed = rawBody.trim().take(ChatPresets.MAX_BODY_LENGTH)
+        if (trimmed.isEmpty()) return
+        val current = _state.value
+        if (!current.canSendChat) {
+            _state.update { it.copy(chatError = "Chat is closed for this order") }
+            return
+        }
+        if (current.sendingMessage) return
+        _state.update { it.copy(sendingMessage = true, chatError = null) }
+        val messageId = UUID.randomUUID().toString()
+        viewModelScope.launch {
+            try {
+                val created = container.client.api().sendOrderMessage(
+                    orderId,
+                    OrderMessageCreateRequest(
+                        id = messageId,
+                        senderRole = "CUSTOMER",
+                        presetCode = presetCode,
+                        body = trimmed,
+                    ),
+                )
+                mergeMessages(listOf(created), markBaselineOnly = false)
+                _state.update { it.copy(sendingMessage = false) }
+            } catch (e: HttpException) {
+                val msg = if (e.code() == 409) {
+                    "Chat closed — order is no longer active"
+                } else {
+                    "Could not send message (HTTP ${e.code()})"
+                }
+                _state.update { it.copy(sendingMessage = false, chatError = msg) }
+                if (e.code() == 409) loadOnce()
+            } catch (_: Exception) {
+                _state.update {
+                    it.copy(
+                        sendingMessage = false,
+                        chatError = "Message not sent — check server connection",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun mergeMessages(incoming: List<OrderMessage>, markBaselineOnly: Boolean) {
+        if (incoming.isEmpty() && _state.value.messages.isEmpty()) return
+        _state.update { s ->
+            val byId = LinkedHashMap<String, OrderMessage>()
+            s.messages.forEach { byId[it.id] = it }
+            incoming.forEach { byId[it.id] = it }
+            val merged = byId.values.sortedBy { it.createdAt }
+            if (s.chatOpen || (markBaselineOnly && Statuses.isTerminal(s.status))) {
+                merged.forEach { seenMessageIds.add(it.id) }
+            } else {
+                merged.filter { it.senderRole != "PICKER" }.forEach { seenMessageIds.add(it.id) }
+            }
+            val unseenPicker = merged.filter { it.senderRole == "PICKER" && it.id !in seenMessageIds }
+            val newPicker = if (!s.chatOpen && !markBaselineOnly && !Statuses.isTerminal(s.status)) {
+                incoming.filter { msg ->
+                    msg.senderRole == "PICKER" && s.messages.none { it.id == msg.id } && msg.id !in seenMessageIds
+                }.maxByOrNull { it.createdAt }
+            } else {
+                null
+            }
+            s.copy(
+                messages = merged,
+                unreadCount = unseenPicker.size,
+                chatBanner = newPicker ?: s.chatBanner,
+            )
         }
     }
 

@@ -13,6 +13,9 @@ object RailBiteTopics {
     fun orderStatus(tripId: String, orderId: String): String =
         "rb/$tripId/orders/$orderId/status"
 
+    fun orderChat(tripId: String, orderId: String): String =
+        "rb/$tripId/orders/$orderId/chat"
+
     fun captainAlerts(tripId: String, captainId: String): String =
         "rb/$tripId/captain/$captainId/alerts"
 }

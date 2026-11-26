@@ -18,9 +18,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -28,8 +33,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.BluetoothConnected
+import androidx.compose.material.icons.filled.ChatBubbleOutline
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.ReportProblem
@@ -38,19 +47,25 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -69,6 +84,8 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.railbite.core.model.ChatPresets
+import com.railbite.core.model.OrderMessage
 import com.railbite.core.ui.LoadingSkeleton
 import com.railbite.core.util.Money
 import com.railbite.core.util.Statuses
@@ -79,6 +96,7 @@ import com.railbite.customer.ui.components.FoodAssets
 import com.railbite.customer.ui.components.HandoverPinCard
 import com.railbite.customer.ui.components.OrderProgressTimeline
 import com.railbite.customer.ui.components.StatusDot
+import com.railbite.customer.ui.theme.RailBiteBottomSheetShape
 import com.railbite.customer.ui.theme.RailBiteCardBorder
 import com.railbite.customer.ui.theme.RailBiteMetrics
 import com.railbite.customer.ui.theme.RailBiteNumericType
@@ -111,6 +129,19 @@ fun TrackingScreen(
         state.error?.let {
             snackbar.showSnackbar(it)
             vm.clearError()
+        }
+    }
+
+    LaunchedEffect(state.chatBanner?.id) {
+        val banner = state.chatBanner ?: return@LaunchedEffect
+        val res = snackbar.showSnackbar(
+            message = "Picker: ${banner.body}",
+            actionLabel = "Reply",
+            withDismissAction = true,
+        )
+        vm.clearChatBanner()
+        if (res == SnackbarResult.ActionPerformed) {
+            vm.openChat()
         }
     }
 
@@ -225,6 +256,16 @@ fun TrackingScreen(
                     RunnerInfoCard(name = pickerDisplayName(name))
                 }
 
+                // Order-scoped Quick Message button (shown once ACCEPTED)
+                if (state.chatAvailable) {
+                    MessagePickerButton(
+                        unreadCount = state.unreadCount,
+                        latestMessage = state.messages.lastOrNull(),
+                        canSend = state.canSendChat,
+                        onClick = vm::openChat,
+                    )
+                }
+
                 // UPI_QUEUED fallback card
                 if (order?.paymentMode == "UPI_QUEUED" && state.status != Statuses.DELIVERED && !state.failed) {
                     UpiPayCard(
@@ -327,6 +368,20 @@ fun TrackingScreen(
                 Spacer(Modifier.height(10.dp))
             }
         }
+    }
+
+    if (state.chatOpen) {
+        OrderChatBottomSheet(
+            pickerName = state.captainName?.let(::pickerDisplayName) ?: "Pantry Picker",
+            messages = state.messages,
+            canSend = state.canSendChat,
+            sending = state.sendingMessage,
+            error = state.chatError,
+            onSendPreset = { preset -> vm.sendChatMessage(preset.body, preset.code) },
+            onSendCustom = { text -> vm.sendChatMessage(text, null) },
+            onDismissError = vm::clearChatError,
+            onDismiss = vm::closeChat,
+        )
     }
 
     if (showCashSheet && state.delivered && !state.cashConfirmed && !state.relayed) {
@@ -821,3 +876,359 @@ private fun formatBillTime(iso: String): String = runCatching {
         .atZone(java.time.ZoneId.systemDefault())
         .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, HH:mm"))
 }.getOrDefault(iso)
+
+@Composable
+private fun MessagePickerButton(
+    unreadCount: Int,
+    latestMessage: OrderMessage?,
+    canSend: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(RailBiteRadii.Card),
+        color = RailBitePalette.SurfaceCard,
+        border = if (unreadCount > 0) BorderStroke(1.dp, RailBitePalette.CyanPrimary) else RailBiteCardBorder,
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = RailBiteMetrics.TouchTargetMin),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(RailBiteRadii.Button),
+                color = RailBitePalette.CyanTint,
+                border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
+                modifier = Modifier.size(40.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Filled.ChatBubbleOutline,
+                        contentDescription = null,
+                        tint = RailBitePalette.CyanPrimary,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Message Picker",
+                    style = MaterialTheme.typography.titleSmall,
+                    color = RailBitePalette.TextPrimary,
+                )
+                val subtitle = when {
+                    latestMessage != null -> {
+                        val prefix = if (latestMessage.senderRole == "CUSTOMER") "You: " else "Picker: "
+                        prefix + latestMessage.body
+                    }
+                    canSend -> "Quick updates like \"Where are you?\" or \"I'm at my seat\""
+                    else -> "Order complete — view chat history"
+                }
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (unreadCount > 0) RailBitePalette.CyanPressed else RailBitePalette.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            if (unreadCount > 0) {
+                Surface(
+                    shape = RoundedCornerShape(RailBiteRadii.Pill),
+                    color = RailBitePalette.CyanPrimary,
+                ) {
+                    Text(
+                        text = "$unreadCount",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = RailBitePalette.TextMuted,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun OrderChatBottomSheet(
+    pickerName: String,
+    messages: List<OrderMessage>,
+    canSend: Boolean,
+    sending: Boolean,
+    error: String?,
+    onSendPreset: (com.railbite.core.model.ChatPreset) -> Unit,
+    onSendCustom: (String) -> Unit,
+    onDismissError: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var draft by remember { mutableStateOf("") }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(messages.size) {
+        if (messages.isNotEmpty()) {
+            listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = RailBiteBottomSheetShape,
+        containerColor = RailBitePalette.SurfaceCard,
+        scrimColor = RailBitePalette.DarkSlate.copy(alpha = 0.45f),
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .size(width = 40.dp, height = 4.dp)
+                    .clip(RoundedCornerShape(RailBiteRadii.Pill))
+                    .background(RailBitePalette.BorderSubtle),
+            )
+        },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .imePadding()
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = pickerName,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = RailBitePalette.TextPrimary,
+                    )
+                    Text(
+                        text = if (canSend) "Live quick messages for your order" else "Chat closed for completed order",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RailBitePalette.TextSecondary,
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Close chat",
+                        tint = RailBitePalette.TextSecondary,
+                    )
+                }
+            }
+
+            HorizontalDivider(thickness = 1.dp, color = RailBitePalette.BorderSubtle)
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 140.dp, max = 260.dp),
+            ) {
+                if (messages.isEmpty()) {
+                    Text(
+                        text = "No messages yet. Tap a quick note below to reach your runner.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RailBitePalette.TextMuted,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .padding(horizontal = 12.dp),
+                    )
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        items(messages, key = { it.id }) { msg ->
+                            CustomerChatBubble(msg)
+                        }
+                    }
+                }
+            }
+
+            if (error != null) {
+                Surface(
+                    onClick = onDismissError,
+                    shape = RoundedCornerShape(RailBiteRadii.Button),
+                    color = RailBitePalette.SemanticRedTint,
+                    border = BorderStroke(1.dp, RailBitePalette.SemanticRedBorder),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = RailBitePalette.SemanticRed,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    )
+                }
+            }
+
+            if (canSend) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    ChatPresets.CUSTOMER.chunked(2).forEach { rowPresets ->
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            rowPresets.forEach { preset ->
+                                Surface(
+                                    onClick = { if (!sending) onSendPreset(preset) },
+                                    shape = RoundedCornerShape(RailBiteRadii.Pill),
+                                    color = RailBitePalette.CyanTint,
+                                    border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 40.dp),
+                                ) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                    ) {
+                                        Text(
+                                            text = preset.body,
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = RailBitePalette.CyanPressed,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { input ->
+                            if (input.length <= ChatPresets.MAX_BODY_LENGTH) {
+                                draft = input
+                            }
+                        },
+                        placeholder = { Text("Type a short note (max 120)…") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RailBitePalette.CyanPrimary,
+                            unfocusedBorderColor = RailBitePalette.BorderSubtle,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+                    Button(
+                        onClick = {
+                            val toSend = draft.trim()
+                            if (toSend.isNotEmpty() && !sending) {
+                                onSendCustom(toSend)
+                                draft = ""
+                            }
+                        },
+                        enabled = draft.isNotBlank() && !sending,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = RailBitePalette.CyanPrimary,
+                            contentColor = Color.White,
+                        ),
+                        modifier = Modifier.heightIn(min = RailBiteMetrics.TouchTargetMin),
+                    ) {
+                        if (sending) {
+                            CircularProgressIndicator(
+                                color = Color.White,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                contentDescription = "Send",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    shape = RoundedCornerShape(RailBiteRadii.Button),
+                    color = RailBitePalette.Canvas,
+                    border = RailBiteCardBorder,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = RailBitePalette.TextSecondary,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = "Chat closed",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = RailBitePalette.TextSecondary,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CustomerChatBubble(msg: OrderMessage) {
+    val mine = msg.senderRole == "CUSTOMER"
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(RailBiteRadii.Button),
+            color = if (mine) RailBitePalette.DarkSlate else RailBitePalette.Canvas,
+            border = if (mine) null else RailBiteCardBorder,
+            modifier = Modifier.widthIn(max = 270.dp),
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = msg.body,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (mine) Color.White else RailBitePalette.TextPrimary,
+                )
+                Text(
+                    text = (if (mine) "You" else "Picker") + " · " + formatChatTime(msg.createdAt),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (mine) RailBitePalette.TextMuted else RailBitePalette.TextSecondary,
+                )
+            }
+        }
+    }
+}
+
+private fun formatChatTime(epochMs: Long): String = runCatching {
+    java.time.Instant.ofEpochMilli(epochMs)
+        .atZone(java.time.ZoneId.systemDefault())
+        .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
+}.getOrDefault("")

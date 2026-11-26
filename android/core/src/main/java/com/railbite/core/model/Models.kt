@@ -205,3 +205,48 @@ data class ComplaintCreateRequest(
     val text: String? = null,
     val createdAt: String,
 )
+
+/** Quick message between customer and picker (REST + MQTT `rb/{trip}/orders/{orderId}/chat`). */
+@Serializable
+data class OrderMessage(
+    val id: String,
+    val orderId: String,
+    val senderRole: String,
+    val senderId: String? = null,
+    val presetCode: String? = null,
+    val body: String,
+    val createdAt: Long,
+)
+
+/** POST /orders/{id}/messages body — id is client UUID for idempotency. */
+@Serializable
+data class OrderMessageCreateRequest(
+    val id: String,
+    val senderRole: String? = null,
+    val senderId: String? = null,
+    val presetCode: String? = null,
+    val body: String,
+)
+
+data class ChatPreset(
+    val code: String,
+    val body: String,
+)
+
+object ChatPresets {
+    const val MAX_BODY_LENGTH = 120
+
+    val CUSTOMER = listOf(
+        ChatPreset("WHERE_ARE_YOU", "Where are you?"),
+        ChatPreset("AT_SEAT", "I'm at my seat"),
+        ChatPreset("NEAR_DOOR", "Near coach door"),
+        ChatPreset("NEED_CHANGE", "Please bring change"),
+    )
+
+    val PICKER = listOf(
+        ChatPreset("IM_HERE", "I'm here at your seat"),
+        ChatPreset("ENTERING_COACH", "Entering your coach"),
+        ChatPreset("TWO_MINS", "2 mins away"),
+        ChatPreset("PACKING", "Packing your order"),
+    )
+}
