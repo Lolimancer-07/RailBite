@@ -33,6 +33,7 @@ class RailBiteAlertService : Service() {
     companion object {
         const val ACTION_START = "com.railbite.picker.action.START"
         const val ACTION_STOP = "com.railbite.picker.action.STOP"
+        const val ACTION_RECONNECT = "com.railbite.picker.action.RECONNECT"
 
         /** Whether the alert pipeline is connected (UI binds to this for the ONLINE indicator). */
         private val _running = MutableStateFlow(false)
@@ -57,6 +58,18 @@ class RailBiteAlertService : Service() {
                     stopForegroundService()
                 }
                 return START_NOT_STICKY
+            }
+            ACTION_RECONNECT -> {
+                startForegroundCompat()
+                scope.launch {
+                    mutex.withLock {
+                        connector?.stop()
+                        connector = null
+                    }
+                    connectAlerts()
+                    runCatching { setOnline(true) }
+                }
+                return START_STICKY
             }
             else -> {
                 startForegroundCompat()

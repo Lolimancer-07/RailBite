@@ -87,8 +87,8 @@ fun LoginScreen(
             RailBiteTextField(
                 value = state.password,
                 onValueChange = vm::onPasswordChange,
-                label = "Password",
-                hint = "••••••••",
+                label = "PIN or Password",
+                hint = "1234 or railbite123",
                 singleLine = true,
                 visualTransformation = PasswordVisualTransformation(),
                 keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
@@ -116,7 +116,7 @@ fun LoginScreen(
 
             Spacer(Modifier.height(Space.m))
             Text(
-                "Demo logins: c1, c2, c3 or c4 · password railbite123",
+                "Demo logins: c1, c2, c3 or c4 · PIN 1234 (or railbite123)",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -161,8 +161,11 @@ fun LoginScreen(
                             value = editServerUrl,
                             onValueChange = { editServerUrl = it },
                             label = "Server URL",
-                            hint = "https://railbite-api.onrender.com",
-                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = KeyboardType.Uri, autoCorrect = false),
+                            hint = "http://192.168.1.45:8080",
+                            keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                keyboardType = KeyboardType.Uri,
+                                autoCorrectEnabled = false,
+                            ),
                         )
                     }
                 },

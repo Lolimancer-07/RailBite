@@ -19,8 +19,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -45,7 +50,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -58,6 +66,7 @@ import com.railbite.core.model.Order
 import com.railbite.core.model.PickerStats
 import com.railbite.core.ui.components.ErrorBar
 import com.railbite.core.ui.components.RailBiteSecondaryButton
+import com.railbite.core.ui.components.RailBiteTextField
 import com.railbite.core.ui.theme.Metrics
 import com.railbite.core.ui.theme.Space
 import com.railbite.core.util.Money
@@ -84,6 +93,8 @@ fun HomeScreen(
     val state by vm.state.collectAsState()
     val context = LocalContext.current
     var perms by remember { mutableStateOf(readAlertPermissions(context)) }
+    var showServerDialog by remember { mutableStateOf(false) }
+    var editServerUrl by remember { mutableStateOf("") }
 
     // Re-check after returning from the permissions screen
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -100,6 +111,14 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("RailBite Picker") },
                 actions = {
+                    ConnectionStatusPill(
+                        connected = state.connectionConnected,
+                        mqttLive = state.mqttConnected,
+                        onClick = {
+                            editServerUrl = state.serverUrlStored
+                            showServerDialog = true
+                        },
+                    )
                     IconButton(onClick = { vm.logout(onLoggedOut) }) {
                         Icon(Icons.Filled.Logout, contentDescription = "Sign out")
                     }
@@ -199,13 +218,143 @@ fun HomeScreen(
             }
 
             item {
-                Text(
-                    "Server ${state.serverUrl}",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = Space.xs, bottom = Space.s),
+                ServerSettingsCard(
+                    serverUrl = state.serverUrl,
+                    connected = state.connectionConnected,
+                    mqttLive = state.mqttConnected,
+                    onConfigure = {
+                        editServerUrl = state.serverUrlStored
+                        showServerDialog = true
+                    },
                 )
             }
+        }
+    }
+
+    if (showServerDialog) {
+        AlertDialog(
+            onDismissRequest = { showServerDialog = false },
+            title = { Text("Server address") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(Space.xs)) {
+                    Text(
+                        "Enter LAN server URL (e.g. http://192.168.1.45:8080) or leave blank for built-in cloud:",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    RailBiteTextField(
+                        value = editServerUrl,
+                        onValueChange = { editServerUrl = it },
+                        label = "Server URL",
+                        hint = "http://192.168.1.45:8080",
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(
+                            keyboardType = KeyboardType.Uri,
+                            autoCorrectEnabled = false,
+                        ),
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        vm.updateServerUrl(editServerUrl)
+                        showServerDialog = false
+                    },
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showServerDialog = false }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ConnectionStatusPill(
+    connected: Boolean,
+    mqttLive: Boolean,
+    onClick: () -> Unit,
+) {
+    val dotColor = if (connected) Color(0xFF16A34A) else MaterialTheme.colorScheme.error
+    val label = when {
+        mqttLive -> "Connected"
+        connected -> "Connected"
+        else -> "Disconnected"
+    }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(999.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        ) {
+            Box(
+                Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(dotColor),
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ServerSettingsCard(
+    serverUrl: String,
+    connected: Boolean,
+    mqttLive: Boolean,
+    onConfigure: () -> Unit,
+) {
+    Card(
+        onClick = onConfigure,
+        shape = MaterialTheme.shapes.medium,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface,
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Space.s),
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = Metrics.tapTarget)
+                .padding(Space.m),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Settings,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = if (mqttLive) "Server · MQTT Live" else if (connected) "Server · Connected" else "Server · Disconnected",
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    text = serverUrl.ifBlank { "Not configured" },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Text(
+                text = "Change",
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
     }
 }

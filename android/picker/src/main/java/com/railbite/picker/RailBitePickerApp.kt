@@ -30,4 +30,5 @@ class PickerContainer(val app: RailBitePickerApp) {
     val meshTransport = BleMeshTransport(app)
     val meshLedger = MeshLedger(app)
     val meshGateway = MeshGateway(app, meshTransport, meshLedger)
+    val chatMqtt = PickerChatMqtt(settings)
 }

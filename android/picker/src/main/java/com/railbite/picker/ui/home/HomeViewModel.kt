@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.railbite.core.api.ApiClient
 import com.railbite.core.api.RailBiteApi
 import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.model.Order
@@ -29,12 +30,17 @@ data class HomeUiState(
     val zone: String = "",
     val online: Boolean = false,
     val serviceRunning: Boolean = false,
+    val mqttConnected: Boolean = false,
+    val serverReachable: Boolean = false,
     val serverUrl: String = "",
+    val serverUrlStored: String = "",
     val stats: PickerStats? = null,
     val activeOrder: Order? = null,
     val loading: Boolean = true,
     val error: String? = null,
-)
+) {
+    val connectionConnected: Boolean get() = mqttConnected || serverReachable
+}
 
 class HomeViewModel(private val container: PickerContainer) : ViewModel() {
 
@@ -45,13 +51,33 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
 
     init {
         viewModelScope.launch {
+            val staffId = container.settings.staffId.first()
             _state.update {
                 it.copy(
-                    staffId = container.settings.staffId.first(),
+                    staffId = staffId,
                     staffName = container.settings.staffName.first(),
                     zone = container.settings.staffZone.first(),
                     serverUrl = container.settings.serverUrl.first(),
+                    serverUrlStored = container.settings.serverUrlStored.first(),
                 )
+            }
+            if (staffId.isNotBlank()) {
+                container.chatMqtt.ensureConnected(staffId)
+            }
+        }
+        viewModelScope.launch {
+            container.settings.serverUrl.collect { url ->
+                _state.update { it.copy(serverUrl = url) }
+            }
+        }
+        viewModelScope.launch {
+            container.settings.serverUrlStored.collect { stored ->
+                _state.update { it.copy(serverUrlStored = stored) }
+            }
+        }
+        viewModelScope.launch {
+            container.chatMqtt.connected.collect { connected ->
+                _state.update { it.copy(mqttConnected = connected) }
             }
         }
         // The local toggle lives in settings; the service reports its own running state
@@ -95,10 +121,22 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                 }
             }
             _state.update {
-                it.copy(stats = stats, activeOrder = active, loading = false, error = null)
+                it.copy(
+                    stats = stats,
+                    activeOrder = active,
+                    serverReachable = true,
+                    loading = false,
+                    error = null,
+                )
             }
         } catch (_: Exception) {
-            _state.update { it.copy(loading = false, error = "Cannot reach server — retrying") }
+            _state.update {
+                it.copy(
+                    serverReachable = false,
+                    loading = false,
+                    error = "Cannot reach server — retrying",
+                )
+            }
         }
     }
 
@@ -145,9 +183,39 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         verified = 1,
     )
 
+    fun updateServerUrl(rawUrl: String) {
+        val normalized = ApiClient.normalizeServerUrl(rawUrl)
+        viewModelScope.launch {
+            container.settings.setServerUrl(normalized)
+            val effective = container.settings.serverUrl.first()
+            val staffId = container.settings.staffId.first()
+            _state.update {
+                it.copy(
+                    serverUrl = effective,
+                    serverUrlStored = normalized,
+                    serverReachable = false,
+                    loading = true,
+                    error = null,
+                )
+            }
+            if (staffId.isNotBlank()) {
+                container.chatMqtt.reconnect(staffId)
+            }
+            if (_state.value.online) {
+                ContextCompat.startForegroundService(
+                    container.app,
+                    Intent(container.app, RailBiteAlertService::class.java)
+                        .setAction(RailBiteAlertService.ACTION_RECONNECT),
+                )
+            }
+            refresh()
+        }
+    }
+
     /** Signs out: revokes the server session and clears the stored login. */
     fun logout(onDone: () -> Unit) {
         _state.update { it.copy(online = false) }
+        container.chatMqtt.disconnect()
         container.app.startService(
             Intent(container.app, RailBiteAlertService::class.java)
                 .setAction(RailBiteAlertService.ACTION_STOP),
