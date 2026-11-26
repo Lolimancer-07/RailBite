@@ -1,21 +1,45 @@
 package com.railbite.customer.ui.onboarding
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Train
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -23,14 +47,24 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.railbite.core.ui.components.ErrorBar
-import com.railbite.core.ui.components.RailBiteButton
-import com.railbite.core.ui.components.RailBiteTextField
-import com.railbite.core.ui.components.iconDescription
-import com.railbite.core.ui.theme.Space
+import com.railbite.customer.ui.components.StatusDot
+import com.railbite.customer.ui.theme.RailBiteCardBorder
+import com.railbite.customer.ui.theme.RailBiteMetrics
+import com.railbite.customer.ui.theme.RailBiteNumericType
+import com.railbite.customer.ui.theme.RailBitePalette
+import com.railbite.customer.ui.theme.RailBiteRadii
 
+private val QUICK_COACHES = listOf("A1", "B1", "B2", "B3", "S1", "S2")
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OnboardingScreen(
     graph: com.railbite.customer.CustomerGraph,
@@ -42,131 +76,393 @@ fun OnboardingScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .background(RailBitePalette.Canvas)
+            .statusBarsPadding()
+            .navigationBarsPadding()
             .imePadding()
-            .padding(Space.xl),
-        verticalArrangement = Arrangement.spacedBy(Space.m),
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = RailBiteMetrics.ScreenPadding, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Spacer(Modifier.height(Space.xl))
-        Text("RailBite", style = MaterialTheme.typography.headlineLarge)
-        Text(
-            "Food delivered to your train seat in ~10 minutes.",
-            style = MaterialTheme.typography.bodyLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(Space.xs))
+        // Top live connection pill strip (flat, informative)
+        ConnectionStatusBanner(state = state, onRetry = vm::testConnection)
 
-        SeatCard(vm = vm, state = state, onDone = { vm.complete(onDone) })
-
-        ConnectionStatus(state = state, onRetry = vm::testConnection)
-
-        state.error?.let { ErrorBar(it) }
-        Spacer(Modifier.height(Space.xl))
-    }
-}
-
-@Composable
-private fun SeatCard(
-    vm: OnboardingViewModel,
-    state: OnboardingUiState,
-    onDone: () -> Unit,
-) {
-    Card(
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-    ) {
-        Column(
-            Modifier.padding(Space.m),
-            verticalArrangement = Arrangement.spacedBy(Space.s),
+        // Main flat Stitch Seat Setup Card
+        Card(
+            shape = RoundedCornerShape(RailBiteRadii.Card),
+            colors = CardDefaults.cardColors(containerColor = RailBitePalette.SurfaceCard),
+            border = RailBiteCardBorder,
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            modifier = Modifier.fillMaxWidth(),
         ) {
-            Text("Your seat", style = MaterialTheme.typography.titleMedium)
-            RailBiteTextField(
-                value = state.pnr,
-                onValueChange = vm::setPnr,
-                label = "PNR (10 digits)",
-                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                    keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                ),
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(Space.s)) {
-                RailBiteTextField(
-                    value = state.coach,
-                    onValueChange = vm::setCoach,
-                    label = "Coach",
-                    hint = "B2",
-                    modifier = Modifier.weight(1f),
-                )
-                RailBiteTextField(
-                    value = state.berth,
-                    onValueChange = vm::setBerth,
-                    label = "Seat",
-                    hint = "14",
-                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                    ),
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Space.xs),
+            Column(
+                modifier = Modifier.padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                Text("Diners", style = MaterialTheme.typography.bodyLarge)
-                TextButton(
-                    onClick = { vm.setDiners(state.diners - 1) },
-                    modifier = Modifier.iconDescription("Fewer diners"),
-                ) { Text("−", style = MaterialTheme.typography.titleMedium) }
-                Text("${state.diners}", style = MaterialTheme.typography.titleMedium)
-                TextButton(
-                    onClick = { vm.setDiners(state.diners + 1) },
-                    modifier = Modifier.iconDescription("More diners"),
-                ) { Text("+", style = MaterialTheme.typography.titleMedium) }
+                // Brand row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Surface(
+                        shape = RoundedCornerShape(RailBiteRadii.Control),
+                        color = RailBitePalette.CyanPrimary,
+                        contentColor = Color.White,
+                        modifier = Modifier.size(40.dp),
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = Icons.Filled.Train,
+                                contentDescription = null,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                    Column(modifier = Modifier.weight(1f)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text(
+                                text = "RailBite",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = RailBitePalette.TextPrimary,
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(RailBiteRadii.Control),
+                                color = RailBitePalette.CyanTint,
+                                border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
+                            ) {
+                                Text(
+                                    text = "EXPRESS",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = RailBitePalette.CyanPrimary,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                )
+                            }
+                        }
+                        Text(
+                            text = "Train Pantry Car",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RailBitePalette.TextSecondary,
+                        )
+                    }
+                }
+
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "Enter Travel Details",
+                        style = MaterialTheme.typography.headlineMedium,
+                        color = RailBitePalette.TextPrimary,
+                    )
+                    Text(
+                        text = "Order hot meals, snacks & fresh chai delivered straight to your train berth at official IRCTC MRP.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = RailBitePalette.TextSecondary,
+                    )
+                }
+
+                // 10-Digit PNR Input
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "10-Digit PNR Number",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        Text(
+                            text = "Required for berth drop",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = RailBitePalette.TextSecondary,
+                        )
+                    }
+                    OutlinedTextField(
+                        value = state.pnr,
+                        onValueChange = vm::setPnr,
+                        placeholder = { Text("2458910482", style = RailBiteNumericType.PriceMedium) },
+                        textStyle = RailBiteNumericType.PriceMedium,
+                        singleLine = true,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        trailingIcon = {
+                            if (state.pnr.length == 10) {
+                                Icon(
+                                    imageVector = Icons.Filled.CheckCircle,
+                                    contentDescription = "Valid PNR",
+                                    tint = RailBitePalette.SemanticGreen,
+                                )
+                            }
+                        },
+                        colors = flatTextFieldColors(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+
+                // Coach Number + Quick Pick Chips
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Coach Number",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        Text(
+                            text = "AC / Sleeper",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = RailBitePalette.TextSecondary,
+                        )
+                    }
+                    OutlinedTextField(
+                        value = state.coach,
+                        onValueChange = vm::setCoach,
+                        placeholder = { Text("B2", style = RailBiteNumericType.PriceMedium) },
+                        textStyle = RailBiteNumericType.PriceMedium,
+                        singleLine = true,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        colors = flatTextFieldColors(),
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Characters,
+                        ),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        QUICK_COACHES.forEach { code ->
+                            val selected = state.coach.equals(code, ignoreCase = true)
+                            Surface(
+                                onClick = { vm.setCoach(code) },
+                                shape = RoundedCornerShape(RailBiteRadii.Pill),
+                                color = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.Canvas,
+                                contentColor = if (selected) Color.White else RailBitePalette.TextPrimary,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (selected) RailBitePalette.CyanPrimary else RailBitePalette.BorderSubtle,
+                                ),
+                                modifier = Modifier.heightIn(min = RailBiteMetrics.TouchTargetMin),
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                ) {
+                                    Text(
+                                        text = code,
+                                        style = MaterialTheme.typography.labelLarge,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Berth + Diners
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.Top,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = "Berth / Seat",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        OutlinedTextField(
+                            value = state.berth,
+                            onValueChange = vm::setBerth,
+                            placeholder = { Text("14", style = RailBiteNumericType.PriceMedium) },
+                            textStyle = RailBiteNumericType.PriceMedium,
+                            singleLine = true,
+                            shape = RoundedCornerShape(RailBiteRadii.Button),
+                            colors = flatTextFieldColors(),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            text = "Diners",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        Surface(
+                            shape = RoundedCornerShape(RailBiteRadii.Button),
+                            color = RailBitePalette.Canvas,
+                            border = RailBiteCardBorder,
+                            modifier = Modifier.heightIn(min = 56.dp),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                modifier = Modifier.padding(horizontal = 4.dp),
+                            ) {
+                                IconButton(
+                                    onClick = { vm.setDiners(state.diners - 1) },
+                                    modifier = Modifier
+                                        .size(RailBiteMetrics.TouchTargetMin)
+                                        .semantics { contentDescription = "Fewer diners" },
+                                ) {
+                                    Icon(Icons.Filled.Remove, contentDescription = null, tint = RailBitePalette.TextPrimary)
+                                }
+                                Text(
+                                    text = "${state.diners}",
+                                    style = RailBiteNumericType.PriceMedium,
+                                    color = RailBitePalette.TextPrimary,
+                                    modifier = Modifier.padding(horizontal = 6.dp),
+                                )
+                                IconButton(
+                                    onClick = { vm.setDiners(state.diners + 1) },
+                                    modifier = Modifier
+                                        .size(RailBiteMetrics.TouchTargetMin)
+                                        .semantics { contentDescription = "More diners" },
+                                ) {
+                                    Icon(Icons.Filled.Add, contentDescription = null, tint = RailBitePalette.TextPrimary)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                state.error?.let { ErrorBar(it) }
+
+                Button(
+                    onClick = { vm.complete(onDone) },
+                    enabled = state.seatValid,
+                    shape = RoundedCornerShape(RailBiteRadii.Button),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = RailBitePalette.CyanPrimary,
+                        contentColor = Color.White,
+                        disabledContainerColor = RailBitePalette.ImageTile,
+                        disabledContentColor = RailBitePalette.TextMuted,
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(RailBiteMetrics.PrimaryButtonHeight),
+                ) {
+                    Text(
+                        text = "Start Ordering",
+                        style = MaterialTheme.typography.titleSmall,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+
+                // Official badge footer inside card
+                Surface(
+                    shape = RoundedCornerShape(RailBiteRadii.Button),
+                    color = RailBitePalette.Canvas,
+                    border = RailBiteCardBorder,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Verified,
+                            contentDescription = null,
+                            tint = RailBitePalette.SemanticGreen,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Text(
+                            text = "Official IRCTC Pantry Partner • Zero Platform Markup",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RailBitePalette.TextSecondary,
+                        )
+                    }
+                }
             }
-            RailBiteButton(
-                text = "Start ordering",
-                onClick = onDone,
-                enabled = state.seatValid,
-            )
         }
     }
 }
 
 @Composable
-private fun ConnectionStatus(state: OnboardingUiState, onRetry: () -> Unit) {
-    // Non-blocking: the server is baked into the app; this is purely informational.
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Space.xs),
+private fun ConnectionStatusBanner(
+    state: OnboardingUiState,
+    onRetry: () -> Unit,
+) {
+    Surface(
+        shape = RoundedCornerShape(RailBiteRadii.Pill),
+        color = RailBitePalette.SurfaceCard,
+        border = RailBiteCardBorder,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        when (state.connection) {
-            OnboardingUiState.Connection.Testing -> {
-                CircularProgressIndicator(
-                    Modifier
-                        .height(18.dp)
-                        .width(18.dp),
-                    strokeWidth = 2.dp,
-                )
-                Text(
-                    "Checking the RailBite cloud…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            OnboardingUiState.Connection.Ok -> Text(
-                "RailBite cloud connected",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.primary,
-            )
-            is OnboardingUiState.Connection.Fail -> {
-                Text(
-                    "Cannot reach the RailBite cloud — check your internet.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.weight(1f),
-                )
-                TextButton(onClick = onRetry) { Text("Retry") }
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+        ) {
+            when (state.connection) {
+                OnboardingUiState.Connection.Testing -> {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = RailBitePalette.CyanPrimary,
+                    )
+                    Text(
+                        text = "PANTRY NETWORK • CHECKING SERVER…",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = RailBitePalette.TextSecondary,
+                    )
+                }
+
+                OnboardingUiState.Connection.Ok -> {
+                    StatusDot(online = true)
+                    Text(
+                        text = "PANTRY CAR NETWORK • ONLINE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = RailBitePalette.TextPrimary,
+                    )
+                }
+
+                is OnboardingUiState.Connection.Fail -> {
+                    StatusDot(online = false)
+                    Text(
+                        text = "SERVER UNREACHABLE • OFFLINE RELAY AVAILABLE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = RailBitePalette.SemanticRed,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(onClick = onRetry) {
+                        Text(
+                            text = "Retry",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = RailBitePalette.CyanPrimary,
+                        )
+                    }
+                }
             }
         }
     }
 }
+
+@Composable
+internal fun flatTextFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = RailBitePalette.CyanPrimary,
+    unfocusedBorderColor = RailBitePalette.BorderSubtle,
+    focusedContainerColor = RailBitePalette.SurfaceCard,
+    unfocusedContainerColor = RailBitePalette.SurfaceCard,
+    focusedTextColor = RailBitePalette.TextPrimary,
+    unfocusedTextColor = RailBitePalette.TextPrimary,
+    cursorColor = RailBitePalette.CyanPrimary,
+)
