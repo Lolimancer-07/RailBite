@@ -11,6 +11,8 @@ import com.google.firebase.auth.PhoneAuthCredential
 import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.railbite.customer.AppContainer
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,6 +58,7 @@ class CustomerLoginViewModel(
 
     private var verificationId: String? = null
     private var resendToken: PhoneAuthProvider.ForceResendingToken? = null
+    private var smsWatchdog: Job? = null
 
     private val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
         override fun onVerificationCompleted(credential: PhoneAuthCredential) {
@@ -63,12 +66,14 @@ class CustomerLoginViewModel(
         }
 
         override fun onVerificationFailed(e: FirebaseException) {
+            smsWatchdog?.cancel()
             _state.update {
                 it.copy(busy = false, error = "SMS could not be sent (${e.message ?: "verification failed"}).")
             }
         }
 
         override fun onCodeSent(id: String, token: PhoneAuthProvider.ForceResendingToken) {
+            smsWatchdog?.cancel()
             verificationId = id
             resendToken = token
             _state.update {
@@ -125,6 +130,7 @@ class CustomerLoginViewModel(
         }
 
         _state.update { it.copy(busy = true, error = null, info = "Requesting SMS…") }
+        startSmsWatchdog()
         val builder = PhoneAuthOptions.newBuilder(auth)
             .setPhoneNumber("+91${s.phone}")
             .setTimeout(60L, TimeUnit.SECONDS)
@@ -135,6 +141,28 @@ class CustomerLoginViewModel(
         runCatching { PhoneAuthProvider.verifyPhoneNumber(builder.build()) }.onFailure { e ->
             _state.update {
                 it.copy(busy = false, error = "Could not start SMS verification (${e.message}).")
+            }
+        }
+    }
+
+    /**
+     * Safety net: if the Firebase SMS task never reaches a callback (hung request,
+     * stuck reCAPTCHA), surface an error instead of spinning forever.
+     */
+    private fun startSmsWatchdog() {
+        smsWatchdog?.cancel()
+        smsWatchdog = viewModelScope.launch {
+            delay(75_000)
+            val s = _state.value
+            if (s.busy && s.stage == CustomerLoginStage.PHONE) {
+                smsWatchdog?.cancel()
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        info = null,
+                        error = "Timed out waiting for the OTP SMS. Check your network and try again.",
+                    )
+                }
             }
         }
     }
