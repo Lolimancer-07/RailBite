@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 
 /** Accept/reject actions for alerts, run on an app-scoped coroutine (survives activity finish). */
 object AlertActions {
@@ -53,10 +54,17 @@ object AlertActions {
                 onAccepted()
             } catch (e: Exception) {
                 val msg = e.message ?: ""
+                val code = (e as? HttpException)?.code()
                 onFailed(
                     when {
+                        code == 401 -> "Session expired — please log in again"
+                        code == 409 -> "Already taken by another picker"
+                        code == 404 -> "Order no longer exists"
                         msg.contains("409") -> "Already taken by another picker"
                         msg.contains("404") -> "Order no longer exists"
+                        msg.contains("Unable to resolve host", ignoreCase = true) ||
+                            msg.contains("Failed to connect", ignoreCase = true) ||
+                            msg.contains("timeout", ignoreCase = true) -> "Network error — check the connection and retry"
                         else -> "Network error — try again"
                     },
                 )
