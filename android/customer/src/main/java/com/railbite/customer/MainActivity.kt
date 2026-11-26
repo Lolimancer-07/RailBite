@@ -19,7 +19,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
-import com.railbite.core.ui.theme.RailBiteTheme
+import com.railbite.customer.ui.theme.RailBiteCustomerTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            RailBiteTheme {
+            RailBiteCustomerTheme {
                 CustomerRoot(container)
             }
         }
