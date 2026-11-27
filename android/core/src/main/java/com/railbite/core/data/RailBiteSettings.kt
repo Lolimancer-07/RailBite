@@ -41,6 +41,7 @@ class RailBiteSettings(
         val meshRelayEnabled = booleanPreferencesKey("mesh_relay_enabled")
         val meshSinkEnabled = booleanPreferencesKey("mesh_sink_enabled")
         val menuCache = stringPreferencesKey("menu_cache")
+        val meshKey = stringPreferencesKey("mesh_key")
     }
 
     /** Effective server URL: stored override if set, otherwise the baked cloud default. */
@@ -70,6 +71,9 @@ class RailBiteSettings(
     val meshRelayEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshRelayEnabled] ?: true }
     val meshSinkEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshSinkEnabled] ?: true }
     val menuCache: Flow<String> = context.dataStore.data.map { it[Keys.menuCache] ?: "" }
+    val meshKey: Flow<String> = context.dataStore.data.map {
+        it[Keys.meshKey]?.takeIf { v -> v.isNotBlank() } ?: com.railbite.core.mesh.BlePacketCodec.RAILBITE_MESH_KEY
+    }
 
     /** Stable mesh node id (origin/hops identity) — generated on first use. */
     suspend fun ensureMeshNodeId(): String {
@@ -126,4 +130,9 @@ class RailBiteSettings(
     }
 
     suspend fun setHowItWorksShown() = context.dataStore.edit { it[Keys.howItWorksShown] = true }
+
+    suspend fun setMeshKey(value: String) = context.dataStore.edit {
+        val clean = value.trim()
+        if (clean.isEmpty()) it.remove(Keys.meshKey) else it[Keys.meshKey] = clean
+    }
 }
