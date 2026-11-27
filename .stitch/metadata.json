@@ -1,0 +1,54 @@
+{
+  "projectId": "2149824161029451542",
+  "title": "RailBite Train Food Delivery",
+  "deviceType": "MOBILE",
+  "Last Sync Time": "2026-11-27T02:16:36+05:30",
+  "screens": {
+    "seat-setup": {
+      "id": "379b7a451f2b4f7f978a6dd06dc66fa0",
+      "label": "RailBite - Seat Setup",
+      "sourceScreen": "projects/2149824161029451542/screens/379b7a451f2b4f7f978a6dd06dc66fa0",
+      "dimensions": { "width": 390, "height": 884 },
+      "canvasPosition": { "x": 1478, "y": 0 },
+      "html": "apps/passenger/.stitch/designs/seat-setup/379b7a451f2b4f7f978a6dd06dc66fa0.html",
+      "screenshot": "apps/passenger/.stitch/designs/seat-setup/379b7a451f2b4f7f978a6dd06dc66fa0.png"
+    },
+    "storefront": {
+      "id": "68c94a3f8eab4bbd8d630d0c232e3396",
+      "label": "RailBite - Storefront",
+      "sourceScreen": "projects/2149824161029451542/screens/68c94a3f8eab4bbd8d630d0c232e3396",
+      "dimensions": { "width": 390, "height": 1211 },
+      "canvasPosition": { "x": 1024, "y": 0 },
+      "html": "apps/passenger/.stitch/designs/storefront/68c94a3f8eab4bbd8d630d0c232e3396.html",
+      "screenshot": "apps/passenger/.stitch/designs/storefront/68c94a3f8eab4bbd8d630d0c232e3396.png"
+    },
+    "item-detail-sheet": {
+      "id": "835c5a160f584bde8cd8371246b2eb12",
+      "label": "RailBite - Item Detail Sheet",
+      "sourceScreen": "projects/2149824161029451542/screens/835c5a160f584bde8cd8371246b2eb12",
+      "dimensions": { "width": 390, "height": 884 },
+      "canvasPosition": { "x": 2840, "y": 0 },
+      "html": "apps/passenger/.stitch/designs/item-detail-sheet/835c5a160f584bde8cd8371246b2eb12.html",
+      "screenshot": "apps/passenger/.stitch/designs/item-detail-sheet/835c5a160f584bde8cd8371246b2eb12.png"
+    },
+    "cart-checkout": {
+      "id": "d5c3ffc9755042d5bdf6ed3c28617c22",
+      "label": "RailBite - Cart & Checkout",
+      "sourceScreen": "projects/2149824161029451542/screens/d5c3ffc9755042d5bdf6ed3c28617c22",
+      "dimensions": { "width": 390, "height": 1407 },
+      "canvasPosition": { "x": 1932, "y": 0 },
+      "html": "apps/passenger/.stitch/designs/cart-checkout/d5c3ffc9755042d5bdf6ed3c28617c22.html",
+      "screenshot": "apps/passenger/.stitch/designs/cart-checkout/d5c3ffc9755042d5bdf6ed3c28617c22.png"
+    },
+    "live-tracking": {
+      "id": "b94229514bd542e3b6703f1c983d921d",
+      "label": "RailBite - Live Tracking & Cash Confirmation",
+      "sourceScreen": "projects/2149824161029451542/screens/b94229514bd542e3b6703f1c983d921d",
+      "dimensions": { "width": 390, "height": 1148 },
+      "canvasPosition": { "x": 2386, "y": 0 },
+      "html": "apps/passenger/.stitch/designs/live-tracking/b94229514bd542e3b6703f1c983d921d.html",
+      "screenshot": "apps/passenger/.stitch/designs/live-tracking/b94229514bd542e3b6703f1c983d921d.png"
+    }
+  }
+}
+
