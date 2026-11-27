@@ -48,6 +48,7 @@ describe("Order quick-chat REST & MQTT endpoints", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 4,
@@ -198,7 +199,7 @@ describe("Order quick-chat REST & MQTT endpoints", () => {
     // Verify MQTT broadcasts
     expect(mqttEvents).toHaveLength(2);
     expect(mqttEvents[0]).toMatchObject({
-      topic: `rb/${config.tripId}/orders/${orderId}/chat`,
+      topic: `rb/train/12345/orders/${orderId}/chat`,
       qos: 1,
       retain: false,
     });
@@ -206,7 +207,7 @@ describe("Order quick-chat REST & MQTT endpoints", () => {
 
   it("allows both p- passenger and c- picker MQTT clients to subscribe to order chat topics", async () => {
     const orderId = crypto.randomUUID();
-    const chatTopic = `rb/${config.tripId}/orders/${orderId}/chat`;
+    const chatTopic = `rb/train/12345/orders/${orderId}/chat`;
 
     const checkSubscribe = (clientId: string, topic: string) =>
       new Promise<boolean>((resolve) => {

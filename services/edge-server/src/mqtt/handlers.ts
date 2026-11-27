@@ -17,9 +17,7 @@ export function registerMqttHandlers(
   orderService: OrderService,
   complaintService: ComplaintService,
 ): void {
-  const tripPrefix = `rb/${config.tripId}`;
-
-  aedes.on("publish", async (packet, client) => {
+  aedes.on("publish", async (packet) => {
     // Skip if no payload or topic
     if (!packet || !packet.topic || !packet.payload) return;
     const topic = packet.topic;
@@ -34,24 +32,29 @@ export function registerMqttHandlers(
       return;
     }
 
+    const match = topic.match(/^rb\/train\/(\d{5})\/(.+)$/);
+    if (!match) return;
+    const [, topicTrainNumber, sub] = match;
+
     try {
       const payloadStr = packet.payload.toString("utf-8");
       if (!payloadStr) return;
       const data = JSON.parse(payloadStr);
 
       // 1. New Order
-      if (topic === `${tripPrefix}/orders/new`) {
-        const parsed = OrderCreateSchema.safeParse(data);
-        if (parsed.success) {
-          logger.info({ orderId: parsed.data.id }, "MQTT incoming new order");
+      if (sub === "orders/new") {
+        const candidate = data && !data.trainNumber ? { ...data, trainNumber: topicTrainNumber } : data;
+        const parsed = OrderCreateSchema.safeParse(candidate);
+        if (parsed.success && parsed.data.trainNumber === topicTrainNumber) {
+          logger.info({ orderId: parsed.data.id, trainNumber: topicTrainNumber }, "MQTT incoming new order");
           await orderService.create(parsed.data);
         } else {
-          logger.warn({ errors: parsed.error }, "Invalid OrderCreate MQTT payload");
+          logger.warn({ topic, errors: parsed.success ? "trainNumber mismatch" : parsed.error }, "Invalid OrderCreate MQTT payload");
         }
       }
 
       // 2. Captain Actions
-      else if (topic.startsWith(`${tripPrefix}/captain/`) && topic.endsWith("/actions")) {
+      else if (sub!.startsWith("captain/") && sub!.endsWith("/actions")) {
         const parsed = MqttCaptainActionSchema.safeParse(data);
         if (parsed.success) {
           const action = parsed.data;
@@ -69,7 +72,7 @@ export function registerMqttHandlers(
       }
 
       // 3. Kitchen Actions
-      else if (topic === `${tripPrefix}/kitchen/actions`) {
+      else if (sub === "kitchen/actions") {
         const parsed = MqttKitchenActionSchema.safeParse(data);
         if (parsed.success) {
           const action = parsed.data;
@@ -83,7 +86,7 @@ export function registerMqttHandlers(
       }
 
       // 4. Complaints
-      else if (topic === `${tripPrefix}/complaints/new`) {
+      else if (sub === "complaints/new") {
         const parsed = ComplaintCreateSchema.safeParse(data);
         if (parsed.success) {
           logger.info({ complaintId: parsed.data.id }, "MQTT incoming complaint");

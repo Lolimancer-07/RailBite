@@ -62,7 +62,7 @@ class PassengerMqttClient {
   subscribeToOrder(orderId: string): void {
     this.subscribedOrders.add(orderId);
     if (this.client?.connected) {
-      const t = topics(netConfig.tripId);
+      const t = topics(netConfig.trainNumber);
       this.client.subscribe(t.orderStatus(orderId), { qos: 1 });
     }
   }

@@ -96,7 +96,9 @@ export class ComplaintService {
 
     const complaint = await this.complaintRepo.findById(input.id);
     if (!complaint) throw new Error(`Failed to load complaint after create: ${input.id}`);
-    await this.publisher.publishComplaintStatus(complaint.id, { status: complaint.status });
+    await this.publisher.publishComplaintStatus(order.trainNumber, complaint.id, {
+      status: complaint.status,
+    });
     return complaint;
   }
 

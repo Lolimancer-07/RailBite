@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { StaffLoginSchema } from "@railbite/shared";
+import { PickerStatusUpdateSchema, StaffLoginSchema, TrainNumberSchema } from "@railbite/shared";
 import type { StaffRepo } from "../db/repos/staffRepo.js";
 import type { LedgerRepo } from "../db/repos/ledgerRepo.js";
 import type { OrderRepo } from "../db/repos/orderRepo.js";
@@ -22,15 +22,16 @@ export function createStaffRoutes(
           return reply.status(400).send({ error: "Invalid credentials format", details: parsed.error });
         }
 
-        const { staffId, password, pin } = parsed.data;
+        const { staffId, password, pin, trainNumber } = parsed.data;
         try {
-          const result = await authService.staffLogin(staffId, { password, pin });
+          const result = await authService.staffLogin(staffId, { password, pin, trainNumber });
           // Legacy keys (`token`, `expiresAt`) keep the pre-auth pantry APK working.
           return {
             staffId: result.user.staffId || result.user.id,
             name: result.user.name,
             role: result.user.role === "picker" ? "CAPTAIN" : result.user.role === "kitchen" ? "COOK" : "ADMIN",
             zoneCoaches: result.user.zoneCoaches || [],
+            trainNumber: result.user.trainNumber || "12345",
             token: result.accessToken,
             accessToken: result.accessToken,
             refreshToken: result.refreshToken,
@@ -44,14 +45,55 @@ export function createStaffRoutes(
       },
     );
 
-    // POST /staff/:id/online — picker online/offline toggle
+    // POST /pickers/:id/status — toggle picker online/offline with required 5-digit trainNumber
+    fastify.post("/pickers/:id/status", async (request, reply) => {
+      if (!requireRoles(request, reply, ["picker", "kitchen", "admin"])) return;
+      const { id } = request.params as { id: string };
+      const parsed = PickerStatusUpdateSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: parsed.error.issues[0]?.message || "online boolean and 5-digit trainNumber are required",
+          details: parsed.error.issues,
+        });
+      }
+
+      if (request.auth && request.auth.role !== "admin" && request.auth.staffId !== id) {
+        return reply.status(403).send({ error: "You can only change your own status" });
+      }
+
+      const staff = await staffRepo.findById(id);
+      if (!staff) {
+        return reply.status(404).send({ error: "Staff not found" });
+      }
+
+      await staffRepo.setOnline(id, parsed.data.online, parsed.data.trainNumber);
+      return {
+        ok: true,
+        staffId: id,
+        online: parsed.data.online,
+        trainNumber: parsed.data.trainNumber,
+      };
+    });
+
+    // POST /staff/:id/online — legacy online/offline toggle (supports optional trainNumber)
     fastify.post("/staff/:id/online", async (request, reply) => {
       if (!requireRoles(request, reply, ["picker", "kitchen", "admin"])) return;
       const { id } = request.params as { id: string };
-      const { online } = (request.body || {}) as { online?: boolean };
+      const { online, trainNumber } = (request.body || {}) as {
+        online?: boolean;
+        trainNumber?: string;
+      };
 
       if (typeof online !== "boolean") {
         return reply.status(400).send({ error: "online boolean is required" });
+      }
+      if (trainNumber !== undefined) {
+        const validTrain = TrainNumberSchema.safeParse(trainNumber);
+        if (!validTrain.success) {
+          return reply.status(400).send({
+            error: validTrain.error.issues[0]?.message || "Enter a valid 5-digit train number",
+          });
+        }
       }
       if (request.auth && request.auth.role !== "admin" && request.auth.staffId !== id) {
         return reply.status(403).send({ error: "You can only change your own status" });
@@ -62,8 +104,8 @@ export function createStaffRoutes(
         return reply.status(404).send({ error: "Staff not found" });
       }
 
-      await staffRepo.setOnline(id, online);
-      return { ok: true, staffId: id, online };
+      await staffRepo.setOnline(id, online, trainNumber);
+      return { ok: true, staffId: id, online, trainNumber: trainNumber ?? staff.trainNumber };
     });
 
     // POST /staff/device-token — register FCM / APNs device token for staff alerts

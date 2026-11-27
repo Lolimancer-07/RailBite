@@ -39,10 +39,14 @@ export function findBestCaptain(
   orderCoach: string,
   captains: Staff[],
   excludeCaptainIds: string[] = [],
+  trainNumber?: string,
 ): Staff | null {
-  // Prototype rule: only ONLINE pickers receive orders
+  // Strict train isolation + online rule: ONLY online pickers on the matching train number qualify
   const candidates = captains.filter(
-    (c) => c.online && !excludeCaptainIds.includes(c.id),
+    (c) =>
+      c.online &&
+      !excludeCaptainIds.includes(c.id) &&
+      (!trainNumber || c.trainNumber === trainNumber),
   );
   if (candidates.length === 0) return null;
 

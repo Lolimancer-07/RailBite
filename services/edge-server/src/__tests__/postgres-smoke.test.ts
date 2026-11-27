@@ -98,6 +98,7 @@ pgDescribe("Postgres production driver", () => {
       headers: bearer(customer.accessToken),
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,
@@ -148,6 +149,7 @@ pgDescribe("Postgres production driver", () => {
       headers: bearer(customer.accessToken),
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 2,

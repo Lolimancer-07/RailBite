@@ -12,9 +12,10 @@ Passenger endpoints are unauthenticated but PNR-scoped.
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | GET | `/health` | None | `{ok, tripId, time, version}` |
+| GET | `/manifest/:pnr` | None | Lookup passenger manifest entry `{pnr, trainNumber, trainName, coach, berth}` |
 | GET | `/menu` | None | Active menu items with stock |
-| POST | `/orders` | None | Idempotent on `id`. Server reprices. |
-| GET | `/orders/:id` | None | Single order with items |
+| POST | `/orders` | None | Idempotent on `id`. Requires 5-digit `trainNumber`. Server reprices and dispatches strictly within `trainNumber`. |
+| GET | `/orders/:id` | None | Single order with items + `trainNumber` |
 | GET | `/orders?pnr=...` | None | Passenger's orders |
 | POST | `/orders/:id/cancel` | None | Only before ACCEPTED/COOKING |
 | POST | `/orders/:id/accept` | Picker | Body: `{captainId}` |
@@ -25,12 +26,13 @@ Passenger endpoints are unauthenticated but PNR-scoped.
 | POST | `/orders/:id/feedback` | Passenger | Body: `{received, rating?, reasons?}` — FOT-style post-delivery feedback; only for DELIVERED orders, else `409` 🔸PROTOTYPE |
 | POST | `/orders/:id/confirm-cash` | None | Passenger confirms cash paid |
 | GET | `/orders/:id/messages` | Customer / Picker | Chronological quick-chat messages for an order |
-| POST | `/orders/:id/messages` | Customer / Picker | Send preset or 120-char custom message (idempotent on `id`; `409` outside `ACCEPTED`/`PACKING`/`OUT_FOR_DELIVERY`; publishes MQTT `rb/{trip}/orders/{orderId}/chat` QoS 1) |
+| POST | `/orders/:id/messages` | Customer / Picker | Send preset or 120-char custom message (idempotent on `id`; `409` outside `ACCEPTED`/`PACKING`/`OUT_FOR_DELIVERY`; publishes MQTT `rb/train/{trainNumber}/orders/{orderId}/chat` QoS 1) |
 | GET | `/orders/:id` | None | Passenger view includes `deliveryCode` + `feedback`; append `?role=picker` to strip the code |
 | POST | `/kitchen/:id/start` | Cook | Mark cooking started |
 | POST | `/kitchen/:id/ready` | Cook | Mark item ready |
-| POST | `/staff/login` | None | Returns session token |
-| POST | `/staff/:id/online` | Picker | Body: `{online:boolean}` — online/offline toggle 🔸PROTOTYPE |
+| POST | `/staff/login` | None | Returns session token + assigned `trainNumber` (optional `trainNumber` override) |
+| POST | `/pickers/:id/status` | Picker | Body: `{online:boolean, trainNumber:string}` — toggle online/offline and confirm active 5-digit `trainNumber` |
+| POST | `/staff/:id/online` | Picker | Body: `{online:boolean, trainNumber?:string}` — legacy online/offline toggle |
 | GET | `/staff/:id/stats` | Picker | Today's orders delivered, cash collected, expected, confirmed, + `avgRating`/`feedbackCount` (passenger star feedback) 🔸PROTOTYPE |
 | GET | `/staff/:id/orders` | Picker | Active non-terminal orders (`ACCEPTED`/`PACKING`/`OUT_FOR_DELIVERY`) assigned to `:id` (`deliveryCode` stripped) |
 | GET | `/staff/:id/ledger` | Picker | Today's summary + chronological per-order cash ledger entries (`Confirmed` vs `Awaiting Passenger`) |
@@ -40,6 +42,19 @@ Passenger endpoints are unauthenticated but PNR-scoped.
 | GET | `/ledger/summary` | Captain | Expected vs collected cash |
 | POST | `/sync/flush` | Admin | STRETCH: triggers outbox sync |
 | POST | `/sms/ingest` | Internal | STRETCH: SMS token ingest |
+
+## Train-Scoped MQTT Topics
+
+All MQTT topics are strictly isolated by 5-digit `trainNumber` (`^\d{5}$`):
+- `rb/train/{trainNumber}/orders/new`
+- `rb/train/{trainNumber}/orders/{orderId}/status` (retained QoS 1; includes optional `NO_PICKER_ON_TRAIN` code when 0 pickers are online on `trainNumber`)
+- `rb/train/{trainNumber}/orders/{orderId}/chat` (QoS 1)
+- `rb/train/{trainNumber}/captain/{staffId}/alerts` (QoS 1; payload includes `trainNumber`)
+- `rb/train/{trainNumber}/captain/{staffId}/actions` (QoS 1)
+- `rb/train/{trainNumber}/kitchen/queue`
+- `rb/train/{trainNumber}/kitchen/actions`
+- `rb/train/{trainNumber}/complaints/new`
+- `rb/train/{trainNumber}/complaints/{complaintId}/status`
 
 ## Error Responses
 

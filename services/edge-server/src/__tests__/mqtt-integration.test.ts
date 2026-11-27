@@ -68,6 +68,7 @@ describe("Phase 2 Done-When End-to-End Verification", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,

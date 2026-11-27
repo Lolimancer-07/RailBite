@@ -48,23 +48,47 @@ export class Dispatcher {
     const assignedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
 
+    // Strict train isolation: ONLY pickers assigned to this exact 5-digit trainNumber and online qualify.
+    const trainOnlineCaptains = captains.filter(
+      (c) => c.online && c.trainNumber === order.trainNumber,
+    );
+
+    if (trainOnlineCaptains.length === 0) {
+      logger.warn(
+        { orderId: order.id, trainNumber: order.trainNumber, attempt },
+        "No online picker on train; keeping order PLACED / emitting NO_PICKER_ON_TRAIN",
+      );
+      await this.publisher.publishOrderStatus(order.trainNumber, order.id, {
+        status: order.status,
+        trainNumber: order.trainNumber,
+        code: "NO_PICKER_ON_TRAIN",
+        message: `Waiting for an online picker on Train ${order.trainNumber}...`,
+        updatedAt: assignedAt,
+      });
+      return;
+    }
+
     // Single-target dispatch must reach a picker we can actually alert. A captain
     // without a deviceToken only gets a private MQTT topic no phone may be listening
-    // to, which burns the whole 60s window in dead air (field-observed 2026-11-16:
-    // an order placed 13:50:57 alerted the device at 13:53:58 after two token-less
-    // attempts). Prefer token-equipped captains; fall back to every online captain
-    // for mesh/offline deployments where no one has registered a token yet.
-    const reachable = captains.filter((c) => c.online && c.deviceToken);
-    const alertPool = reachable.length > 0 ? reachable : captains.filter((c) => c.online);
+    // to, which burns the whole 60s window in dead air. Prefer token-equipped captains;
+    // fall back to every online captain on this same train.
+    const reachable = trainOnlineCaptains.filter((c) => c.deviceToken);
+    const alertPool = reachable.length > 0 ? reachable : trainOnlineCaptains;
 
-    // Find best captain
-    let captain = findBestCaptain(order.coach, alertPool, excludedCaptainIds);
+    // Find best captain STRICTLY on the same trainNumber
+    const captain = findBestCaptain(
+      order.coach,
+      alertPool,
+      excludedCaptainIds,
+      order.trainNumber,
+    );
 
-    // If attempt >= 3 or no captain found in zone, alert all online captains
+    // If attempt >= 3 or no direct captain available after exclusions, alert all online pickers on THIS train only
     const isBroadcast = attempt >= 3 || !captain;
 
     const alertPayload = {
       orderId: order.id,
+      trainNumber: order.trainNumber,
       coach: order.coach,
       berth: order.berth,
       items: (order.items || []).map((i) => ({
@@ -92,28 +116,30 @@ export class Dispatcher {
     }
 
     if (isBroadcast) {
-      logger.info({ orderId: order.id, attempt }, "Re-broadcasting order to ALL captains");
-      for (const c of captains) {
-        if (c.online) {
-          await this.orderRepo.createAssignment(order.id, c.id, attempt, assignedAt);
-          await this.publisher.publishCaptainAlert(c.id, alertPayload);
-          if (c.deviceToken) {
-            sendFcmAlert(c.deviceToken, {
-              type: "ORDER_DISPATCH",
-              orderId: order.id,
-              coach: order.coach,
-              berth: String(order.berth),
-              total: String(order.totalPaise),
-              track: order.track || "READY",
-              attempt: String(attempt),
-              expiresAt,
-              pnr: order.pnr || "",
-              diners: String(order.diners || 1),
-              verified: String(order.verified || 1),
-              items: JSON.stringify(alertPayload.items),
-              paymentMode: String(order.paymentMode || "COD"),
-            }).catch((err) => logger.warn({ err }, "FCM broadcast dispatch failed"));
-          }
+      logger.info(
+        { orderId: order.id, trainNumber: order.trainNumber, attempt },
+        "Re-broadcasting order to online captains on same train",
+      );
+      for (const c of trainOnlineCaptains) {
+        await this.orderRepo.createAssignment(order.id, c.id, attempt, assignedAt);
+        await this.publisher.publishCaptainAlert(order.trainNumber, c.id, alertPayload);
+        if (c.deviceToken) {
+          sendFcmAlert(c.deviceToken, {
+            type: "ORDER_DISPATCH",
+            orderId: order.id,
+            trainNumber: order.trainNumber,
+            coach: order.coach,
+            berth: String(order.berth),
+            total: String(order.totalPaise),
+            track: order.track || "READY",
+            attempt: String(attempt),
+            expiresAt,
+            pnr: order.pnr || "",
+            diners: String(order.diners || 1),
+            verified: String(order.verified || 1),
+            items: JSON.stringify(alertPayload.items),
+            paymentMode: String(order.paymentMode || "COD"),
+          }).catch((err) => logger.warn({ err }, "FCM broadcast dispatch failed"));
         }
       }
 
@@ -137,11 +163,12 @@ export class Dispatcher {
       }
     } else if (captain) {
       await this.orderRepo.createAssignment(order.id, captain.id, attempt, assignedAt);
-      await this.publisher.publishCaptainAlert(captain.id, alertPayload);
+      await this.publisher.publishCaptainAlert(order.trainNumber, captain.id, alertPayload);
       if (captain.deviceToken) {
         sendFcmAlert(captain.deviceToken, {
           type: "ORDER_DISPATCH",
           orderId: order.id,
+          trainNumber: order.trainNumber,
           coach: order.coach,
           berth: String(order.berth),
           total: String(order.totalPaise),
@@ -156,7 +183,13 @@ export class Dispatcher {
         }).catch((err) => logger.warn({ err }, "FCM direct dispatch failed"));
       }
       logger.info(
-        { orderId: order.id, captainId: captain.id, coach: order.coach, attempt },
+        {
+          orderId: order.id,
+          trainNumber: order.trainNumber,
+          captainId: captain.id,
+          coach: order.coach,
+          attempt,
+        },
         "Order assigned to captain",
       );
     }
@@ -189,20 +222,25 @@ export class Dispatcher {
   }
 
   handleCookReady(order: Order): void {
-    // Cook track order is ready: add to batcher
-    this.batcher.addOrder(order.coach, order.id, (_coach, orderIds) => {
-      void (async () => {
-        for (const oId of orderIds) {
-          const fullOrder = await this.orderRepo.findById(oId);
-          if (
-            fullOrder &&
-            (fullOrder.status === OrderStatus.READY || fullOrder.status === OrderStatus.PLACED)
-          ) {
-            await this.dispatchOrder(fullOrder);
+    // Cook track order is ready: add to train+coach batcher
+    this.batcher.addOrder(
+      order.coach,
+      order.id,
+      (_coach, orderIds) => {
+        void (async () => {
+          for (const oId of orderIds) {
+            const fullOrder = await this.orderRepo.findById(oId);
+            if (
+              fullOrder &&
+              (fullOrder.status === OrderStatus.READY || fullOrder.status === OrderStatus.PLACED)
+            ) {
+              await this.dispatchOrder(fullOrder);
+            }
           }
-        }
-      })();
-    });
+        })();
+      },
+      order.trainNumber,
+    );
   }
 
   flushBatches(): void {

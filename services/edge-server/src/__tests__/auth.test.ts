@@ -69,6 +69,7 @@ describe("Production auth spine", () => {
       url: "/orders",
       payload: {
         id: crypto.randomUUID(),
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,
@@ -107,6 +108,7 @@ describe("Production auth spine", () => {
       headers: bearer(alice.accessToken),
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,
@@ -150,6 +152,7 @@ describe("Production auth spine", () => {
       headers: bearer(customer.accessToken),
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,

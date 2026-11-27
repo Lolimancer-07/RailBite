@@ -46,19 +46,21 @@ export function createSmsRoutes(db: Db, orderService: OrderService): FastifyPlug
         new Date().toISOString(),
       ]);
 
-      // 4. Manifest match: find full PNR if passenger in manifest
-      const manifestRow = await db.get<{ pnr: string }>(
-        "SELECT pnr FROM manifest WHERE pnr LIKE ? AND coach = ? AND berth = ?",
+      // 4. Manifest match: find full PNR + train number if passenger in manifest
+      const manifestRow = await db.get<{ pnr: string; train_number: string }>(
+        "SELECT pnr, train_number FROM manifest WHERE pnr LIKE ? AND coach = ? AND berth = ?",
         [`%${decoded.pnrLast4}`, decoded.coach, decoded.berth],
       );
 
       const pnr = manifestRow?.pnr || `PNR_SMS_${decoded.pnrLast4}`;
+      const trainNumber = manifestRow?.train_number || "12345";
 
       // 5. Create Order via orderService
       const orderId = crypto.randomUUID();
       try {
         const order = await orderService.create({
           id: orderId,
+          trainNumber,
           pnr,
           coach: decoded.coach,
           berth: decoded.berth,

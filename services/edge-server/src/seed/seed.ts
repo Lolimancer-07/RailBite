@@ -23,13 +23,20 @@ export async function seed(target?: Db | Database.Database | string): Promise<vo
 
   const now = new Date().toISOString();
 
-  // 1. Seed Trip
-  await db.run(
-    `INSERT INTO trips (id, train_no, run_date, hmac_secret, created_at)
-     VALUES (?, ?, ?, ?, ?)
-     ON CONFLICT (id) DO NOTHING`,
-    [config.tripId, "12951", "2026-11-06", config.hmacSecret, now],
-  );
+  // 1. Seed Trips (two distinct trains + default config tripId for SMS/health)
+  const tripsToSeed = [
+    { id: "12345", trainNo: "12345" },
+    { id: "12423", trainNo: "12423" },
+    { id: config.tripId, trainNo: "12345" },
+  ];
+  for (const trip of tripsToSeed) {
+    await db.run(
+      `INSERT INTO trips (id, train_no, run_date, hmac_secret, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO NOTHING`,
+      [trip.id, trip.trainNo, "2026-11-06", config.hmacSecret, now],
+    );
+  }
 
   // 2. Seed Menu Items (16 items: 15 instant READY across 5 categories; isVeg markers FOT-style)
   const menuItems = [
@@ -74,19 +81,27 @@ export async function seed(target?: Db | Database.Database | string): Promise<vo
   const pinHash = crypto.createHash("sha256").update("1234").digest("hex");
   const passwordHash = bcrypt.hashSync("railbite123", 10);
   const staff = [
-    { id: "c1", name: "Ramesh Kumar (Picker B1-B2)", role: "CAPTAIN", zone: ["B1", "B2"] },
-    { id: "c2", name: "Suresh Sharma (Picker B3-B4)", role: "CAPTAIN", zone: ["B3", "B4"] },
-    { id: "c3", name: "Amit Verma (Picker S1-S2)", role: "CAPTAIN", zone: ["S1", "S2"] },
-    { id: "c4", name: "Deepak Patel (Picker S3-S4)", role: "CAPTAIN", zone: ["S3", "S4"] },
-    { id: "k1", name: "Chef Rajesh (Head Cook)", role: "COOK", zone: ["PANTRY"] },
+    { id: "c1", name: "Ramesh Kumar (Picker B1-B2)", role: "CAPTAIN", zone: ["B1", "B2"], trainNumber: "12345" },
+    { id: "c2", name: "Suresh Sharma (Picker B3-B4)", role: "CAPTAIN", zone: ["B3", "B4"], trainNumber: "12345" },
+    { id: "c3", name: "Amit Verma (Picker B1-B2)", role: "CAPTAIN", zone: ["B1", "B2", "S1", "S2"], trainNumber: "12423" },
+    { id: "c4", name: "Deepak Patel (Picker S3-S4)", role: "CAPTAIN", zone: ["B3", "B4", "S3", "S4"], trainNumber: "12423" },
+    { id: "k1", name: "Chef Rajesh (Head Cook)", role: "COOK", zone: ["PANTRY"], trainNumber: "12345" },
   ];
 
   for (const member of staff) {
     await db.run(
-      `INSERT INTO staff (id, name, role, zone_coaches, pin_hash, password_hash, online, active)
-       VALUES (?, ?, ?, ?, ?, ?, 1, 1)
+      `INSERT INTO staff (id, name, role, zone_coaches, train_number, pin_hash, password_hash, online, active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 1)
        ON CONFLICT (id) DO NOTHING`,
-      [member.id, member.name, member.role, JSON.stringify(member.zone), pinHash, passwordHash],
+      [
+        member.id,
+        member.name,
+        member.role,
+        JSON.stringify(member.zone),
+        member.trainNumber,
+        pinHash,
+        passwordHash,
+      ],
     );
     // Upgrade legacy rows (pre-auth deployments) with the demo password.
     await db.run(
@@ -95,11 +110,14 @@ export async function seed(target?: Db | Database.Database | string): Promise<vo
     );
   }
 
-  // 4. Seed Manifest (120 fake passengers across B1-B4 and S1-S4)
+  // 4. Seed Manifest (120 passengers across Train 12345 Saraighat Express [B1-B4] and Train 12423 Rajdhani Express [S1-S4])
   const coaches = ["B1", "B2", "B3", "B4", "S1", "S2", "S3", "S4"];
   let pnrCounter = 8492000001;
 
   for (const coach of coaches) {
+    const isRajdhani = coach.startsWith("S");
+    const trainNumber = isRajdhani ? "12423" : "12345";
+    const trainName = isRajdhani ? "Rajdhani Express" : "Saraighat Express";
     for (let berth = 1; berth <= 15; berth++) {
       const pnr = String(pnrCounter++);
       const nameHash = crypto
@@ -107,18 +125,18 @@ export async function seed(target?: Db | Database.Database | string): Promise<vo
         .update(`Passenger_${coach}_${berth}`)
         .digest("hex");
       await db.run(
-        `INSERT INTO manifest (pnr, coach, berth, name_hash)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO manifest (pnr, train_number, train_name, coach, berth, name_hash)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT (pnr, coach, berth) DO NOTHING`,
-        [pnr, coach, berth, nameHash],
+        [pnr, trainNumber, trainName, coach, berth, nameHash],
       );
     }
   }
 
   console.log(
-    "Seeding complete: 1 Trip, 16 instant Menu Items (5 categories, veg/non-veg marked), " +
-      "5 Staff (pickers c1-c4 / password railbite123 / legacy PIN 1234, 1 cook), " +
-      "120 Passengers (PNR 8492000001-8492000120).",
+    "Seeding complete: 2 Trains (12345 Saraighat Express, 12423 Rajdhani Express), 16 instant Menu Items, " +
+      "5 Staff (c1-c2 on 12345, c3-c4 on 12423, k1 cook / password railbite123 / legacy PIN 1234), " +
+      "120 Passengers (PNR 8492000001-8492000060 on 12345, 8492000061-8492000120 on 12423).",
   );
 }
 

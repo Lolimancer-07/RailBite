@@ -24,6 +24,7 @@ export interface AuthUser {
   role: AuthRole;
   staffId?: string;
   zoneCoaches?: string[];
+  trainNumber?: string;
 }
 
 export interface AuthResult {
@@ -49,6 +50,7 @@ interface StaffAuthRow {
   name: string;
   role: "CAPTAIN" | "COOK";
   zone_coaches: string;
+  train_number: string;
   pin_hash: string | null;
   password_hash: string | null;
   active: number | boolean;
@@ -189,10 +191,10 @@ export class AuthService {
 
   async staffLogin(
     staffId: string,
-    credentials: { password?: string; pin?: string },
+    credentials: { password?: string; pin?: string; trainNumber?: string },
   ): Promise<AuthResult> {
     const row = await this.db.get<StaffAuthRow>(
-      "SELECT id, name, role, zone_coaches, pin_hash, password_hash, active, is_admin FROM staff WHERE id = ?",
+      "SELECT id, name, role, zone_coaches, train_number, pin_hash, password_hash, active, is_admin FROM staff WHERE id = ?",
       [staffId],
     );
     if (!row) throw new AuthError("Invalid staff ID or password");
@@ -208,9 +210,13 @@ export class AuthService {
     }
     if (!valid) throw new AuthError("Invalid staff ID or password");
 
+    const activeTrain = credentials.trainNumber || row.train_number || "12345";
     // Seeded/existing accounts keep working; a password set later upgrades them.
     const now = new Date().toISOString();
-    await this.db.run("UPDATE staff SET online = 1 WHERE id = ?", [row.id]);
+    await this.db.run("UPDATE staff SET online = 1, train_number = ? WHERE id = ?", [
+      activeTrain,
+      row.id,
+    ]);
 
     const role: AuthRole = row.is_admin ? "admin" : row.role === "CAPTAIN" ? "picker" : "kitchen";
     const user: AuthUser = {
@@ -219,6 +225,7 @@ export class AuthService {
       name: row.name,
       role,
       zoneCoaches: JSON.parse(row.zone_coaches || "[]"),
+      trainNumber: activeTrain,
     };
     const result = await this.issueTokens(user, "staff", role);
     // Keep the legacy `loginAt` signal for the kitchen/dashboard surfaces.
@@ -335,7 +342,7 @@ export class AuthService {
 
   private async getStaffUser(id: string): Promise<AuthUser | null> {
     const row = await this.db.get<StaffAuthRow>(
-      "SELECT id, name, role, zone_coaches, active, is_admin FROM staff WHERE id = ?",
+      "SELECT id, name, role, zone_coaches, train_number, active, is_admin FROM staff WHERE id = ?",
       [id],
     );
     if (!row || !row.active) return null;
@@ -345,6 +352,7 @@ export class AuthService {
       name: row.name,
       role: row.is_admin ? "admin" : row.role === "CAPTAIN" ? "picker" : "kitchen",
       zoneCoaches: JSON.parse(row.zone_coaches || "[]"),
+      trainNumber: row.train_number || "12345",
     };
   }
 }

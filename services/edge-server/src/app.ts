@@ -11,6 +11,7 @@ import type Database from "better-sqlite3";
 import { config } from "./config.js";
 import { toDb, type Db } from "./db/db.js";
 import { MenuRepo } from "./db/repos/menuRepo.js";
+import { ManifestRepo } from "./db/repos/manifestRepo.js";
 import { StaffRepo } from "./db/repos/staffRepo.js";
 import { LedgerRepo } from "./db/repos/ledgerRepo.js";
 import { OutboxRepo } from "./db/repos/outboxRepo.js";
@@ -24,6 +25,7 @@ import { registerAuthHook } from "./auth/plugin.js";
 
 import { healthRoutes } from "./routes/health.js";
 import { createMenuRoutes } from "./routes/menu.js";
+import { createManifestRoutes } from "./routes/manifest.js";
 import { createStaffRoutes } from "./routes/staff.js";
 import { createOrderRoutes } from "./routes/orders.js";
 import { createKitchenRoutes } from "./routes/kitchen.js";
@@ -94,6 +96,7 @@ export async function createApp(
 
   // Repositories & Services
   const menuRepo = new MenuRepo(db);
+  const manifestRepo = new ManifestRepo(db);
   const staffRepo = new StaffRepo(db);
   const ledgerRepo = new LedgerRepo(db);
   const outboxRepo = new OutboxRepo(db);
@@ -109,6 +112,7 @@ export async function createApp(
   await app.register(healthRoutes);
   await app.register(createAuthRoutes(authService));
   await app.register(createMenuRoutes(menuRepo));
+  await app.register(createManifestRoutes(manifestRepo));
   await app.register(createStaffRoutes(staffRepo, ledgerRepo, authService, orderRepo));
   await app.register(createOrderRoutes(orderService));
   await app.register(createKitchenRoutes(orderService));

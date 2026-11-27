@@ -1,11 +1,11 @@
-export function topics(tripId: string) {
-  const prefix = `rb/${tripId}`;
+export function topics(trainNumber: string) {
+  const prefix = `rb/train/${trainNumber}`;
   return {
     ordersNew: `${prefix}/orders/new`,
     orderStatus: (orderId: string) => `${prefix}/orders/${orderId}/status`,
     orderChat: (orderId: string) => `${prefix}/orders/${orderId}/chat`,
-    captainAlerts: (captainId: string) => `${prefix}/captain/${captainId}/alerts`,
-    captainActions: (captainId: string) => `${prefix}/captain/${captainId}/actions`,
+    captainAlerts: (staffId: string) => `${prefix}/captain/${staffId}/alerts`,
+    captainActions: (staffId: string) => `${prefix}/captain/${staffId}/actions`,
     kitchenQueue: `${prefix}/kitchen/queue`,
     kitchenActions: `${prefix}/kitchen/actions`,
     complaintsNew: `${prefix}/complaints/new`,

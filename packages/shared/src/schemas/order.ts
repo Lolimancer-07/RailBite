@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+export const TrainNumberSchema = z
+  .string()
+  .regex(/^\d{5}$/, "Enter a valid 5-digit train number");
+export type TrainNumber = z.infer<typeof TrainNumberSchema>;
+
 export const OrderItemSchema = z.object({
   itemId: z.string().uuid(),
   qty: z.number().int().min(1).max(10),
@@ -7,6 +12,7 @@ export const OrderItemSchema = z.object({
 
 export const OrderCreateSchema = z.object({
   id: z.string().uuid(),
+  trainNumber: TrainNumberSchema,
   pnr: z.string().regex(/^\d{10}$/, "PNR must be 10 digits"),
   coach: z.string().regex(/^[A-Z]{1,2}\d{1,2}$/, "Invalid coach format, e.g. B3, SL7"),
   berth: z.number().int().min(1).max(100),
@@ -23,6 +29,7 @@ export type OrderCreate = z.infer<typeof OrderCreateSchema>;
 /** Idempotent offline BLE mesh sync payload submitted when LAN returns. */
 export const MeshOrderSyncSchema = z.object({
   id: z.string().uuid(),
+  trainNumber: TrainNumberSchema,
   pnr: z.string().regex(/^\d{10}$/, "PNR must be 10 digits"),
   coach: z.string().min(1).max(4),
   berth: z.number().int().min(1).max(100),
@@ -40,8 +47,20 @@ export const MeshOrderSyncSchema = z.object({
 });
 export type MeshOrderSync = z.infer<typeof MeshOrderSyncSchema>;
 
+export const ManifestEntrySchema = z.object({
+  pnr: z.string(),
+  trainNumber: TrainNumberSchema,
+  trainName: z.string(),
+  coach: z.string(),
+  berth: z.number().int(),
+});
+export type ManifestEntry = z.infer<typeof ManifestEntrySchema>;
+
 export const OrderStatusUpdateSchema = z.object({
   status: z.string(),
+  trainNumber: TrainNumberSchema.optional(),
+  code: z.string().optional(),
+  message: z.string().optional(),
   updatedAt: z.string().datetime(),
   captainName: z.string().optional(),
   etaMin: z.number().int().optional(),
@@ -65,6 +84,7 @@ export type FeedbackRead = z.infer<typeof FeedbackReadSchema>;
 
 export const OrderSchema = z.object({
   id: z.string().uuid(),
+  trainNumber: TrainNumberSchema,
   pnr: z.string(),
   coach: z.string(),
   berth: z.number().int(),

@@ -7,11 +7,8 @@ import type {
   MqttKitchenQueueItem,
   OrderMessage,
 } from "@railbite/shared";
-import { config } from "../config.js";
 
 export class MqttPublisher extends EventEmitter {
-  private t = topics(config.tripId);
-
   constructor(private aedes: Aedes) {
     super();
   }
@@ -37,23 +34,40 @@ export class MqttPublisher extends EventEmitter {
     });
   }
 
-  async publishOrderStatus(orderId: string, status: MqttOrderStatus, retain: boolean = true): Promise<void> {
-    await this.publish(this.t.orderStatus(orderId), status, retain, 1);
+  async publishOrderStatus(
+    trainNumber: string,
+    orderId: string,
+    status: MqttOrderStatus,
+    retain: boolean = true,
+  ): Promise<void> {
+    await this.publish(topics(trainNumber).orderStatus(orderId), status, retain, 1);
   }
 
-  async publishOrderChat(orderId: string, message: OrderMessage): Promise<void> {
-    await this.publish(this.t.orderChat(orderId), message, false, 1);
+  async publishOrderChat(trainNumber: string, orderId: string, message: OrderMessage): Promise<void> {
+    await this.publish(topics(trainNumber).orderChat(orderId), message, false, 1);
   }
 
-  async publishCaptainAlert(captainId: string, alert: MqttOrderAlert): Promise<void> {
-    await this.publish(this.t.captainAlerts(captainId), alert, false, 1);
+  async publishCaptainAlert(
+    trainNumber: string,
+    captainId: string,
+    alert: MqttOrderAlert,
+  ): Promise<void> {
+    await this.publish(topics(trainNumber).captainAlerts(captainId), alert, false, 1);
   }
 
-  async publishKitchenQueue(queue: MqttKitchenQueueItem[], retain: boolean = true): Promise<void> {
-    await this.publish(this.t.kitchenQueue, queue, retain, 1);
+  async publishKitchenQueue(
+    trainNumber: string,
+    queue: MqttKitchenQueueItem[],
+    retain: boolean = true,
+  ): Promise<void> {
+    await this.publish(topics(trainNumber).kitchenQueue, queue, retain, 1);
   }
 
-  async publishComplaintStatus(complaintId: string, status: { status: string }): Promise<void> {
-    await this.publish(this.t.complaintStatus(complaintId), status, true, 1);
+  async publishComplaintStatus(
+    trainNumber: string,
+    complaintId: string,
+    status: { status: string },
+  ): Promise<void> {
+    await this.publish(topics(trainNumber).complaintStatus(complaintId), status, true, 1);
   }
 }

@@ -16,8 +16,10 @@ export class CookBatcher {
     coach: string,
     orderId: string,
     onBatchReady: (coach: string, orderIds: string[]) => void,
+    trainNumber: string = "12345",
   ): void {
-    const coachKey = coach.toUpperCase();
+    const coachNorm = coach.toUpperCase();
+    const coachKey = `${trainNumber}:${coachNorm}`;
     let batch = this.batches.get(coachKey);
 
     if (!batch) {
@@ -27,7 +29,7 @@ export class CookBatcher {
 
     batch.entries.push({
       orderId,
-      coach: coachKey,
+      coach: coachNorm,
       readyAt: Date.now(),
     });
 

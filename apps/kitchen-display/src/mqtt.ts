@@ -1,8 +1,8 @@
 import mqtt from "mqtt";
 import { topics, type MqttKitchenQueueItem, type MqttKitchenAction } from "@railbite/shared";
 
-export const tripId = "TRIP_001";
-const t = topics(tripId);
+export const trainNumber = "12345";
+const t = topics(trainNumber);
 
 export type KitchenQueueListener = (orders: MqttKitchenQueueItem[]) => void;
 export type ComplaintListener = (complaint: any) => void;

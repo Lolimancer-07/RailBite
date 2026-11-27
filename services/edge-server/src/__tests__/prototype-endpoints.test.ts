@@ -47,6 +47,7 @@ describe("Prototype endpoints (PACKING status, picker toggle & stats)", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,
@@ -133,9 +134,8 @@ describe("Prototype endpoints (PACKING status, picker toggle & stats)", () => {
     expect(toggleres.statusCode).toBe(200);
     expect(JSON.parse(toggleres.body)).toMatchObject({ ok: true, staffId: "c1", online: false });
 
-    // Order in B1: no picker is zoned to B1 AND online (c2-c4 cover B3..S4)
-    // -> broadcast would alert only online captains c2, c3, c4 (attempt 1 picks c4 nearest? nearest zone is c2 B3)
-    // Simplest invariant: NO alert may be published to offline c1
+    // Order in B1: no picker is zoned to B1 AND online on Train 12345 (c2 covers B3-B4 on 12345)
+    // Invariant: NO alert may be published to offline c1 (nor cross-train pickers on 12423)
     const alerts: Array<{ topic: string; payload: any }> = [];
     publisher.on("published", (event) => {
       if (event.topic.includes("/captain/") && event.topic.includes("/alerts")) {
@@ -148,6 +148,7 @@ describe("Prototype endpoints (PACKING status, picker toggle & stats)", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,

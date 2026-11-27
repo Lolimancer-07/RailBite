@@ -50,6 +50,7 @@ describe("POST /orders/mesh-sync idempotent offline BLE reconciliation", () => {
       url: "/orders/mesh-sync",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 4,
@@ -75,6 +76,7 @@ describe("POST /orders/mesh-sync idempotent offline BLE reconciliation", () => {
       url: "/orders/mesh-sync",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 4,
@@ -100,6 +102,7 @@ describe("POST /orders/mesh-sync idempotent offline BLE reconciliation", () => {
       url: "/orders/mesh-sync",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 4,
@@ -134,6 +137,7 @@ describe("POST /orders/mesh-sync idempotent offline BLE reconciliation", () => {
       url: "/orders/mesh-sync",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000002",
         coach: "B1",
         berth: 5,
@@ -154,6 +158,7 @@ describe("POST /orders/mesh-sync idempotent offline BLE reconciliation", () => {
       url: "/orders/mesh-sync",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000002",
         coach: "B1",
         berth: 5,

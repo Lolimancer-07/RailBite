@@ -76,6 +76,7 @@ describe("RailBite Edge Server Core", () => {
 
     const payload = {
       id: orderId,
+      trainNumber: "12345",
       pnr: "8492000001",
       coach: "B1",
       berth: 1,
@@ -120,6 +121,7 @@ describe("RailBite Edge Server Core", () => {
 
     const payload = {
       id: orderId,
+      trainNumber: "12345",
       pnr: "8492000001",
       coach: "B1",
       berth: 1,
@@ -153,6 +155,7 @@ describe("RailBite Edge Server Core", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,
@@ -193,6 +196,7 @@ describe("RailBite Edge Server Core", () => {
         url: "/orders",
         payload: {
           id: orderId,
+          trainNumber: "12345",
           pnr: "8492000001",
           coach: "B1",
           berth: 1,
@@ -228,6 +232,7 @@ describe("RailBite Edge Server Core", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,

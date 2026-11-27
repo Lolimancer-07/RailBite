@@ -125,8 +125,13 @@ export class OrderService {
     // 4. Determine track: any COOK item makes the whole order COOK track
     const track = determineTrack(itemTracks);
 
-    // 5. Check manifest (set verified=0 if passenger not in manifest)
-    const isManifested = await this.manifestRepo.checkPassenger(input.pnr, input.coach, input.berth);
+    // 5. Check manifest (set verified=0 if passenger not in manifest on this train)
+    const isManifested = await this.manifestRepo.checkPassenger(
+      input.pnr,
+      input.coach,
+      input.berth,
+      input.trainNumber,
+    );
     const verified = isManifested ? 1 : 0;
 
     const now = new Date().toISOString();
@@ -139,6 +144,7 @@ export class OrderService {
 
       const inserted = await orderRepo.insertOrder({
         id: input.id,
+        trainNumber: input.trainNumber,
         pnr: input.pnr,
         coach: input.coach,
         berth: input.berth,
@@ -178,6 +184,7 @@ export class OrderService {
 
       await outboxRepo.append("ORDER_CREATED", {
         orderId: input.id,
+        trainNumber: input.trainNumber,
         pnr: input.pnr,
         totalPaise: pricing.totalPaise,
         track,
@@ -191,8 +198,9 @@ export class OrderService {
     }
 
     // Publish initial status
-    await this.publisher.publishOrderStatus(order.id, {
+    await this.publisher.publishOrderStatus(order.trainNumber, order.id, {
       status: order.status,
+      trainNumber: order.trainNumber,
       updatedAt: order.updatedAt,
     });
 
@@ -202,7 +210,7 @@ export class OrderService {
         await this.dispatcher.dispatchOrder(order);
       }
     } else {
-      await this.publishKitchenQueue();
+      await this.publishKitchenQueue(order.trainNumber);
     }
 
     return order;
@@ -233,6 +241,7 @@ export class OrderService {
       input.pnr,
       input.coach.trim().toUpperCase(),
       input.berth,
+      input.trainNumber,
     ))
       ? 1
       : 0;
@@ -247,6 +256,7 @@ export class OrderService {
 
       const inserted = await orderRepo.insertOrder({
         id: input.id,
+        trainNumber: input.trainNumber,
         pnr: input.pnr,
         coach: input.coach.trim().toUpperCase(),
         berth: input.berth,
@@ -276,6 +286,7 @@ export class OrderService {
         );
         await outboxRepo.append("ORDER_CREATED", {
           orderId: input.id,
+          trainNumber: input.trainNumber,
           pnr: input.pnr,
           totalPaise: pricing.totalPaise,
           track: Track.READY,
@@ -325,8 +336,9 @@ export class OrderService {
     if (!synced) throw new Error(`Failed to retrieve synced order: ${input.id}`);
 
     const captain = input.captainId ? await this.staffRepo.findById(input.captainId) : null;
-    await this.publisher.publishOrderStatus(synced.id, {
+    await this.publisher.publishOrderStatus(synced.trainNumber, synced.id, {
       status: synced.status,
+      trainNumber: synced.trainNumber,
       updatedAt: synced.updatedAt,
       captainName: captain?.name,
     });
@@ -353,6 +365,7 @@ export class OrderService {
     // Record in outbox
     await this.outboxRepo.append("ORDER_STATUS_CHANGED", {
       orderId,
+      trainNumber: order.trainNumber,
       from: order.status,
       to: toStatus,
       updatedAt: now,
@@ -360,8 +373,9 @@ export class OrderService {
     });
 
     // Publish retained MQTT status
-    await this.publisher.publishOrderStatus(orderId, {
+    await this.publisher.publishOrderStatus(order.trainNumber, orderId, {
       status: toStatus,
+      trainNumber: order.trainNumber,
       updatedAt: now,
       captainName: metadata?.captainName,
       etaMin: metadata?.etaMin,
@@ -538,7 +552,7 @@ export class OrderService {
 
     const { inserted, message } = await this.messageRepo.insertIfAbsent(candidate);
     if (inserted) {
-      await this.publisher.publishOrderChat(orderId, message);
+      await this.publisher.publishOrderChat(order.trainNumber, orderId, message);
     }
     return { duplicate: !inserted, message };
   }
@@ -560,13 +574,13 @@ export class OrderService {
 
   async startCooking(orderId: string): Promise<Order> {
     const order = await this.transition(orderId, OrderStatus.COOKING);
-    await this.publishKitchenQueue();
+    await this.publishKitchenQueue(order.trainNumber);
     return order;
   }
 
   async readyCooking(orderId: string): Promise<Order> {
     const order = await this.transition(orderId, OrderStatus.READY);
-    await this.publishKitchenQueue();
+    await this.publishKitchenQueue(order.trainNumber);
 
     // Pass to dispatcher batcher or immediate dispatch
     if (this.dispatcher) {
@@ -576,8 +590,10 @@ export class OrderService {
     return order;
   }
 
-  async publishKitchenQueue(): Promise<void> {
-    const kitchenOrders = await this.orderRepo.listKitchenOrders();
+  async publishKitchenQueue(trainNumber: string = "12345"): Promise<void> {
+    const kitchenOrders = (await this.orderRepo.listKitchenOrders()).filter(
+      (ko) => (ko.trainNumber || "12345") === trainNumber,
+    );
     const formatted = await Promise.all(
       kitchenOrders.map(async (ko) => {
         const fullOrder = await this.orderRepo.findById(ko.orderId);
@@ -598,6 +614,6 @@ export class OrderService {
       }),
     );
 
-    this.publisher.publishKitchenQueue(formatted);
+    await this.publisher.publishKitchenQueue(trainNumber, formatted);
   }
 }

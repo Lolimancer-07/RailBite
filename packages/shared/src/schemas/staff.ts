@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TrainNumberSchema } from "./order.js";
 
 export const StaffLoginSchema = z
   .object({
@@ -7,6 +8,8 @@ export const StaffLoginSchema = z
     password: z.string().min(4).max(128).optional(),
     /** Legacy 4-8 digit PIN — still accepted until every pantry phone is updated. */
     pin: z.string().min(4).max(8).optional(),
+    /** Optional 5-digit active train number set/confirmed at login. */
+    trainNumber: TrainNumberSchema.optional(),
   })
   .refine((value) => Boolean(value.password || value.pin), {
     message: "password or pin is required",
@@ -18,6 +21,7 @@ export const StaffSchema = z.object({
   name: z.string(),
   role: z.enum(["CAPTAIN", "COOK"]),
   zoneCoaches: z.array(z.string()),
+  trainNumber: TrainNumberSchema,
   online: z.boolean(),
   deviceToken: z.string().optional(),
 });
@@ -26,9 +30,16 @@ export type Staff = z.infer<typeof StaffSchema>;
 export const SessionTokenSchema = z.object({
   staffId: z.string(),
   role: z.enum(["CAPTAIN", "COOK"]),
+  trainNumber: TrainNumberSchema,
   token: z.string(),
   expiresAt: z.string().datetime(),
 });
+
+export const PickerStatusUpdateSchema = z.object({
+  online: z.boolean(),
+  trainNumber: TrainNumberSchema,
+});
+export type PickerStatusUpdate = z.infer<typeof PickerStatusUpdateSchema>;
 export type SessionToken = z.infer<typeof SessionTokenSchema>;
 
 export const LedgerEntrySchema = z.object({

@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 
 export interface OrderRow {
   id: string;
+  train_number: string;
   pnr: string;
   coach: string;
   berth: number;
@@ -121,6 +122,7 @@ export class OrderRepo {
 
     return {
       id: row.id,
+      trainNumber: row.train_number || "12345",
       pnr: row.pnr,
       coach: row.coach,
       berth: row.berth,
@@ -179,6 +181,7 @@ export class OrderRepo {
         );
         return {
           id: row.id,
+          trainNumber: row.train_number || "12345",
           pnr: row.pnr,
           coach: row.coach,
           berth: row.berth,
@@ -210,6 +213,7 @@ export class OrderRepo {
 
     return rows.map((row) => ({
       id: row.id,
+      trainNumber: row.train_number || "12345",
       pnr: row.pnr,
       coach: row.coach,
       berth: row.berth,
@@ -227,6 +231,7 @@ export class OrderRepo {
 
   async insertOrder(order: {
     id: string;
+    trainNumber: string;
     pnr: string;
     coach: string;
     berth: number;
@@ -243,11 +248,12 @@ export class OrderRepo {
   }): Promise<boolean> {
     const res = await this.db.run(
       `INSERT INTO orders (
-        id, pnr, coach, berth, diners, track, status, payment_mode, total_paise, source, verified, user_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, train_number, pnr, coach, berth, diners, track, status, payment_mode, total_paise, source, verified, user_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT (id) DO NOTHING`,
       [
         order.id,
+        order.trainNumber,
         order.pnr,
         order.coach,
         order.berth,
@@ -389,7 +395,7 @@ export class OrderRepo {
 
   async listKitchenOrders(): Promise<any[]> {
     return this.db.all(
-      `SELECT o.id as "orderId", o.coach, o.berth, o.diners, o.pnr, o.status, o.created_at as "createdAt"
+      `SELECT o.id as "orderId", o.train_number as "trainNumber", o.coach, o.berth, o.diners, o.pnr, o.status, o.created_at as "createdAt"
        FROM orders o
        WHERE o.track = 'COOK' AND o.status IN ('PLACED', 'COOKING')
        ORDER BY o.created_at ASC`,

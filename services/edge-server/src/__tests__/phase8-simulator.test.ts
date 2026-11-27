@@ -71,6 +71,7 @@ describe("Phase 8: Simulator & Performance Metrics", () => {
 
       const payload: OrderCreate = {
         id: orderId,
+        trainNumber: "12345",
         pnr,
         coach,
         berth,
@@ -119,6 +120,7 @@ describe("Phase 8: Simulator & Performance Metrics", () => {
   it("Done when 2: Fault injection (simulated 30% drop rate) recovers all orders with zero lost orders", async () => {
     const orders: OrderCreate[] = Array.from({ length: 20 }, (_, i) => ({
       id: crypto.randomUUID(),
+      trainNumber: "12345",
       pnr: `849200000${(i % 9) + 1}`,
       coach: "B1",
       berth: (i % 10) + 1,
@@ -162,6 +164,7 @@ describe("Phase 8: Simulator & Performance Metrics", () => {
   it("Done when 3: Duplicate detection: 100 duplicate orders submitted, 0 duplicate charges in cash ledger", async () => {
     const baseOrders = Array.from({ length: 10 }, (_, i) => ({
       id: crypto.randomUUID(),
+      trainNumber: "12345",
       pnr: `849200000${(i % 9) + 1}`,
       coach: "B2",
       berth: 15,

@@ -7,6 +7,7 @@ export interface StaffRow {
   name: string;
   role: "CAPTAIN" | "COOK";
   zone_coaches: string;
+  train_number: string;
   pin_hash: string;
   device_token: string | null;
   online: number;
@@ -18,6 +19,7 @@ function mapStaff(row: StaffRow): Staff {
     name: row.name,
     role: row.role,
     zoneCoaches: JSON.parse(row.zone_coaches || "[]"),
+    trainNumber: row.train_number || "12345",
     online: Boolean(row.online),
     deviceToken: row.device_token || undefined,
   };
@@ -32,7 +34,7 @@ export class StaffRepo {
 
   async findById(id: string): Promise<Staff | null> {
     const row = await this.db.get<StaffRow>(
-      "SELECT id, name, role, zone_coaches, pin_hash, device_token, online FROM staff WHERE id = ?",
+      "SELECT id, name, role, zone_coaches, train_number, pin_hash, device_token, online FROM staff WHERE id = ?",
       [id],
     );
     return row ? mapStaff(row) : null;
@@ -41,7 +43,7 @@ export class StaffRepo {
   /** Legacy PIN lookup (sha256). Kept for old pantry APKs during rollout. */
   async findByPin(staffId: string, pinHash: string): Promise<Staff | null> {
     const row = await this.db.get<StaffRow>(
-      "SELECT id, name, role, zone_coaches, pin_hash, device_token, online FROM staff WHERE id = ? AND pin_hash = ?",
+      "SELECT id, name, role, zone_coaches, train_number, pin_hash, device_token, online FROM staff WHERE id = ? AND pin_hash = ?",
       [staffId, pinHash],
     );
     return row ? mapStaff(row) : null;
@@ -49,12 +51,20 @@ export class StaffRepo {
 
   async listCaptains(): Promise<Staff[]> {
     const rows = await this.db.all<StaffRow>(
-      "SELECT id, name, role, zone_coaches, pin_hash, device_token, online FROM staff WHERE role = 'CAPTAIN'",
+      "SELECT id, name, role, zone_coaches, train_number, pin_hash, device_token, online FROM staff WHERE role = 'CAPTAIN'",
     );
     return rows.map(mapStaff);
   }
 
-  async setOnline(id: string, online: boolean): Promise<void> {
+  async setOnline(id: string, online: boolean, trainNumber?: string): Promise<void> {
+    if (trainNumber) {
+      await this.db.run("UPDATE staff SET online = ?, train_number = ? WHERE id = ?", [
+        online ? 1 : 0,
+        trainNumber,
+        id,
+      ]);
+      return;
+    }
     await this.db.run("UPDATE staff SET online = ? WHERE id = ?", [online ? 1 : 0, id]);
   }
 

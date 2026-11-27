@@ -8,7 +8,7 @@ declare module "fastify" {
 }
 
 /** Routes reachable without a JWT. Everything else is protected when auth is on. */
-const PUBLIC_PREFIXES = ["/health", "/health/", "/auth/", "/menu", "/sms/ingest"];
+const PUBLIC_PREFIXES = ["/health", "/health/", "/auth/", "/menu", "/manifest/", "/sms/ingest"];
 const PUBLIC_EXACT = new Set(["/health", "/menu", "/staff/login", "/sms/ingest"]);
 /** Within the public /auth/ namespace, these still require a bearer token. */
 const PROTECTED_EXACT = new Set(["/auth/me"]);

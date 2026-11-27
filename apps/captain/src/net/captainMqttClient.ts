@@ -20,13 +20,13 @@ class CaptainMqttClient {
       });
 
       this.client.on("connect", () => {
-        const t = topics(captainNetConfig.tripId);
+        const t = topics(captainNetConfig.trainNumber);
         this.client?.subscribe(t.captainAlerts(staffId), { qos: 1 });
       });
 
       this.client.on("message", (topic, payload) => {
         try {
-          const t = topics(captainNetConfig.tripId);
+          const t = topics(captainNetConfig.trainNumber);
           if (topic === t.captainAlerts(staffId)) {
             const alert = JSON.parse(payload.toString()) as MqttOrderAlert;
             // 1. Update alert state in store
@@ -51,7 +51,7 @@ class CaptainMqttClient {
 
   sendAction(staffId: string, actionPayload: { orderId: string; action: "ACCEPT" | "REJECT" | "PICKED_UP" | "DELIVERED"; cashPaise?: number }): void {
     if (this.client?.connected) {
-      const t = topics(captainNetConfig.tripId);
+      const t = topics(captainNetConfig.trainNumber);
       this.client.publish(
         t.captainActions(staffId),
         JSON.stringify({ ...actionPayload, captainId: staffId }),

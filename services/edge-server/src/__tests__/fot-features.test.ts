@@ -51,6 +51,7 @@ describe("FOT features (delivery code, feedback, veg markers)", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,

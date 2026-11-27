@@ -61,6 +61,7 @@ describe("GET /menu/trending", () => {
       url: "/orders",
       payload: {
         id: crypto.randomUUID(),
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 1,
@@ -82,6 +83,7 @@ describe("GET /menu/trending", () => {
       url: "/orders",
       payload: {
         id: cancelTargetId,
+        trainNumber: "12345",
         pnr: "8492000002",
         coach: "B1",
         berth: 2,

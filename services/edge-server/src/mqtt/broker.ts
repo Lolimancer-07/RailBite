@@ -17,7 +17,12 @@ export interface MqttBrokerInstance {
 
 export function createBroker(): MqttBrokerInstance {
   const aedes = new Aedes();
-  const tripPrefix = `rb/${config.tripId}`;
+
+  const extractTrainSubtopic = (topic: string): { trainNumber: string; sub: string } | null => {
+    const match = topic.match(/^rb\/train\/(\d{5})\/(.+)$/);
+    if (!match) return null;
+    return { trainNumber: match[1]!, sub: match[2]! };
+  };
 
   // ACL - authorizePublish
   aedes.authorizePublish = (client, packet, callback) => {
@@ -34,9 +39,15 @@ export function createBroker(): MqttBrokerInstance {
       return callback(null);
     }
 
+    const parsed = extractTrainSubtopic(topic);
+    if (!parsed) {
+      logger.warn({ clientId, topic }, "Unauthorized publish attempt outside rb/train/{5-digit}");
+      return callback(new Error("Unauthorized publish topic"));
+    }
+
     // Passenger: can only publish to orders/new and complaints/new
     if (clientId.startsWith("p-")) {
-      if (topic === `${tripPrefix}/orders/new` || topic === `${tripPrefix}/complaints/new`) {
+      if (parsed.sub === "orders/new" || parsed.sub === "complaints/new") {
         return callback(null);
       }
       logger.warn({ clientId, topic }, "Unauthorized publish attempt by passenger");
@@ -46,7 +57,7 @@ export function createBroker(): MqttBrokerInstance {
     // Captain: can only publish to captain/{captainId}/actions
     if (clientId.startsWith("c-")) {
       const captainId = clientId.slice(2);
-      if (topic === `${tripPrefix}/captain/${captainId}/actions`) {
+      if (parsed.sub === `captain/${captainId}/actions`) {
         return callback(null);
       }
       logger.warn({ clientId, topic }, "Unauthorized publish attempt by captain");
@@ -55,7 +66,7 @@ export function createBroker(): MqttBrokerInstance {
 
     // Kitchen: can publish to kitchen/actions
     if (clientId.startsWith("k-")) {
-      if (topic === `${tripPrefix}/kitchen/actions`) {
+      if (parsed.sub === "kitchen/actions") {
         return callback(null);
       }
       logger.warn({ clientId, topic }, "Unauthorized publish attempt by kitchen");
@@ -78,25 +89,27 @@ export function createBroker(): MqttBrokerInstance {
       return callback(null, subscription);
     }
 
-    // Passenger: can subscribe to orders/{orderId}/status, complaints/{complaintId}/status
+    const parsed = extractTrainSubtopic(topic);
+    if (!parsed) {
+      logger.warn({ clientId, topic }, "Unauthorized subscribe attempt outside rb/train/{5-digit}");
+      return callback(new Error("Unauthorized subscribe topic"), null);
+    }
+
+    // Passenger: can subscribe to orders/{orderId}/status, orders/{orderId}/chat, complaints/{complaintId}/status
     if (clientId.startsWith("p-")) {
-      if (
-        topic.startsWith(`${tripPrefix}/orders/`) ||
-        topic.startsWith(`${tripPrefix}/complaints/`)
-      ) {
+      if (parsed.sub.startsWith("orders/") || parsed.sub.startsWith("complaints/")) {
         return callback(null, subscription);
       }
       logger.warn({ clientId, topic }, "Unauthorized subscribe attempt by passenger");
       return callback(new Error("Unauthorized subscribe topic for passenger"), null);
     }
 
-    // Captain: can subscribe to captain/{captainId}/alerts and order chat topics
+    // Captain: can subscribe to captain/{captainId}/alerts and order chat topics (exact 5-digit train only)
     if (clientId.startsWith("c-")) {
       const captainId = clientId.slice(2);
       if (
-        topic === `${tripPrefix}/captain/${captainId}/alerts` ||
-        topic === `${tripPrefix}/captain/+/alerts` ||
-        (topic.startsWith(`${tripPrefix}/orders/`) && topic.endsWith("/chat"))
+        parsed.sub === `captain/${captainId}/alerts` ||
+        (parsed.sub.startsWith("orders/") && parsed.sub.endsWith("/chat"))
       ) {
         return callback(null, subscription);
       }
@@ -106,7 +119,7 @@ export function createBroker(): MqttBrokerInstance {
 
     // Kitchen: can subscribe to kitchen/queue
     if (clientId.startsWith("k-")) {
-      if (topic === `${tripPrefix}/kitchen/queue`) {
+      if (parsed.sub === "kitchen/queue") {
         return callback(null, subscription);
       }
       logger.warn({ clientId, topic }, "Unauthorized subscribe attempt by kitchen");

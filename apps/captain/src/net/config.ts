@@ -26,6 +26,7 @@ export const captainNetConfig = {
   apiBaseUrl: DEFAULT_API_BASE_URL,
   mqttWsUrl: deriveMqttWsUrl(DEFAULT_API_BASE_URL),
   tripId: process.env.EXPO_PUBLIC_TRIP_ID || "TRIP_001",
+  trainNumber: process.env.EXPO_PUBLIC_TRAIN_NUMBER || "12345",
   timeoutMs: 5000,
 };
 

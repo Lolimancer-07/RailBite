@@ -1,7 +1,9 @@
 import { z } from "zod";
+import { TrainNumberSchema } from "./order.js";
 
 export const MqttOrderAlertSchema = z.object({
   orderId: z.string().uuid(),
+  trainNumber: TrainNumberSchema,
   coach: z.string(),
   berth: z.number().int(),
   items: z.array(
@@ -18,6 +20,7 @@ export const MqttOrderAlertSchema = z.object({
   pnr: z.string(),
   diners: z.number().int(),
   verified: z.number().int(),
+  paymentMode: z.enum(["COD", "UPI_QUEUED"]).optional(),
 });
 export type MqttOrderAlert = z.infer<typeof MqttOrderAlertSchema>;
 
@@ -38,6 +41,9 @@ export type MqttKitchenAction = z.infer<typeof MqttKitchenActionSchema>;
 
 export const MqttOrderStatusSchema = z.object({
   status: z.string(),
+  trainNumber: TrainNumberSchema.optional(),
+  code: z.string().optional(),
+  message: z.string().optional(),
   updatedAt: z.string().datetime(),
   captainName: z.string().optional(),
   etaMin: z.number().int().optional(),

@@ -69,6 +69,7 @@ describe("Phase 6 (Kitchen & Cash) and Phase 7 (Complaints) End-to-End", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000001",
         coach: "B1",
         berth: 2,
@@ -183,6 +184,7 @@ describe("Phase 6 (Kitchen & Cash) and Phase 7 (Complaints) End-to-End", () => {
       url: "/orders",
       payload: {
         id: orderId,
+        trainNumber: "12345",
         pnr: "8492000002",
         coach: "B2",
         berth: 5,
