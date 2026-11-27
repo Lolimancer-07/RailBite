@@ -130,6 +130,7 @@ object BleMeshHub {
         context: Context,
         packet: BlePacketCodec.OrderNew,
         meshKey: String = BlePacketCodec.RAILBITE_MESH_KEY,
+        trainNumber: String = BlePacketCodec.DEFAULT_TRAIN_NUMBER,
     ): Boolean {
         if (!BlePermissions.isReadyForMesh(context)) {
             refreshRadioState(context)
@@ -143,7 +144,7 @@ object BleMeshHub {
 
         // HMAC encode + foreground-service start + queue mutation all run off the caller thread.
         scope.launch {
-            val encoded = BlePacketCodec.encode(packet, meshKey)
+            val encoded = BlePacketCodec.encode(packet, meshKey, trainNumber)
             BleMeshService.start(context, lowLatency = true)
             val tx = ensureTx(context) ?: return@launch
             tx.enqueue(
@@ -175,6 +176,7 @@ object BleMeshHub {
         packet: BlePacketCodec.StatusAck,
         meshKey: String = BlePacketCodec.RAILBITE_MESH_KEY,
         slices: Int = BleTxScheduler.STATUS_OR_MSG_SLICES,
+        trainNumber: String = BlePacketCodec.DEFAULT_TRAIN_NUMBER,
     ): Boolean {
         if (!BlePermissions.isReadyForMesh(context)) {
             refreshRadioState(context)
@@ -187,7 +189,7 @@ object BleMeshHub {
         }
 
         scope.launch {
-            val encoded = BlePacketCodec.encode(packet, meshKey)
+            val encoded = BlePacketCodec.encode(packet, meshKey, trainNumber)
             BleMeshService.start(context, lowLatency = true)
             val tx = ensureTx(context) ?: return@launch
             tx.enqueue(
@@ -213,6 +215,7 @@ object BleMeshHub {
         packet: BlePacketCodec.QuickMsg,
         meshKey: String = BlePacketCodec.RAILBITE_MESH_KEY,
         slices: Int = BleTxScheduler.QUICK_MSG_SLICES,
+        trainNumber: String = BlePacketCodec.DEFAULT_TRAIN_NUMBER,
     ): Boolean {
         if (!BlePermissions.isReadyForMesh(context)) {
             refreshRadioState(context)
@@ -222,7 +225,7 @@ object BleMeshHub {
         recordQuickMessage(packet)
 
         scope.launch {
-            val encoded = BlePacketCodec.encode(packet, meshKey)
+            val encoded = BlePacketCodec.encode(packet, meshKey, trainNumber)
             BleMeshService.start(context, lowLatency = true)
             val tx = ensureTx(context) ?: return@launch
             tx.enqueue(
@@ -255,8 +258,9 @@ object BleMeshHub {
         rssi: Int,
         meshKey: String = BlePacketCodec.RAILBITE_MESH_KEY,
         relayEnabled: Boolean = true,
+        trainNumber: String = BlePacketCodec.DEFAULT_TRAIN_NUMBER,
     ): Boolean {
-        val packet = BlePacketCodec.decode(rawBytes, meshKey) ?: return false
+        val packet = BlePacketCodec.decode(rawBytes, meshKey, trainNumber) ?: return false
         if (!dedupCache.offer(packet.dedupKey)) return false
 
         mutateStats {
@@ -290,7 +294,7 @@ object BleMeshHub {
         if (relayEnabled && !isLocalOriginOrder) {
             val relayed = BlePacketCodec.forRelay(packet)
             if (relayed != null) {
-                val relayedBytes = BlePacketCodec.encode(relayed, meshKey)
+                val relayedBytes = BlePacketCodec.encode(relayed, meshKey, trainNumber)
                 val jitterMs = Random.nextLong(150L, 601L)
                 scope.launch {
                     delay(jitterMs)
@@ -310,6 +314,11 @@ object BleMeshHub {
             }
         }
         return true
+    }
+
+    /** Clears dedup filter when switching trains so same-shortId retries re-evaluate cleanly. */
+    fun clearDedupForTrainChange() {
+        dedupCache.clear()
     }
 
     /** Clears active status history tracking when resetting test state. */

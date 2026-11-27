@@ -35,6 +35,20 @@ object BlePacketCodec {
     const val MAX_ORDER_ITEMS = 4
 
     const val RAILBITE_MESH_KEY = MeshTrip.SECRET
+    const val DEFAULT_TRAIN_NUMBER = "12345"
+
+    /**
+     * Derives the train-scoped HMAC secret (`"<baseKey>:<trainNumber>"`) so BLE frames
+     * never cross-bleed across trains while keeping the payload strictly 23 bytes.
+     */
+    fun scopedKey(
+        key: String = RAILBITE_MESH_KEY,
+        trainNumber: String? = null,
+    ): String {
+        val base = key.ifBlank { RAILBITE_MESH_KEY }
+        val cleanTrain = trainNumber?.trim()?.takeIf { it.isNotEmpty() } ?: return base
+        return "$base:$cleanTrain"
+    }
 
     const val VERSION_NIBBLE = 0x1
     const val TYPE_ORDER_NEW = 0x1
@@ -139,7 +153,11 @@ object BlePacketCodec {
     }
 
     /** Encodes a [BlePacket] into an exact 23-byte payload with 16-bit HMAC trailer. */
-    fun encode(packet: BlePacket, key: String = RAILBITE_MESH_KEY): ByteArray {
+    fun encode(
+        packet: BlePacket,
+        key: String = RAILBITE_MESH_KEY,
+        trainNumber: String? = null,
+    ): ByteArray {
         val out = ByteArray(PACKET_SIZE)
         out[0] = packet.verType
 
@@ -189,7 +207,7 @@ object BlePacketCodec {
             }
         }
 
-        val tag = computeHmac16(out, key)
+        val tag = computeHmac16(out, key, trainNumber)
         out[21] = tag[0]
         out[22] = tag[1]
         return out
@@ -199,14 +217,18 @@ object BlePacketCodec {
      * Decodes a 23-byte payload and validates [hmac16].
      * Returns null when size != 23, version != 1, unknown type, or HMAC mismatch.
      */
-    fun decode(bytes: ByteArray, key: String = RAILBITE_MESH_KEY): BlePacket? {
+    fun decode(
+        bytes: ByteArray,
+        key: String = RAILBITE_MESH_KEY,
+        trainNumber: String? = null,
+    ): BlePacket? {
         if (bytes.size != PACKET_SIZE) return null
 
         val verTypeByte = bytes[0].toInt() and 0xFF
         val version = (verTypeByte ushr 4) and 0x0F
         if (version != VERSION_NIBBLE) return null
 
-        val expectedTag = computeHmac16(bytes, key)
+        val expectedTag = computeHmac16(bytes, key, trainNumber)
         val actualTag = byteArrayOf(bytes[21], bytes[22])
         if (!MessageDigest.isEqual(expectedTag, actualTag)) return null
 
@@ -302,10 +324,14 @@ object BlePacketCodec {
         return packet.withHop(newHopCount = nextHop, newTtl = nextTtl)
     }
 
-    /** First 2 bytes of HMAC-SHA256 over bytes `0..20` using [key]. */
-    fun computeHmac16(bytes: ByteArray, key: String = RAILBITE_MESH_KEY): ByteArray {
+    /** First 2 bytes of HMAC-SHA256 over bytes `0..20` using [key] (optionally train-scoped). */
+    fun computeHmac16(
+        bytes: ByteArray,
+        key: String = RAILBITE_MESH_KEY,
+        trainNumber: String? = null,
+    ): ByteArray {
         require(bytes.size >= HEADER_AND_PAYLOAD_END)
-        val effectiveKey = key.ifBlank { RAILBITE_MESH_KEY }
+        val effectiveKey = scopedKey(key, trainNumber)
         val mac = Mac.getInstance("HmacSHA256")
         mac.init(SecretKeySpec(effectiveKey.toByteArray(StandardCharsets.UTF_8), "HmacSHA256"))
         mac.update(bytes, 0, HEADER_AND_PAYLOAD_END)

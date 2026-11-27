@@ -62,6 +62,8 @@ class BleMeshService : Service() {
     @Volatile
     private var currentMeshKey = BlePacketCodec.RAILBITE_MESH_KEY
     @Volatile
+    private var currentTrainNumber = BlePacketCodec.DEFAULT_TRAIN_NUMBER
+    @Volatile
     private var activeScanner: BluetoothLeScanner? = null
     @Volatile
     private var activeScanCallback: ScanCallback? = null
@@ -98,12 +100,25 @@ class BleMeshService : Service() {
                         rssi = frame.rssi,
                         meshKey = currentMeshKey,
                         relayEnabled = currentRelayEnabled,
+                        trainNumber = currentTrainNumber,
                     )
                 }.onFailure { Log.w(TAG, "scan frame processing failed: ${it.message}") }
             }
         }
         scope.launch {
             settings.meshKey.collect { key -> currentMeshKey = key }
+        }
+        scope.launch {
+            var lastTrain: String? = null
+            settings.bleTrainNumber.collect { train ->
+                val changed = lastTrain != null && lastTrain != train
+                lastTrain = train
+                currentTrainNumber = train
+                if (changed) {
+                    BleMeshHub.clearDedupForTrainChange()
+                    Log.i(TAG, "BLE mesh HMAC scoped to train $train")
+                }
+            }
         }
         scope.launch {
             settings.meshRelayEnabled.collect { enabled -> currentRelayEnabled = enabled }
@@ -155,6 +170,7 @@ class BleMeshService : Service() {
         scope.launch {
             currentRelayEnabled = settings.meshRelayEnabled.first()
             currentMeshKey = settings.meshKey.first()
+            currentTrainNumber = settings.bleTrainNumber.first()
         }
 
         if (scanModeChanged) {

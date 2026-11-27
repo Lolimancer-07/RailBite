@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
@@ -85,6 +86,12 @@ class RailBiteSettings(
     }
     val meshKey: Flow<String> = context.dataStore.data.map {
         it[Keys.meshKey]?.takeIf { v -> v.isNotBlank() } ?: com.railbite.core.mesh.BlePacketCodec.RAILBITE_MESH_KEY
+    }
+    /** Active 5-digit train number for BLE HMAC scoping (Picker uses activeTrainNumber; Customer uses trainNumber). */
+    val bleTrainNumber: Flow<String> = combine(staffId, activeTrainNumber, trainNumber) { staff, pickerTrain, customerTrain ->
+        val candidate = if (staff.isNotBlank()) pickerTrain else customerTrain.ifBlank { pickerTrain }
+        candidate.trim().takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+            ?: com.railbite.core.mesh.BlePacketCodec.DEFAULT_TRAIN_NUMBER
     }
 
     /** Stable mesh node id (origin/hops identity) — generated on first use. */
