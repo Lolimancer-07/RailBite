@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
+import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -77,6 +78,12 @@ fun OrderProgressScreen(
         }
     }
 
+    // Both transports unavailable (or LAN rejected the send): surface a transient toast even
+    // when the sheet has been dismissed.
+    LaunchedEffect(state.chatError) {
+        state.chatError?.let { Toast.makeText(context, it, Toast.LENGTH_SHORT).show() }
+    }
+
     var code by remember { mutableStateOf("") }
     var cashText by remember { mutableStateOf("") }
     var cashTouched by remember { mutableStateOf(false) }
@@ -125,6 +132,7 @@ fun OrderProgressScreen(
                 offlinePresetsOnly = state.offlinePresetsOnly,
                 sending = state.sendingChat,
                 error = state.chatError,
+                pendingIds = state.pendingChatIds,
                 onSendPreset = { preset -> vm.sendChatMessage(preset.body, preset.code) },
                 onSendCustom = { text -> vm.sendChatMessage(text, null) },
                 onDismissError = vm::clearChatError,

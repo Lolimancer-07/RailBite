@@ -10,7 +10,6 @@ import com.railbite.core.mesh.MeshOrderPayload
 import com.railbite.core.mesh.MeshOutbox
 import com.railbite.core.model.MeshOrderSyncRequest
 import com.railbite.core.model.OrderCreateRequest
-import com.railbite.core.model.OrderMessage
 import com.railbite.core.util.Statuses
 import com.railbite.customer.AppContainer
 import kotlinx.coroutines.CoroutineScope
@@ -27,8 +26,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.time.Instant
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Customer-side coordinator for the 23-byte BLE multi-hop flood mesh:
@@ -43,7 +40,6 @@ class MeshOrderSender(private val container: AppContainer) {
     private val outbox = MeshOutbox(container.app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var collectorJob: Job? = null
-    private val msgSeqByOrder = ConcurrentHashMap<UInt, AtomicInteger>()
 
     private val _pending = MutableStateFlow(0)
     val pending: StateFlow<Int> = _pending.asStateFlow()
@@ -161,44 +157,6 @@ class MeshOrderSender(private val container: AppContainer) {
         BleMeshHub.cancelOrderBroadcast(BlePacketCodec.uuidToShortId(orderId))
         outbox.markState(orderId, "CANCELLED")
         refreshPending()
-    }
-
-    /** Broadcasts a preset Quick-Message (`0x13`) from Customer over the BLE mesh. */
-    suspend fun sendQuickMessage(
-        orderId: String,
-        coach: String,
-        berth: Int,
-        presetCode: String,
-    ): OrderMessage? {
-        val presetByte = BlePacketCodec.codeForPreset(presetCode) ?: return null
-        val preset = BlePacketCodec.presetForCode(presetByte) ?: return null
-        val shortId = BlePacketCodec.uuidToShortId(orderId)
-        val seqCounter = msgSeqByOrder.getOrPut(shortId) { AtomicInteger(1) }
-        val seq = seqCounter.getAndIncrement().coerceIn(1, 65535)
-
-        val packet = BlePacketCodec.QuickMsg(
-            orderId = shortId,
-            hopCount = 0,
-            ttl = BlePacketCodec.DEFAULT_TTL,
-            coach = coach,
-            seat = berth,
-            senderRole = BlePacketCodec.ROLE_CUSTOMER,
-            presetCode = presetByte,
-            msgSeq = seq,
-        )
-        val meshKey = container.settings.meshKey.first()
-        val sent = BleMeshHub.sendQuickMsg(container.app, packet, meshKey)
-        if (!sent) return null
-
-        return OrderMessage(
-            id = "ble-${packet.senderRole}-${packet.msgSeq}",
-            orderId = orderId,
-            senderRole = "CUSTOMER",
-            senderId = null,
-            presetCode = preset.code,
-            body = preset.body,
-            createdAt = System.currentTimeMillis(),
-        )
     }
 
     /** Observes incoming BLE `STATUS_ACK` packets to keep [MeshOutbox] up-to-date in the background. */

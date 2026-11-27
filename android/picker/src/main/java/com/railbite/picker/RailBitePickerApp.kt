@@ -35,7 +35,7 @@ class PickerContainer(val app: RailBitePickerApp) {
     val authStore: AuthStore = EncryptedAuthStore(app)
     val client = RailBiteClient(settings, authStore)
     val auth = AuthRepository(client, authStore)
-    val transportRouter = TransportRouter(app, settings)
+    val transportRouter = TransportRouter(app, settings, client = client)
     val meshLedger = MeshLedger(app)
     val meshGateway = MeshGateway(app, meshLedger, transportRouter)
     val chatMqtt = PickerChatMqtt(settings)

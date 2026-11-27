@@ -16,7 +16,6 @@ import com.railbite.core.mesh.TransportRouter
 import com.railbite.core.model.MeshOrderSyncRequest
 import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.model.OrderCreateRequest
-import com.railbite.core.model.OrderMessage
 import com.railbite.core.util.Statuses
 import com.railbite.picker.RailBitePickerApp
 import com.railbite.picker.alert.AlertBus
@@ -32,7 +31,6 @@ import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * Pantry-side coordinator for the 23-byte BLE multi-hop flood mesh:
@@ -57,7 +55,6 @@ class MeshGateway(
 
     private val pendingArbitration = ConcurrentHashMap<UInt, Job>()
     private val seenPackets = ConcurrentHashMap<UInt, BlePacketCodec.OrderNew>()
-    private val msgSeqByOrder = ConcurrentHashMap<UInt, AtomicInteger>()
 
     fun start(dispatchAlerts: Boolean = true) {
         dispatchActive = dispatchAlerts
@@ -277,45 +274,6 @@ class MeshGateway(
             )
             BleMeshHub.sendStatusAck(app, packet, meshKey)
         }
-    }
-
-    /** Broadcasts a preset `QUICK_MSG (0x13)` from Picker (`ROLE_PICKER`) over the BLE mesh. */
-    suspend fun sendQuickMessage(
-        orderId: String,
-        coach: String,
-        berth: Int,
-        presetCode: String,
-    ): OrderMessage? {
-        val presetByte = BlePacketCodec.codeForPreset(presetCode) ?: return null
-        val preset = BlePacketCodec.presetForCode(presetByte) ?: return null
-        val shortId = BlePacketCodec.uuidToShortId(orderId)
-        val seq = msgSeqByOrder.getOrPut(shortId) { AtomicInteger(1) }
-            .getAndIncrement().coerceIn(1, 65535)
-        val staffId = app.container.settings.staffId.first().ifBlank { null }
-        val meshKey = app.container.settings.meshKey.first()
-
-        val packet = BlePacketCodec.QuickMsg(
-            orderId = shortId,
-            hopCount = 0,
-            ttl = BlePacketCodec.DEFAULT_TTL,
-            coach = coach,
-            seat = berth,
-            senderRole = BlePacketCodec.ROLE_PICKER,
-            presetCode = presetByte,
-            msgSeq = seq,
-        )
-        val sent = BleMeshHub.sendQuickMsg(app, packet, meshKey)
-        if (!sent) return null
-
-        return OrderMessage(
-            id = "ble-${packet.senderRole}-${packet.msgSeq}",
-            orderId = orderId,
-            senderRole = "PICKER",
-            senderId = staffId,
-            presetCode = preset.code,
-            body = preset.body,
-            createdAt = System.currentTimeMillis(),
-        )
     }
 
     private fun startReplayLoop() {

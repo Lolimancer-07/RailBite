@@ -50,6 +50,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.railbite.core.mesh.ChatTransport
+import com.railbite.core.mesh.OrderChatRepository
 import com.railbite.core.model.ChatPreset
 import com.railbite.core.model.ChatPresets
 import com.railbite.core.model.OrderMessage
@@ -83,6 +85,7 @@ fun OrderQuickChatSheet(
     offlinePresetsOnly: Boolean = false,
     sending: Boolean,
     error: String?,
+    pendingIds: Set<String> = emptySet(),
     onSendPreset: (ChatPreset) -> Unit,
     onSendCustom: (String) -> Unit,
     onDismissError: () -> Unit,
@@ -212,7 +215,7 @@ fun OrderQuickChatSheet(
                             .padding(12.dp),
                     ) {
                         items(messages, key = { it.id }) { msg ->
-                            QuickChatBubble(msg)
+                            QuickChatBubble(msg, pending = msg.id in pendingIds)
                         }
                     }
                 }
@@ -246,7 +249,7 @@ fun OrderQuickChatSheet(
                                     border = BorderStroke(1.dp, RailBitePickerPalette.CyanBorder),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .heightIn(min = 40.dp),
+                                        .heightIn(min = 44.dp),
                                 ) {
                                     Box(
                                         contentAlignment = Alignment.Center,
@@ -382,7 +385,7 @@ fun OrderQuickChatSheet(
 }
 
 @Composable
-private fun QuickChatBubble(msg: OrderMessage) {
+private fun QuickChatBubble(msg: OrderMessage, pending: Boolean) {
     val mine = msg.senderRole.equals("PICKER", ignoreCase = true)
     Row(
         horizontalArrangement = if (mine) Arrangement.End else Arrangement.Start,
@@ -404,13 +407,21 @@ private fun QuickChatBubble(msg: OrderMessage) {
                     color = if (mine) Color.White else RailBitePickerPalette.TextPrimary,
                 )
                 Text(
-                    text = (if (mine) "You" else "Passenger") + " • " + formatChatTimestamp(msg.createdAt),
+                    text = (if (mine) "You" else "Passenger") + " • " +
+                        chatTransportLabel(msg, pending) + " • " +
+                        formatChatTimestamp(msg.createdAt),
                     style = PickerNumericType.MetaMono,
                     color = if (mine) Color.White.copy(alpha = 0.85f) else RailBitePickerPalette.TextSecondary,
                 )
             }
         }
     }
+}
+
+internal fun chatTransportLabel(msg: OrderMessage, pending: Boolean): String = when {
+    pending -> "Sending…"
+    OrderChatRepository.transportOf(msg.id) == ChatTransport.BLE || msg.id.startsWith("ble-") -> "BLE"
+    else -> "LAN"
 }
 
 private fun formatChatTimestamp(epochMs: Long): String = runCatching {
