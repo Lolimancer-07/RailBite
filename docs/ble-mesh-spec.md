@@ -23,7 +23,7 @@ All multi-byte integers are **big-endian**.
 | `9..10` | `pnrLast4` | `UInt16` | Last 4 digits of PNR (`0..9999`) |
 | `11..12` | `handoverPin` | `UInt16` | Customer-generated 4-digit delivery PIN (`0..9999`) |
 | `13..20` | `payload` | `8 bytes` | Type-specific fixed binary layout (see below) |
-| `21..22` | `hmac16` | `2 bytes` | First 2 bytes of `HMAC-SHA256(bytes[0..20], RAILBITE_MESH_KEY)` |
+| `21..22` | `hmac16` | `2 bytes` | First 2 bytes of `HMAC-SHA256(bytes[0..20], "${RAILBITE_MESH_KEY}:${trainNumber}")` (train-scoped isolation, `0` extra frame bytes) |
 
 ### Payload Layouts (`Bytes 13..20`)
 

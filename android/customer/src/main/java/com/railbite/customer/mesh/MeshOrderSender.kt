@@ -106,7 +106,7 @@ class MeshOrderSender(private val container: AppContainer) {
         )
 
         val meshKey = container.settings.meshKey.first()
-        val sent = BleMeshHub.sendOrderNew(container.app, packet, meshKey)
+        val sent = BleMeshHub.sendOrderNew(container.app, packet, meshKey, payload.trainNumber)
         if (!sent) return null
 
         outbox.add(
@@ -149,7 +149,7 @@ class MeshOrderSender(private val container: AppContainer) {
             items = slots,
         )
         val meshKey = container.settings.meshKey.first()
-        val ok = BleMeshHub.sendOrderNew(container.app, packet, meshKey)
+        val ok = BleMeshHub.sendOrderNew(container.app, packet, meshKey, payload.trainNumber)
         if (ok) outbox.markAck(orderId, Statuses.BROADCASTING)
         return ok
     }

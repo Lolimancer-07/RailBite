@@ -132,6 +132,7 @@ class TransportRouter(
         coach: String,
         berth: Int,
         meshKey: String = BlePacketCodec.RAILBITE_MESH_KEY,
+        trainNumber: String? = null,
     ): QuickChatSendResult = withContext(Dispatchers.IO) {
         val cleanBody = body.trim()
         if (orderId.isBlank() || cleanBody.isBlank()) {
@@ -203,11 +204,17 @@ class TransportRouter(
             presetCode = presetCodeByte,
             msgSeq = seq,
         )
+        val activeTrain = trainNumber
+            ?.trim()
+            ?.takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+            ?: runCatching { settings.bleTrainNumber.first() }
+                .getOrDefault(BlePacketCodec.DEFAULT_TRAIN_NUMBER)
         val sent = BleMeshHub.sendQuickMsg(
             context = context,
             packet = packet,
             meshKey = meshKey,
             slices = BleTxScheduler.QUICK_MSG_SLICES,
+            trainNumber = activeTrain,
         )
         if (!sent) {
             Log.w(TAG, "BLE quick-chat rejected: radio/permissions unavailable")

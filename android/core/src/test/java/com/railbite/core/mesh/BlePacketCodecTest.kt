@@ -178,5 +178,62 @@ class BlePacketCodecTest {
         assertEquals(36, uuid.length)
         assertEquals(shortId, BlePacketCodec.uuidToShortId(uuid))
     }
+
+    @Test
+    fun `train-scoped HMAC isolates trains without increasing 23-byte payload size`() {
+        assertEquals("secret:12345", BlePacketCodec.scopedKey("secret", " 12345 "))
+
+        val order = BlePacketCodec.OrderNew(
+            orderId = 0x55667788u,
+            coach = "B2",
+            seat = 14,
+            pnrLast4 = 1234,
+            handoverPin = 4321,
+            items = listOf(BlePacketCodec.ItemSlot(itemId = 1, qty = 2)),
+        )
+        val status = BlePacketCodec.StatusAck(
+            orderId = 0x55667788u,
+            coach = "B2",
+            seat = 14,
+            pnrLast4 = 1234,
+            handoverPin = 4321,
+            statusCode = BlePacketCodec.STATUS_ACCEPTED,
+            pickerId = "c1",
+            etaMins = 7,
+            cashRs = 180,
+        )
+        val chat = BlePacketCodec.QuickMsg(
+            orderId = 0x55667788u,
+            coach = "B2",
+            seat = 14,
+            senderRole = BlePacketCodec.ROLE_CUSTOMER,
+            presetCode = 1,
+            msgSeq = 1,
+        )
+
+        val orderTrainA = BlePacketCodec.encode(order, testKey, trainNumber = "12345")
+        val statusTrainA = BlePacketCodec.encode(status, testKey, trainNumber = "12345")
+        val chatTrainA = BlePacketCodec.encode(chat, testKey, trainNumber = "12345")
+
+        assertEquals(23, orderTrainA.size)
+        assertEquals(23, statusTrainA.size)
+        assertEquals(23, chatTrainA.size)
+
+        // Exact train succeeds
+        assertEquals(order, BlePacketCodec.decode(orderTrainA, testKey, trainNumber = "12345"))
+        assertEquals(status, BlePacketCodec.decode(statusTrainA, testKey, trainNumber = "12345"))
+        assertEquals(chat, BlePacketCodec.decode(chatTrainA, testKey, trainNumber = "12345"))
+
+        // Cross-train fails HMAC verification immediately at decode time
+        assertNull(BlePacketCodec.decode(orderTrainA, testKey, trainNumber = "12423"))
+        assertNull(BlePacketCodec.decode(statusTrainA, testKey, trainNumber = "12423"))
+        assertNull(BlePacketCodec.decode(chatTrainA, testKey, trainNumber = "12423"))
+
+        // Same packet encoded for 12423 decodes on 12423 and fails on 12345
+        val orderTrainB = BlePacketCodec.encode(order, testKey, trainNumber = "12423")
+        assertEquals(23, orderTrainB.size)
+        assertEquals(order, BlePacketCodec.decode(orderTrainB, testKey, trainNumber = "12423"))
+        assertNull(BlePacketCodec.decode(orderTrainB, testKey, trainNumber = "12345"))
+    }
 }
 

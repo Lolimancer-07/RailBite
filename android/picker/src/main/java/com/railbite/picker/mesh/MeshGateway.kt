@@ -261,6 +261,13 @@ class MeshGateway(
             val payload = ledgerEntry?.let { MeshOrderPayload.decode(it.payload) }
             val staffId = app.container.settings.staffId.first().ifBlank { "c1" }
             val meshKey = app.container.settings.meshKey.first()
+            val trainNumber = payload?.trainNumber
+                ?.trim()
+                ?.takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+                ?: app.container.settings.activeTrainNumber.first()
+                    .trim()
+                    .takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+                ?: BlePacketCodec.DEFAULT_TRAIN_NUMBER
 
             val packet = BlePacketCodec.StatusAck(
                 orderId = shortId,
@@ -275,7 +282,7 @@ class MeshGateway(
                 etaMins = etaMins,
                 cashRs = ((cashPaise ?: payload?.totalPaise ?: 0) / 100).coerceAtLeast(0),
             )
-            BleMeshHub.sendStatusAck(app, packet, meshKey)
+            BleMeshHub.sendStatusAck(app, packet, meshKey, trainNumber = trainNumber)
         }
     }
 

@@ -383,6 +383,8 @@ class TrackingViewModel(
             val berth = current.order?.berth
                 ?: current.relayBerth
                 ?: runCatching { container.settings.berth.first() }.getOrDefault(0)
+            val trainNumber = current.order?.trainNumber
+                ?: runCatching { container.settings.trainNumber.first() }.getOrDefault("")
             try {
                 val result = container.transportRouter.sendQuickMessage(
                     orderId = orderId,
@@ -391,6 +393,7 @@ class TrackingViewModel(
                     body = trimmed,
                     coach = coach,
                     berth = berth,
+                    trainNumber = trainNumber,
                 )
                 _state.update { s ->
                     s.copy(

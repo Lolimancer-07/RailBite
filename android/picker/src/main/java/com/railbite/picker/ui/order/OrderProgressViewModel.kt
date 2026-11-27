@@ -497,6 +497,7 @@ class OrderProgressViewModel(
                     coach = curOrder.coach,
                     berth = curOrder.berth,
                     meshKey = meshKey,
+                    trainNumber = curOrder.trainNumber,
                 )
                 _state.update { s ->
                     s.copy(
