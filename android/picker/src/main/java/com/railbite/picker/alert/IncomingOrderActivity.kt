@@ -12,6 +12,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import kotlinx.coroutines.flow.first
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -115,12 +116,11 @@ class IncomingOrderActivity : ComponentActivity() {
             runCatching { km.requestDismissKeyguard(this, null) }
         }
 
-        runCatching { buzz() }
-
         setContent {
             RailBitePickerTheme(darkTheme = true) {
                 IncomingOrderAlertContent(
                     activityContext = this,
+                    onBuzz = { runCatching { buzz() } },
                     onFinished = { finish() },
                     onAccepted = { orderId ->
                         startActivity(
@@ -158,6 +158,7 @@ class IncomingOrderActivity : ComponentActivity() {
 @Composable
 private fun IncomingOrderAlertContent(
     activityContext: ComponentActivity,
+    onBuzz: () -> Unit,
     onFinished: () -> Unit,
     onAccepted: (String) -> Unit,
 ) {
@@ -193,6 +194,21 @@ private fun IncomingOrderAlertContent(
     LaunchedEffect(alert?.orderId) {
         val a = alert
         if (a != null) {
+            val app = activityContext.applicationContext as com.railbite.picker.RailBitePickerApp
+            val expectedTrain = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                app.container.settings.activeTrainNumber.first()
+            }
+            if (a.trainNumber != expectedTrain) {
+                android.util.Log.i(
+                    "RailBitePicker",
+                    "Ignored cross-train order ${a.trainNumber} != $expectedTrain",
+                )
+                AlertSoundController.stop()
+                AlertBus.clear()
+                onFinished()
+                return@LaunchedEffect
+            }
+
             val expiresAt = try {
                 Instant.parse(a.expiresAt).epochSecond
             } catch (_: Exception) {
@@ -206,6 +222,7 @@ private fun IncomingOrderAlertContent(
                 }
                 return@LaunchedEffect
             }
+            onBuzz()
             AlertSoundController.start(activityContext)
             while (true) {
                 val left = (expiresAt - Instant.now().epochSecond).toInt()
@@ -400,7 +417,7 @@ private fun IncomingOrderAlertContent(
                                     }
                                 }
                                 Text(
-                                    text = "COACH ${a.coach.uppercase()} • SEAT ${a.berth}",
+                                    text = "Train ${a.trainNumber} • COACH ${a.coach.uppercase()} • SEAT ${a.berth}",
                                     style = PickerNumericType.AlertHeroCoach,
                                     color = Color.White,
                                 )

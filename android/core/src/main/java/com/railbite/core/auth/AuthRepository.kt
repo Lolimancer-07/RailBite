@@ -21,7 +21,11 @@ class AuthRepository(
     val session: StateFlow<AuthSession?> = store.session
 
     /** Returns the server response so the picker can use the staff profile fields. */
-    suspend fun staffLogin(staffId: String, password: String): StaffLoginResponse {
+    suspend fun staffLogin(
+        staffId: String,
+        password: String,
+        trainNumber: String? = null,
+    ): StaffLoginResponse {
         val secret = password.trim()
         val numericPin = secret.takeIf { it.length in 4..8 && it.all(Char::isDigit) }
         val result = client.api().staffLogin(
@@ -29,6 +33,7 @@ class AuthRepository(
                 staffId = staffId.trim().lowercase(),
                 password = secret,
                 pin = numericPin,
+                trainNumber = trainNumber?.trim()?.takeIf { it.isNotBlank() },
             ),
         )
         val accessToken = result.accessToken?.takeIf { it.isNotBlank() } ?: result.token

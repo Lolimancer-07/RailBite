@@ -11,7 +11,9 @@ import com.railbite.picker.alert.IncomingOrderActivity
 import com.railbite.picker.alert.Notifications
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 
 /**
@@ -41,6 +43,20 @@ class PickerFirebaseMessagingService : FirebaseMessagingService() {
         if (type != "ORDER_DISPATCH") return
 
         val orderId = data["orderId"] ?: return
+        val incomingTrainNumber = data["trainNumber"]?.trim().orEmpty()
+        val app = applicationContext as? RailBitePickerApp
+        if (app != null) {
+            val activeTrain = runCatching {
+                runBlocking(Dispatchers.IO) { app.container.settings.activeTrainNumber.first() }
+            }.getOrDefault("12345")
+            if (incomingTrainNumber != activeTrain) {
+                Log.i(
+                    "RailBitePicker",
+                    "Ignored cross-train order $incomingTrainNumber != $activeTrain (order=$orderId)",
+                )
+                return
+            }
+        }
         val coach = data["coach"] ?: ""
         val berth = data["berth"]?.toIntOrNull() ?: 1
         val total = data["total"]?.toIntOrNull() ?: 0
@@ -53,6 +69,7 @@ class PickerFirebaseMessagingService : FirebaseMessagingService() {
 
         val alert = MqttOrderAlert(
             orderId = orderId,
+            trainNumber = incomingTrainNumber.ifBlank { "12345" },
             coach = coach,
             berth = berth,
             items = items,

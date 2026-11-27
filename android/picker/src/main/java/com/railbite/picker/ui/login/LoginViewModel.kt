@@ -7,6 +7,7 @@ import com.railbite.core.api.RailBiteApi
 import com.railbite.core.auth.AuthSession
 import com.railbite.core.auth.AuthUser
 import com.railbite.core.auth.DemoAuth
+import com.railbite.core.util.Validators
 import com.railbite.picker.PickerContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,6 +20,8 @@ import retrofit2.HttpException
 data class LoginUiState(
     val staffId: String = "",
     val password: String = "",
+    val trainNumber: String = "12345",
+    val trainNumberEdited: Boolean = false,
     val useFullPassword: Boolean = false,
     val serverUrl: String = "",
     val serverUrlStored: String = "",
@@ -52,10 +55,30 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
                 _state.update { it.copy(mqttWsUrl = wsUrl) }
             }
         }
+        viewModelScope.launch {
+            val savedTrain = container.settings.activeTrainNumber.first()
+            if (Validators.isValidTrainNumber(savedTrain)) {
+                _state.update { it.copy(trainNumber = savedTrain) }
+            }
+        }
     }
 
     fun onStaffIdChange(value: String) {
-        _state.update { it.copy(staffId = value.trim().uppercase(), error = null) }
+        val clean = value.trim().uppercase()
+        _state.update { cur ->
+            val suggestedTrain = when {
+                cur.trainNumberEdited -> cur.trainNumber
+                clean == "C3" || clean == "C4" -> "12423"
+                clean == "C1" || clean == "C2" -> "12345"
+                else -> cur.trainNumber
+            }
+            cur.copy(staffId = clean, trainNumber = suggestedTrain, error = null)
+        }
+    }
+
+    fun onTrainNumberChange(value: String) {
+        val clean = value.filter(Char::isDigit).take(5)
+        _state.update { it.copy(trainNumber = clean, trainNumberEdited = true, error = null) }
     }
 
     fun onPasswordChange(value: String) {
@@ -135,23 +158,40 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
     fun submit(onLoggedIn: () -> Unit) {
         val s = _state.value
         if (s.busy || s.staffId.isBlank() || s.password.length < 4) return
+        if (!Validators.isValidTrainNumber(s.trainNumber)) {
+            _state.update { it.copy(error = "Enter a valid 5-digit train number (e.g. 12345)") }
+            return
+        }
+        val selectedTrain = s.trainNumber.trim()
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             val lanReachable = container.transportRouter.checkLanReachable()
             if (lanReachable) {
                 try {
                     // Staff IDs are canonical lowercase in the seed (c1-c4).
-                    val login = container.auth.staffLogin(s.staffId, s.password)
+                    val login = container.auth.staffLogin(s.staffId, s.password, selectedTrain)
+                    val activeTrain = selectedTrain.ifBlank { login.trainNumber }
                     container.settings.setStaffLogin(
                         staffId = login.staffId,
                         name = login.name,
                         zone = login.zoneCoaches.joinToString(", "),
+                        trainNumber = activeTrain,
                     )
                     launch {
                         com.railbite.picker.fcm.FcmTokenRegistrar.registerCurrentToken(container)
                     }
                     runCatching {
-                        container.client.api().setStaffOnline(login.staffId, RailBiteApi.OnlineRequest(false))
+                        container.client.api().setPickerStatus(
+                            login.staffId,
+                            RailBiteApi.PickerStatusRequest(online = false, trainNumber = activeTrain),
+                        )
+                    }.onFailure {
+                        runCatching {
+                            container.client.api().setStaffOnline(
+                                login.staffId,
+                                RailBiteApi.OnlineRequest(false, activeTrain),
+                            )
+                        }
                     }
                     container.settings.setOnline(false)
                     _state.update { it.copy(busy = false) }
@@ -191,6 +231,7 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
                     staffId = normalizedId,
                     name = profile.first,
                     zone = profile.second.joinToString(", "),
+                    trainNumber = selectedTrain,
                 )
                 container.settings.setOnline(false)
                 _state.update { it.copy(busy = false) }
@@ -214,8 +255,8 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
         val OFFLINE_CREW_ROSTER = mapOf(
             "c1" to ("Ramesh Kumar" to listOf("B1", "B2")),
             "c2" to ("Suresh Sharma" to listOf("B3", "B4")),
-            "c3" to ("Amit Verma" to listOf("S1", "S2")),
-            "c4" to ("Deepak Patel" to listOf("S3", "S4")),
+            "c3" to ("Amit Verma" to listOf("B1", "B2", "S1", "S2")),
+            "c4" to ("Deepak Patel" to listOf("B3", "B4", "S3", "S4")),
         )
     }
 

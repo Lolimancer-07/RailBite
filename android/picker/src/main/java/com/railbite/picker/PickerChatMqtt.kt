@@ -7,6 +7,7 @@ import com.railbite.core.mesh.OrderChatRepository
 import com.railbite.core.model.OrderMessage
 import com.railbite.core.mqtt.MqttConnector
 import com.railbite.core.mqtt.RailBiteTopics
+import com.railbite.core.util.Validators
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,14 +19,14 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Dedicated MQTT client for Picker connectivity state and order-scoped quick chat.
  *
  * Uses client ID `"c-$staffId-chat"` so it satisfies the broker's `"c-"` ACL
- * (`rb/{tripId}/orders/{orderId}/chat`) without evicting [AlertForegroundService]'s
+ * (`rb/train/{trainNumber}/orders/{orderId}/chat`) without evicting [AlertForegroundService]'s
  * `"c-$staffId"` alert session.
  */
 class PickerChatMqtt(private val settings: RailBiteSettings) {
@@ -35,9 +36,9 @@ class PickerChatMqtt(private val settings: RailBiteSettings) {
     private val mutex = Mutex()
 
     private var connector: MqttConnector? = null
-    private var tripId: String = RailBiteTopics.DEFAULT_TRIP_ID
+    private var activeTrainNumber: String = RailBiteTopics.DEFAULT_TRAIN_NUMBER
     private var currentStaffId: String = ""
-    private val watchedOrderIds = mutableSetOf<String>()
+    private val watchedOrderTrains = ConcurrentHashMap<String, String>()
 
     private val _connected = MutableStateFlow(false)
     val connected: StateFlow<Boolean> = _connected.asStateFlow()
@@ -55,7 +56,7 @@ class PickerChatMqtt(private val settings: RailBiteSettings) {
         }
     }
 
-    suspend fun reconnect(staffId: String) {
+    suspend fun reconnect(staffId: String, trainNumberOverride: String? = null) {
         val cleanStaff = staffId.trim().lowercase()
         val serverUrl = settings.serverUrl.first()
         mutex.withLock {
@@ -63,32 +64,39 @@ class PickerChatMqtt(private val settings: RailBiteSettings) {
             connector = null
             _connected.value = false
             if (cleanStaff.isBlank() || serverUrl.isBlank()) return
-            connectLocked(cleanStaff, serverUrl)
-            watchedOrderIds.forEach { orderId ->
-                subscribeOrderLocked(orderId)
+            connectLocked(cleanStaff, serverUrl, trainNumberOverride)
+            watchedOrderTrains.forEach { (orderId, train) ->
+                subscribeOrderLocked(orderId, train)
             }
         }
     }
 
-    suspend fun watchOrder(orderId: String, staffId: String) {
+    suspend fun watchOrder(orderId: String, staffId: String, trainNumberOverride: String? = null) {
         val cleanStaff = staffId.trim().lowercase()
         if (orderId.isBlank() || cleanStaff.isBlank()) return
         val serverUrl = settings.serverUrl.first()
         if (serverUrl.isBlank()) return
         mutex.withLock {
-            watchedOrderIds.add(orderId)
             if (connector == null || currentStaffId != cleanStaff) {
-                connectLocked(cleanStaff, serverUrl)
+                connectLocked(cleanStaff, serverUrl, trainNumberOverride)
             }
-            subscribeOrderLocked(orderId)
+            val trainNumber = trainNumberOverride
+                ?.trim()
+                ?.takeIf { Validators.isValidTrainNumber(it) }
+                ?: activeTrainNumber
+            val previous = watchedOrderTrains.put(orderId, trainNumber)
+            if (previous != null && previous != trainNumber) {
+                connector?.unsubscribe(RailBiteTopics.orderChat(previous, orderId))
+            }
+            subscribeOrderLocked(orderId, trainNumber)
         }
     }
 
     fun unwatchOrder(orderId: String) {
         scope.launch {
             mutex.withLock {
-                watchedOrderIds.remove(orderId)
-                connector?.unsubscribe(RailBiteTopics.orderChat(tripId, orderId))
+                val train = watchedOrderTrains.remove(orderId) ?: activeTrainNumber
+                connector?.unsubscribe(RailBiteTopics.orderChat(train, orderId))
                 _orderMessages.update { it - orderId }
                 OrderChatRepository.clear(orderId)
             }
@@ -101,20 +109,26 @@ class PickerChatMqtt(private val settings: RailBiteSettings) {
                 connector?.stop()
                 connector = null
                 currentStaffId = ""
-                watchedOrderIds.clear()
+                watchedOrderTrains.clear()
                 _connected.value = false
                 _orderMessages.value = emptyMap()
             }
         }
     }
 
-    private suspend fun connectLocked(staffId: String, serverUrl: String) {
+    private suspend fun connectLocked(
+        staffId: String,
+        serverUrl: String,
+        trainNumberOverride: String? = null,
+    ) {
         connector?.stop()
         currentStaffId = staffId
         val wsOverride = settings.mqttWsUrl.first()
-        tripId = withTimeoutOrNull(1_500L) {
-            runCatching { ApiClient.testConnection(serverUrl).tripId }.getOrNull()
-        }?.takeIf { it.isNotBlank() } ?: RailBiteTopics.DEFAULT_TRIP_ID
+        activeTrainNumber = trainNumberOverride
+            ?.trim()
+            ?.takeIf { Validators.isValidTrainNumber(it) }
+            ?: settings.activeTrainNumber.first().trim().takeIf { Validators.isValidTrainNumber(it) }
+            ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
         val c = MqttConnector.fromServerUrl(
             serverUrl = serverUrl,
             clientId = "c-$staffId-chat",
@@ -126,9 +140,9 @@ class PickerChatMqtt(private val settings: RailBiteSettings) {
         scope.launch { c.start() }
     }
 
-    private suspend fun subscribeOrderLocked(orderId: String) {
+    private suspend fun subscribeOrderLocked(orderId: String, trainNumber: String) {
         val c = connector ?: return
-        c.subscribe(RailBiteTopics.orderChat(tripId, orderId)) { payload ->
+        c.subscribe(RailBiteTopics.orderChat(trainNumber, orderId)) { payload ->
             runCatching {
                 val msg = json.decodeFromString<OrderMessage>(payload.decodeToString())
                 OrderChatRepository.ingest(orderId, msg, ChatTransport.LAN)

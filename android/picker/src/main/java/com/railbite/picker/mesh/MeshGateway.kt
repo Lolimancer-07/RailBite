@@ -213,8 +213,10 @@ class MeshGateway(
         val total = decodedItems.sumOf { it.unitPricePaise * it.qty }
         val pinStr = BlePacketCodec.formatPin4(pkt.handoverPin)
         val syntheticPnr10 = "000000${pkt.pnrLast4.toString().padStart(4, '0')}"
+        val activeTrain = app.container.settings.activeTrainNumber.first()
         return MeshOrderPayload(
             orderId = pkt.orderUuid,
+            trainNumber = activeTrain,
             pnr = syntheticPnr10,
             coach = pkt.coach.trim().uppercase(),
             berth = pkt.seat,
@@ -228,6 +230,7 @@ class MeshGateway(
 
     private fun MeshOrderPayload.toDisplayAlert(pnrLast4: Int) = MqttOrderAlert(
         orderId = orderId,
+        trainNumber = trainNumber,
         coach = coach,
         berth = berth,
         items = items.map { MqttOrderAlert.AlertItem(it.name, it.qty, it.unitPricePaise) },
@@ -301,6 +304,7 @@ class MeshGateway(
                 api.syncMeshOrder(
                     MeshOrderSyncRequest(
                         id = order.orderId,
+                        trainNumber = order.trainNumber,
                         pnr = order.pnr,
                         coach = order.coach,
                         berth = order.berth,
@@ -323,6 +327,7 @@ class MeshGateway(
                         api.createOrder(
                             OrderCreateRequest(
                                 id = order.orderId,
+                                trainNumber = order.trainNumber,
                                 pnr = order.pnr,
                                 coach = order.coach,
                                 berth = order.berth,

@@ -332,11 +332,12 @@ fun PickerDashboardScreen(
                 }
             }
 
-            // 4. Hero Duty Availability Switch (ONLINE / OFFLINE)
+            // 4. Hero Duty Availability Switch (ONLINE / OFFLINE) + Train Assignment
             item {
                 HeroDutyToggleCard(
                     state = state,
                     onToggle = vm::setOnline,
+                    onTrainInputChange = vm::onTrainInputChange,
                 )
             }
 
@@ -575,9 +576,14 @@ private fun StaffIdentityCard(
                 }
             }
 
-            if (state.zone.isNotBlank()) {
+            if (state.zone.isNotBlank() || state.activeTrainNumber.isNotBlank()) {
                 PickerStatusTag(
-                    text = state.zone.replace(", ", "–"),
+                    text = buildString {
+                        append("Train ${state.activeTrainNumber}")
+                        if (state.zone.isNotBlank()) {
+                            append(" • ${state.zone.replace(", ", "–")}")
+                        }
+                    },
                     bgColor = RailBitePickerPalette.CyanTint,
                     textColor = RailBitePickerPalette.CyanPressed,
                     borderColor = RailBitePickerPalette.CyanBorder,
@@ -636,8 +642,10 @@ private fun PermissionsAlertBanner(
 private fun HeroDutyToggleCard(
     state: HomeUiState,
     onToggle: (Boolean) -> Unit,
+    onTrainInputChange: (String) -> Unit,
 ) {
     val online = state.online
+    val zoneLabel = state.zone.ifBlank { "All" }.replace(", ", "–")
     PickerSectionCard(
         containerColor = if (online) {
             RailBitePickerPalette.SemanticGreenTint
@@ -650,81 +658,162 @@ private fun HeroDutyToggleCard(
             PickerCardBorder
         },
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Box(
-                contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(PickerRadii.Button))
-                    .background(
-                        if (online) RailBitePickerPalette.SemanticGreen else RailBitePickerPalette.ImageTile,
-                    ),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                modifier = Modifier.fillMaxWidth(),
             ) {
-                Icon(
-                    imageVector = Icons.Filled.NotificationsActive,
-                    contentDescription = null,
-                    tint = if (online) Color.White else RailBitePickerPalette.TextSecondary,
-                    modifier = Modifier.size(22.dp),
-                )
-            }
-
-            Column(Modifier.weight(1f)) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                Box(
+                    contentAlignment = Alignment.Center,
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(PickerRadii.Button))
+                        .background(
+                            if (online) RailBitePickerPalette.SemanticGreen else RailBitePickerPalette.ImageTile,
+                        ),
                 ) {
+                    Icon(
+                        imageVector = Icons.Filled.NotificationsActive,
+                        contentDescription = null,
+                        tint = if (online) Color.White else RailBitePickerPalette.TextSecondary,
+                        modifier = Modifier.size(22.dp),
+                    )
+                }
+
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = if (online) "ONLINE • Train ${state.activeTrainNumber}" else "OFFLINE • Train ${state.activeTrainNumber}",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = if (online) {
+                                RailBitePickerPalette.SemanticGreenInk
+                            } else {
+                                RailBitePickerPalette.TextPrimary
+                            },
+                        )
+                        if (online && state.serviceRunning) {
+                            PickerStatusTag(
+                                text = "LIVE",
+                                bgColor = RailBitePickerPalette.SurfaceCard,
+                                textColor = RailBitePickerPalette.SemanticGreenInk,
+                                borderColor = RailBitePickerPalette.SemanticGreenBorder,
+                                dotColor = RailBitePickerPalette.SemanticGreen,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        text = if (online) "You are ONLINE" else "You are OFFLINE",
-                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        text = if (online) {
+                            "ONLINE • Train ${state.activeTrainNumber} • Zone $zoneLabel"
+                        } else {
+                            "Set Train Number below, then toggle ON for Zone $zoneLabel"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
                         color = if (online) {
                             RailBitePickerPalette.SemanticGreenInk
                         } else {
-                            RailBitePickerPalette.TextPrimary
+                            RailBitePickerPalette.TextSecondary
                         },
                     )
-                    if (online && state.serviceRunning) {
-                        PickerStatusTag(
-                            text = "LIVE",
-                            bgColor = RailBitePickerPalette.SurfaceCard,
-                            textColor = RailBitePickerPalette.SemanticGreenInk,
-                            borderColor = RailBitePickerPalette.SemanticGreenBorder,
-                            dotColor = RailBitePickerPalette.SemanticGreen,
-                        )
-                    }
                 }
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = if (online) {
-                        "Listening for coach orders near ${state.zone.ifBlank { "assigned sector" }}"
-                    } else {
-                        "Switch ON to receive new coach order alerts"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (online) {
-                        RailBitePickerPalette.SemanticGreenInk
-                    } else {
-                        RailBitePickerPalette.TextSecondary
-                    },
+
+                Switch(
+                    checked = online,
+                    onCheckedChange = onToggle,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = RailBitePickerPalette.SemanticGreen,
+                        uncheckedThumbColor = Color.White,
+                        uncheckedTrackColor = RailBitePickerPalette.BorderSubtle,
+                        uncheckedBorderColor = Color.Transparent,
+                    ),
                 )
             }
 
-            Switch(
-                checked = online,
-                onCheckedChange = onToggle,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = RailBitePickerPalette.SemanticGreen,
-                    uncheckedThumbColor = Color.White,
-                    uncheckedTrackColor = RailBitePickerPalette.BorderSubtle,
-                    uncheckedBorderColor = Color.Transparent,
-                ),
+            HorizontalDivider(
+                thickness = 1.dp,
+                color = if (online) RailBitePickerPalette.SemanticGreenBorder else RailBitePickerPalette.BorderSubtle,
             )
+
+            // Active Train Number selector (editable strictly while OFFLINE)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "ACTIVE TRAIN NUMBER",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = RailBitePickerPalette.TextSecondary,
+                    )
+                    Text(
+                        text = if (online) "Go OFFLINE to switch" else "5 digits • strict isolation",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (online) RailBitePickerPalette.SemanticGreenInk else RailBitePickerPalette.TextMuted,
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedTextField(
+                        value = state.trainInput,
+                        onValueChange = onTrainInputChange,
+                        enabled = !online,
+                        singleLine = true,
+                        textStyle = PickerNumericType.MetaMono,
+                        placeholder = { Text("12345", style = PickerNumericType.MetaMono) },
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                        ),
+                        shape = RoundedCornerShape(PickerRadii.Button),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = RailBitePickerPalette.CyanPrimary,
+                            unfocusedBorderColor = RailBitePickerPalette.BorderSubtle,
+                            focusedContainerColor = RailBitePickerPalette.Canvas,
+                            unfocusedContainerColor = RailBitePickerPalette.Canvas,
+                            disabledContainerColor = RailBitePickerPalette.SurfaceCard,
+                            disabledBorderColor = RailBitePickerPalette.SemanticGreenBorder,
+                            disabledTextColor = RailBitePickerPalette.TextPrimary,
+                        ),
+                        modifier = Modifier.weight(1f),
+                    )
+                    listOf("12345", "12423").forEach { code ->
+                        val selected = state.activeTrainNumber == code
+                        Surface(
+                            onClick = { if (!online) onTrainInputChange(code) },
+                            enabled = !online,
+                            shape = RoundedCornerShape(PickerRadii.Button),
+                            color = if (selected) RailBitePickerPalette.CyanPrimary else RailBitePickerPalette.Canvas,
+                            border = if (selected) null else PickerCardBorder,
+                            modifier = Modifier.heightIn(min = 44.dp),
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                            ) {
+                                Text(
+                                    text = code,
+                                    style = PickerNumericType.BadgeMono,
+                                    color = if (selected) Color.White else RailBitePickerPalette.TextPrimary,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }

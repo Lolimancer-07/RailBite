@@ -44,6 +44,8 @@ data class HomeUiState(
     val staffId: String = "",
     val staffName: String = "",
     val zone: String = "",
+    val activeTrainNumber: String = "12345",
+    val trainInput: String = "12345",
     val online: Boolean = false,
     val serviceRunning: Boolean = false,
     val mqttConnected: Boolean = false,
@@ -82,11 +84,14 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
     init {
         viewModelScope.launch {
             val staffId = container.settings.staffId.first()
+            val train = container.settings.activeTrainNumber.first()
             _state.update {
                 it.copy(
                     staffId = staffId,
                     staffName = container.settings.staffName.first(),
                     zone = container.settings.staffZone.first(),
+                    activeTrainNumber = train,
+                    trainInput = train,
                     serverUrl = container.settings.serverUrl.first(),
                     serverUrlStored = container.settings.serverUrlStored.first(),
                     mqttWsUrlStored = container.settings.mqttWsUrl.first(),
@@ -95,6 +100,14 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             }
             if (staffId.isNotBlank() && container.transportRouter.checkLanReachable()) {
                 container.chatMqtt.ensureConnected(staffId)
+            }
+        }
+        viewModelScope.launch {
+            container.settings.activeTrainNumber.collect { train ->
+                _state.update { cur ->
+                    val nextInput = if (cur.activeTrainNumber == cur.trainInput) train else cur.trainInput
+                    cur.copy(activeTrainNumber = train, trainInput = nextInput)
+                }
             }
         }
         viewModelScope.launch {
@@ -318,7 +331,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             if (staffId.isNotBlank() && activeList.isNotEmpty()) {
                 val msgSnapshot = mutableMapOf<String, List<OrderMessage>>()
                 activeList.forEach { order ->
-                    container.chatMqtt.watchOrder(order.id, staffId)
+                    container.chatMqtt.watchOrder(order.id, staffId, order.trainNumber)
                     runCatching { api.orderMessages(order.id) }.getOrNull()?.let { msgs ->
                         msgSnapshot[order.id] = msgs
                     }
@@ -350,8 +363,45 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         }
     }
 
+    fun onTrainInputChange(raw: String) {
+        if (_state.value.online) {
+            _state.update { it.copy(error = "Go OFFLINE to change Active Train Number") }
+            return
+        }
+        val clean = raw.filter(Char::isDigit).take(5)
+        _state.update { it.copy(trainInput = clean, error = null) }
+        if (com.railbite.core.util.Validators.isValidTrainNumber(clean)) {
+            saveActiveTrainNumber(clean)
+        }
+    }
+
+    fun saveActiveTrainNumber(raw: String = _state.value.trainInput) {
+        if (_state.value.online) {
+            _state.update { it.copy(error = "Go OFFLINE to switch Train Number") }
+            return
+        }
+        val clean = raw.filter(Char::isDigit).take(5)
+        if (!com.railbite.core.util.Validators.isValidTrainNumber(clean)) {
+            _state.update { it.copy(error = "Enter a valid 5-digit Train Number") }
+            return
+        }
+        viewModelScope.launch {
+            container.settings.setActiveTrainNumber(clean)
+            _state.update { it.copy(activeTrainNumber = clean, trainInput = clean, error = null) }
+            val staffId = container.settings.staffId.first()
+            if (staffId.isNotBlank() && container.transportRouter.checkLanReachable()) {
+                runCatching { container.chatMqtt.reconnect(staffId, clean) }
+            }
+        }
+    }
+
     /** ONLINE/OFFLINE toggle: starts/stops alert foreground service & LOW_LATENCY BLE scanning. */
     fun setOnline(online: Boolean) {
+        val activeTrain = _state.value.activeTrainNumber.trim()
+        if (online && !com.railbite.core.util.Validators.isValidTrainNumber(activeTrain)) {
+            _state.update { it.copy(error = "Enter a valid 5-digit Train Number before going ONLINE") }
+            return
+        }
         val app = container.app
         if (online) {
             ContextCompat.startForegroundService(
@@ -371,11 +421,19 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         viewModelScope.launch {
             container.settings.setOnline(online)
             if (container.transportRouter.checkLanReachable()) {
+                val staffId = container.settings.staffId.first()
                 runCatching {
-                    container.client.api().setStaffOnline(
-                        container.settings.staffId.first(),
-                        RailBiteApi.OnlineRequest(online),
+                    container.client.api().setPickerStatus(
+                        staffId,
+                        RailBiteApi.PickerStatusRequest(online = online, trainNumber = activeTrain),
                     )
+                }.onFailure {
+                    runCatching {
+                        container.client.api().setStaffOnline(
+                            staffId,
+                            RailBiteApi.OnlineRequest(online, activeTrain),
+                        )
+                    }
                 }
             }
         }
@@ -384,6 +442,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
     /** Fake alert so the picker can test the loud alarm without a real passenger order. */
     fun fakeAlert(): MqttOrderAlert = MqttOrderAlert(
         orderId = "test-" + System.currentTimeMillis(),
+        trainNumber = _state.value.activeTrainNumber.ifBlank { "12345" },
         coach = "B2",
         berth = 14,
         items = listOf(
@@ -471,6 +530,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         }
         return Order(
             id = payload.orderId,
+            trainNumber = payload.trainNumber,
             pnr = payload.pnr,
             coach = payload.coach,
             berth = payload.berth,

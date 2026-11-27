@@ -44,11 +44,24 @@ class AlertForegroundService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private var connector: MqttConnector? = null
+    private var subscribedTrainNumber: String = ""
+    private var subscribedStaffId: String = ""
+    @Volatile
+    private var currentTrainNumber: String = RailBiteTopics.DEFAULT_TRAIN_NUMBER
     private val mutex = Mutex()
 
     override fun onCreate() {
         super.onCreate()
         Notifications.createChannels(this)
+        val app = application as com.railbite.picker.RailBitePickerApp
+        scope.launch {
+            app.container.settings.activeTrainNumber.collect { train ->
+                currentTrainNumber = train
+                    .trim()
+                    .takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+                    ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -110,17 +123,21 @@ class AlertForegroundService : Service() {
         val serverUrl = container.settings.serverUrl.first()
         val mqttWsOverride = container.settings.mqttWsUrl.first()
         val staffId = container.settings.staffId.first()
+        val activeTrainNumber = container.settings.activeTrainNumber.first()
+            .trim()
+            .takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+            ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
+        currentTrainNumber = activeTrainNumber
         if ((serverUrl.isBlank() && mqttWsOverride.isBlank()) || staffId.isBlank()) return
 
-        val tripId = if (serverUrl.isNotBlank()) {
-            runCatching { ApiClient.testConnection(serverUrl).tripId }
-                .getOrDefault(RailBiteTopics.DEFAULT_TRIP_ID)
-        } else {
-            RailBiteTopics.DEFAULT_TRIP_ID
-        }
-
         mutex.withLock {
-            if (connector != null) return
+            if (connector != null && subscribedTrainNumber == activeTrainNumber && subscribedStaffId == staffId) {
+                return
+            }
+            connector?.stop()
+            connector = null
+            subscribedTrainNumber = activeTrainNumber
+            subscribedStaffId = staffId
             val c = MqttConnector.fromServerUrl(
                 serverUrl = serverUrl,
                 clientId = "c-$staffId",
@@ -129,9 +146,17 @@ class AlertForegroundService : Service() {
                 onDisconnected = { },
             )
             connector = c
-            c.subscribe(RailBiteTopics.captainAlerts(tripId, staffId)) { payload ->
+            c.subscribe(RailBiteTopics.captainAlerts(activeTrainNumber, staffId)) { payload ->
                 runCatching {
                     val alert = json.decodeFromString<MqttOrderAlert>(payload.decodeToString())
+                    val currentTrain = currentTrainNumber
+                    if (alert.trainNumber != currentTrain) {
+                        android.util.Log.i(
+                            "RailBitePicker",
+                            "Ignored cross-train order ${alert.trainNumber} != $currentTrain (order=${alert.orderId})",
+                        )
+                        return@runCatching
+                    }
                     AlertBus.post(alert)
                     Notifications.notifyAlert(this, alert)
                 }
@@ -144,13 +169,24 @@ class AlertForegroundService : Service() {
         val app = application as com.railbite.picker.RailBitePickerApp
         val container = app.container
         val staffId = container.settings.staffId.first()
+        val activeTrain = container.settings.activeTrainNumber.first()
+            .trim()
+            .takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+            ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
         val serverUrl = container.settings.serverUrl.first()
         if (staffId.isBlank() || serverUrl.isBlank()) return
         runCatching {
-            container.client.api().setStaffOnline(
+            container.client.api().setPickerStatus(
                 staffId,
-                com.railbite.core.api.RailBiteApi.OnlineRequest(value),
+                com.railbite.core.api.RailBiteApi.PickerStatusRequest(value, activeTrain),
             )
+        }.onFailure {
+            runCatching {
+                container.client.api().setStaffOnline(
+                    staffId,
+                    com.railbite.core.api.RailBiteApi.OnlineRequest(value, activeTrain),
+                )
+            }
         }
         container.settings.setOnline(value)
     }

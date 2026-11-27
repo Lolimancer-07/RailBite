@@ -86,10 +86,10 @@ private data class SectorPreview(
 )
 
 private fun previewSectorFor(staffId: String): SectorPreview = when (staffId.trim().uppercase()) {
-    "C1" -> SectorPreview("Coaches B1 – B2", "AC 3-Tier • Pantry Forward", "Ramesh Kumar")
-    "C2" -> SectorPreview("Coaches B3 – B4", "AC 3-Tier • Pantry Aft", "Suresh Sharma")
-    "C3" -> SectorPreview("Coaches S1 – S2", "Sleeper • Forward Wing", "Amit Verma")
-    "C4" -> SectorPreview("Coaches S3 – S4", "Sleeper • Rear Wing", "Deepak Patel")
+    "C1" -> SectorPreview("Coaches B1 – B2", "Train 12345 • AC 3-Tier", "Ramesh Kumar")
+    "C2" -> SectorPreview("Coaches B3 – B4", "Train 12345 • AC 3-Tier", "Suresh Sharma")
+    "C3" -> SectorPreview("Coaches B1 – B2, S1 – S2", "Train 12423 • Rajdhani", "Amit Verma")
+    "C4" -> SectorPreview("Coaches B3 – B4, S3 – S4", "Train 12423 • Rajdhani", "Deepak Patel")
     else -> SectorPreview("Assigned Coach Sector", "Loaded from pantry roster on sign-in", "Crew Member")
 }
 
@@ -220,7 +220,11 @@ fun LoginScreen(
                         )
                         Spacer(Modifier.height(2.dp))
                         Text(
-                            text = state.healthTripId.ifBlank { "Edge Trip — Offline / LAN Ready" },
+                            text = if (com.railbite.core.util.Validators.isValidTrainNumber(state.trainNumber)) {
+                                "Train ${state.trainNumber} (${if (state.trainNumber == "12423") "Rajdhani Express" else if (state.trainNumber == "12345") "Saraighat Express" else "Custom"})"
+                            } else {
+                                "Enter 5-digit Train Number"
+                            },
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = RailBitePickerPalette.TextPrimary,
                             maxLines = 1,
@@ -332,6 +336,72 @@ fun LoginScreen(
                                     Box(contentAlignment = Alignment.Center) {
                                         Text(
                                             text = code,
+                                            style = PickerNumericType.BadgeMono,
+                                            color = if (selected) RailBitePickerPalette.CyanPressed else RailBitePickerPalette.TextSecondary,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // 5-Digit Assigned Train Number + Quick Pick Chips
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            text = "Assigned Train Number (5 digits)",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = RailBitePickerPalette.TextPrimary,
+                        )
+                        OutlinedTextField(
+                            value = state.trainNumber,
+                            onValueChange = vm::onTrainNumberChange,
+                            placeholder = {
+                                Text(
+                                    text = "12345",
+                                    style = PickerNumericType.PriceMedium,
+                                    color = RailBitePickerPalette.TextMuted,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Filled.Train,
+                                    contentDescription = null,
+                                    tint = RailBitePickerPalette.CyanPrimary,
+                                )
+                            },
+                            singleLine = true,
+                            textStyle = PickerNumericType.PriceMedium,
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Number,
+                                imeAction = ImeAction.Next,
+                            ),
+                            shape = RoundedCornerShape(PickerRadii.Button),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = RailBitePickerPalette.CyanPrimary,
+                                unfocusedBorderColor = RailBitePickerPalette.BorderSubtle,
+                                focusedContainerColor = RailBitePickerPalette.Canvas,
+                                unfocusedContainerColor = RailBitePickerPalette.Canvas,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            listOf("12345" to "Saraighat", "12423" to "Rajdhani").forEach { (num, name) ->
+                                val selected = state.trainNumber == num
+                                Surface(
+                                    onClick = { vm.onTrainNumberChange(num) },
+                                    shape = RoundedCornerShape(PickerRadii.Button),
+                                    color = if (selected) RailBitePickerPalette.CyanTint else RailBitePickerPalette.Canvas,
+                                    border = if (selected) PickerSelectedBorder else PickerCardBorder,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .heightIn(min = 44.dp),
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Text(
+                                            text = "$num · $name",
                                             style = PickerNumericType.BadgeMono,
                                             color = if (selected) RailBitePickerPalette.CyanPressed else RailBitePickerPalette.TextSecondary,
                                         )
@@ -527,7 +597,10 @@ fun LoginScreen(
                             focus.clearFocus()
                             vm.submit(onLoggedIn)
                         },
-                        enabled = !state.busy && state.staffId.isNotBlank() && state.password.length >= 4,
+                        enabled = !state.busy &&
+                            state.staffId.isNotBlank() &&
+                            state.password.length >= 4 &&
+                            com.railbite.core.util.Validators.isValidTrainNumber(state.trainNumber),
                         busy = state.busy,
                     )
                 }

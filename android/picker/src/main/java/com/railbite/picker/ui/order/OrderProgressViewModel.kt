@@ -192,6 +192,7 @@ class OrderProgressViewModel(
 
         val order = Order(
             id = payload.orderId,
+            trainNumber = payload.trainNumber,
             pnr = payload.pnr,
             coach = payload.coach,
             berth = payload.berth,
@@ -273,6 +274,9 @@ class OrderProgressViewModel(
                 )
             }
             if (order.status != Statuses.PLACED && order.status != Statuses.ASSIGNED) {
+                runCatching {
+                    container.chatMqtt.watchOrder(orderId, container.settings.staffId.first(), order.trainNumber)
+                }
                 val history = runCatching { api.orderMessages(orderId) }.getOrNull()
                 if (history != null) {
                     OrderChatRepository.ingestAll(orderId, history, ChatTransport.LAN)
