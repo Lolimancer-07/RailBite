@@ -431,7 +431,7 @@ fun SettingsScreen(
                         label = {
                             Text(
                                 state.autoFilledTrainName?.let { "Train Number ($it)" }
-                                    ?: "Train Number (5 digits)",
+                                    ?: "Train Number (1–10 chars)",
                             )
                         },
                         placeholder = { Text("12345", style = RailBiteNumericType.PriceMedium) },
@@ -439,7 +439,7 @@ fun SettingsScreen(
                         singleLine = true,
                         shape = RoundedCornerShape(RailBiteRadii.Button),
                         colors = flatTextFieldColors(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

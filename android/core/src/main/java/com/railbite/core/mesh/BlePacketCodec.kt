@@ -46,7 +46,10 @@ object BlePacketCodec {
         trainNumber: String? = null,
     ): String {
         val base = key.ifBlank { RAILBITE_MESH_KEY }
-        val cleanTrain = trainNumber?.trim()?.takeIf { it.isNotEmpty() } ?: return base
+        val cleanTrain = trainNumber
+            ?.let { com.railbite.core.util.Validators.normalizeTrainNumber(it) }
+            ?.takeIf { it.isNotEmpty() }
+            ?: return base
         return "$base:$cleanTrain"
     }
 

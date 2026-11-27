@@ -234,6 +234,18 @@ class BlePacketCodecTest {
         assertEquals(23, orderTrainB.size)
         assertEquals(order, BlePacketCodec.decode(orderTrainB, testKey, trainNumber = "12423"))
         assertNull(BlePacketCodec.decode(orderTrainB, testKey, trainNumber = "12345"))
+
+        // Arbitrary unseeded train number (" 88412 ") round-trips identically with "88412" and rejects "77777"
+        val dynamicEncoded = BlePacketCodec.encode(order, testKey, trainNumber = " 88412 ")
+        assertEquals(23, dynamicEncoded.size)
+        assertEquals(order, BlePacketCodec.decode(dynamicEncoded, testKey, trainNumber = "88412"))
+        assertNull(BlePacketCodec.decode(dynamicEncoded, testKey, trainNumber = "77777"))
+
+        // Short unseeded train number (" 999 " -> "999") round-trips across normalization
+        val shortEncoded = BlePacketCodec.encode(chat, testKey, trainNumber = " 999 ")
+        assertEquals(23, shortEncoded.size)
+        assertEquals(chat, BlePacketCodec.decode(shortEncoded, testKey, trainNumber = "999"))
+        assertNull(BlePacketCodec.decode(shortEncoded, testKey, trainNumber = "88412"))
     }
 }
 

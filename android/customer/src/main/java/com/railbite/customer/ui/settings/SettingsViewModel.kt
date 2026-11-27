@@ -107,7 +107,15 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setServerUrl(v: String) = _state.update { it.copy(serverUrl = v, testState = OnboardingLikeTestState.Idle, saved = false) }
     fun setTrainNumber(v: String) = _state.update {
-        it.copy(trainNumber = v.filter(Char::isDigit).take(5), autoFilledTrainName = null, saved = false, error = null)
+        it.copy(
+            trainNumber = com.railbite.core.util.Validators
+                .normalizeTrainNumber(v)
+                .filter { ch -> ch.isLetterOrDigit() }
+                .take(10),
+            autoFilledTrainName = null,
+            saved = false,
+            error = null,
+        )
     }
 
     fun setPnr(v: String) {
@@ -166,20 +174,29 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun save(onSaved: () -> Unit = {}) {
         val s = _state.value
+        val cleanTrain = com.railbite.core.util.Validators.normalizeTrainNumber(s.trainNumber)
+        if (!com.railbite.core.util.Validators.isValidTrainNumber(cleanTrain)) {
+            _state.update { it.copy(error = "Enter a valid Train Number (1–10 letters/digits)") }
+            return
+        }
         viewModelScope.launch {
             try {
                 container.settings.setServerUrl(ApiClient.normalizeServerUrl(s.serverUrl))
                 container.settings.setMeshKey(s.meshKey)
-                if (com.railbite.core.util.Validators.isValidTrainNumber(s.trainNumber)) {
-                    container.settings.setTrainNumber(s.trainNumber)
-                }
+                container.settings.setTrainNumber(cleanTrain)
                 if (s.seatValid) {
-                    container.settings.setSeat(s.pnr, s.coach, s.berth.toInt(), s.diners, s.trainNumber)
+                    container.settings.setSeat(s.pnr, s.coach, s.berth.toInt(), s.diners, cleanTrain)
+                }
+                if (
+                    com.railbite.core.mesh.BlePermissions.isReadyForMesh(container.app) &&
+                    container.settings.meshRelayEnabled.first()
+                ) {
+                    com.railbite.core.mesh.BleMeshService.start(container.app, lowLatency = false)
                 }
                 container.mqtt.disconnect()
                 container.mqtt.ensureConnected()
                 container.transportRouter.probeNow()
-                _state.update { it.copy(saved = true) }
+                _state.update { it.copy(trainNumber = cleanTrain, saved = true, error = null) }
                 onSaved()
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.message ?: "Could not save") }

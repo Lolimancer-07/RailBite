@@ -179,8 +179,6 @@ class MqttConnector(
         val deferred = CompletableDeferred<Boolean>()
         val c = client ?: return false
 
-        c.publishes(MqttGlobalPublishFilter.SUBSCRIBED) { publish -> dispatch(publish) }
-
         val future = connectAsync()
         future.whenComplete { _, error ->
             if (error == null) {
@@ -239,7 +237,10 @@ class MqttConnector(
                 .build(),
         )
 
-        client = builder.buildAsync()
+        val built = builder.buildAsync()
+        // Always register global publish callback on every client instance (including background reconnect fallback).
+        built.publishes(MqttGlobalPublishFilter.SUBSCRIBED) { publish -> dispatch(publish) }
+        client = built
     }
 
     private fun resubscribeAll() {

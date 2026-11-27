@@ -206,7 +206,7 @@ fun OnboardingScreen(
                     )
                 }
 
-                // Mandatory 5-Digit Train Number Input + Quick Pick Demo Chips
+                // Train Number Input (1-10 alphanumeric chars) + Quick Pick Demo Chips
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -214,12 +214,12 @@ fun OnboardingScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "5-Digit Train Number",
+                            text = "Train Number",
                             style = MaterialTheme.typography.titleSmall,
                             color = RailBitePalette.TextPrimary,
                         )
                         Text(
-                            text = state.autoFilledTrainName ?: "Required for train isolation",
+                            text = state.autoFilledTrainName ?: "1–10 chars (e.g. 12345 or 777)",
                             style = MaterialTheme.typography.labelSmall,
                             color = if (state.autoFilledTrainName != null) {
                                 RailBitePalette.SemanticGreen
@@ -245,7 +245,7 @@ fun OnboardingScreen(
                             }
                         },
                         colors = flatTextFieldColors(),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                         modifier = Modifier.fillMaxWidth(),
                     )
                     FlowRow(

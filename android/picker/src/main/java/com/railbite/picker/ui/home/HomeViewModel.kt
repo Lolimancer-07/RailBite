@@ -1,6 +1,7 @@
 package com.railbite.picker.ui.home
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,7 @@ import com.railbite.core.model.OrderItem
 import com.railbite.core.model.OrderMessage
 import com.railbite.core.model.PickerStats
 import com.railbite.core.util.Statuses
+import com.railbite.core.util.Validators
 import com.railbite.picker.PickerContainer
 import com.railbite.picker.alert.AlertForegroundService
 import kotlinx.coroutines.Job
@@ -368,9 +370,11 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             _state.update { it.copy(error = "Go OFFLINE to change Active Train Number") }
             return
         }
-        val clean = raw.filter(Char::isDigit).take(5)
+        val clean = Validators.normalizeTrainNumber(raw)
+            .filter { it.isLetterOrDigit() }
+            .take(10)
         _state.update { it.copy(trainInput = clean, error = null) }
-        if (com.railbite.core.util.Validators.isValidTrainNumber(clean)) {
+        if (Validators.isValidTrainNumber(clean)) {
             saveActiveTrainNumber(clean)
         }
     }
@@ -380,14 +384,29 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             _state.update { it.copy(error = "Go OFFLINE to switch Train Number") }
             return
         }
-        val clean = raw.filter(Char::isDigit).take(5)
-        if (!com.railbite.core.util.Validators.isValidTrainNumber(clean)) {
-            _state.update { it.copy(error = "Enter a valid 5-digit Train Number") }
+        val clean = Validators.normalizeTrainNumber(raw)
+            .filter { it.isLetterOrDigit() }
+            .take(10)
+        if (!Validators.isValidTrainNumber(clean)) {
+            _state.update { it.copy(error = "Enter a valid Train Number (1–10 letters/digits)") }
             return
         }
         viewModelScope.launch {
-            container.settings.setActiveTrainNumber(clean)
+            withContext(Dispatchers.IO) {
+                container.settings.setActiveTrainNumber(clean)
+            }
             _state.update { it.copy(activeTrainNumber = clean, trainInput = clean, error = null) }
+            val app = container.app
+            if (_state.value.online || _state.value.serviceRunning) {
+                ContextCompat.startForegroundService(
+                    app,
+                    Intent(app, AlertForegroundService::class.java)
+                        .setAction(AlertForegroundService.ACTION_UPDATE_TRAIN)
+                        .putExtra(AlertForegroundService.EXTRA_TRAIN_NUMBER, clean),
+                )
+            } else if (BlePermissions.isReadyForMesh(app) && container.settings.meshRelayEnabled.first()) {
+                runCatching { BleMeshService.start(app, lowLatency = false) }
+            }
             val staffId = container.settings.staffId.first()
             if (staffId.isNotBlank() && container.transportRouter.checkLanReachable()) {
                 runCatching { container.chatMqtt.reconnect(staffId, clean) }
@@ -395,46 +414,103 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         }
     }
 
-    /** ONLINE/OFFLINE toggle: starts/stops alert foreground service & LOW_LATENCY BLE scanning. */
+    /** ONLINE/OFFLINE toggle: syncs server train assignment, starts/stops alert service & BLE scanner. */
     fun setOnline(online: Boolean) {
-        val activeTrain = _state.value.activeTrainNumber.trim()
-        if (online && !com.railbite.core.util.Validators.isValidTrainNumber(activeTrain)) {
-            _state.update { it.copy(error = "Enter a valid 5-digit Train Number before going ONLINE") }
+        val candidate = _state.value.trainInput.ifBlank { _state.value.activeTrainNumber }
+        val activeTrain = Validators.normalizeTrainNumber(candidate)
+        if (online && !Validators.isValidTrainNumber(activeTrain)) {
+            _state.update { it.copy(error = "Enter a valid Train Number (1–10 letters/digits) before going ONLINE") }
             return
         }
         val app = container.app
-        if (online) {
-            ContextCompat.startForegroundService(
-                app,
-                Intent(app, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_START),
-            )
-            if (BlePermissions.isReadyForMesh(app)) {
-                BleMeshService.start(app, lowLatency = true)
-                container.meshGateway.start(dispatchAlerts = true)
-            }
-        } else {
-            app.startService(
-                Intent(app, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_STOP),
-            )
-            container.meshGateway.stop()
-        }
         viewModelScope.launch {
-            container.settings.setOnline(online)
-            if (container.transportRouter.checkLanReachable()) {
-                val staffId = container.settings.staffId.first()
-                runCatching {
-                    container.client.api().setPickerStatus(
-                        staffId,
-                        RailBiteApi.PickerStatusRequest(online = online, trainNumber = activeTrain),
-                    )
-                }.onFailure {
-                    runCatching {
-                        container.client.api().setStaffOnline(
-                            staffId,
-                            RailBiteApi.OnlineRequest(online, activeTrain),
-                        )
-                    }
+            withContext(Dispatchers.IO) {
+                if (Validators.isValidTrainNumber(activeTrain)) {
+                    container.settings.setActiveTrainNumber(activeTrain)
                 }
+                container.settings.setOnline(online)
+            }
+            _state.update {
+                it.copy(
+                    activeTrainNumber = if (Validators.isValidTrainNumber(activeTrain)) activeTrain else it.activeTrainNumber,
+                    trainInput = if (Validators.isValidTrainNumber(activeTrain)) activeTrain else it.trainInput,
+                    online = online,
+                    error = null,
+                )
+            }
+
+            if (online) {
+                ContextCompat.startForegroundService(
+                    app,
+                    Intent(app, AlertForegroundService::class.java)
+                        .setAction(AlertForegroundService.ACTION_START)
+                        .putExtra(AlertForegroundService.EXTRA_TRAIN_NUMBER, activeTrain),
+                )
+                if (BlePermissions.isReadyForMesh(app)) {
+                    BleMeshService.start(app, lowLatency = true)
+                    container.meshGateway.start(dispatchAlerts = true)
+                }
+            } else {
+                app.startService(
+                    Intent(app, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_STOP),
+                )
+                container.meshGateway.stop()
+            }
+
+            val staffId = withContext(Dispatchers.IO) { container.settings.staffId.first() }
+            val serverUrl = withContext(Dispatchers.IO) { container.settings.serverUrl.first() }
+            if (staffId.isNotBlank() && serverUrl.isNotBlank()) {
+                val syncError = withContext(Dispatchers.IO) {
+                    syncStatusWithServer(staffId = staffId, online = online, trainNumber = activeTrain)
+                }
+                if (syncError != null) {
+                    _state.update { it.copy(error = syncError) }
+                    Toast.makeText(app, syncError, Toast.LENGTH_LONG).show()
+                }
+                if (online && syncError == null) {
+                    runCatching { container.chatMqtt.reconnect(staffId, activeTrain) }
+                    // Ensure alert service subscribes now that server knows picker status/connectivity
+                    ContextCompat.startForegroundService(
+                        app,
+                        Intent(app, AlertForegroundService::class.java)
+                            .setAction(AlertForegroundService.ACTION_UPDATE_TRAIN)
+                            .putExtra(AlertForegroundService.EXTRA_TRAIN_NUMBER, activeTrain),
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun syncStatusWithServer(
+        staffId: String,
+        online: Boolean,
+        trainNumber: String,
+    ): String? {
+        return try {
+            container.client.api().setPickerStatus(
+                staffId,
+                RailBiteApi.PickerStatusRequest(online = online, trainNumber = trainNumber),
+            )
+            null
+        } catch (primary: retrofit2.HttpException) {
+            if (primary.code() == 404) {
+                try {
+                    container.client.api().setStaffOnline(
+                        staffId,
+                        RailBiteApi.OnlineRequest(online, trainNumber),
+                    )
+                    null
+                } catch (fallbackErr: Exception) {
+                    "Server status sync failed for Train $trainNumber (${fallbackErr.message})"
+                }
+            } else {
+                "Server rejected status sync for Train $trainNumber (HTTP ${primary.code()})"
+            }
+        } catch (err: Exception) {
+            if (online) {
+                "Could not sync Train $trainNumber to LAN server (${err.message ?: "unreachable"})"
+            } else {
+                null
             }
         }
     }

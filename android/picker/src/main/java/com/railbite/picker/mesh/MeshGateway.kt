@@ -165,8 +165,14 @@ class MeshGateway(
                 )
 
                 val alert = orderPayload.toDisplayAlert(pkt.pnrLast4)
+                val normTrain = com.railbite.core.util.Validators.normalizeTrainNumber(alert.trainNumber)
+                Log.i(
+                    "RailBiteTrainMatch",
+                    "Incoming orderId=${alert.orderId} incomingTrain=$normTrain activeTrain=$normTrain MATCH",
+                )
                 AlertBus.post(alert, source = AlertBus.SOURCE_MESH, hopCount = pkt.hopCount)
                 Notifications.notifyAlert(app, alert, hopCount = pkt.hopCount)
+                Notifications.launchIncomingActivity(app, alert.orderId)
             } finally {
                 pendingArbitration.remove(pkt.orderId)
             }
@@ -213,7 +219,9 @@ class MeshGateway(
         val total = decodedItems.sumOf { it.unitPricePaise * it.qty }
         val pinStr = BlePacketCodec.formatPin4(pkt.handoverPin)
         val syntheticPnr10 = "000000${pkt.pnrLast4.toString().padStart(4, '0')}"
-        val activeTrain = app.container.settings.activeTrainNumber.first()
+        val activeTrain = com.railbite.core.util.Validators.normalizeTrainNumber(
+            app.container.settings.activeTrainNumber.first(),
+        ).ifBlank { com.railbite.core.mesh.BlePacketCodec.DEFAULT_TRAIN_NUMBER }
         return MeshOrderPayload(
             orderId = pkt.orderUuid,
             trainNumber = activeTrain,
@@ -262,10 +270,10 @@ class MeshGateway(
             val staffId = app.container.settings.staffId.first().ifBlank { "c1" }
             val meshKey = app.container.settings.meshKey.first()
             val trainNumber = payload?.trainNumber
-                ?.trim()
+                ?.let { com.railbite.core.util.Validators.normalizeTrainNumber(it) }
                 ?.takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
-                ?: app.container.settings.activeTrainNumber.first()
-                    .trim()
+                ?: com.railbite.core.util.Validators
+                    .normalizeTrainNumber(app.container.settings.activeTrainNumber.first())
                     .takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
                 ?: BlePacketCodec.DEFAULT_TRAIN_NUMBER
 

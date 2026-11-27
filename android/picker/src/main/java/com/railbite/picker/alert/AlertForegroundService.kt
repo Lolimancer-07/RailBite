@@ -4,12 +4,12 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
-import com.railbite.core.api.ApiClient
 import com.railbite.core.mesh.BleMeshService
 import com.railbite.core.mesh.BlePermissions
 import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.mqtt.MqttConnector
 import com.railbite.core.mqtt.RailBiteTopics
+import com.railbite.core.util.Validators
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,10 +35,16 @@ class AlertForegroundService : Service() {
         const val ACTION_START = "com.railbite.picker.action.START"
         const val ACTION_STOP = "com.railbite.picker.action.STOP"
         const val ACTION_RECONNECT = "com.railbite.picker.action.RECONNECT"
+        const val ACTION_UPDATE_TRAIN = "com.railbite.picker.action.UPDATE_TRAIN"
+        const val EXTRA_TRAIN_NUMBER = "extra_train_number"
 
         /** Whether the alert pipeline is connected (UI binds to this for the ONLINE indicator). */
         private val _running = MutableStateFlow(false)
         val running: StateFlow<Boolean> = _running.asStateFlow()
+
+        /** Exact train number currently subscribed on MQTT by this service. */
+        private val _subscribedTrain = MutableStateFlow("")
+        val subscribedTrain: StateFlow<String> = _subscribedTrain.asStateFlow()
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -56,15 +62,20 @@ class AlertForegroundService : Service() {
         val app = application as com.railbite.picker.RailBitePickerApp
         scope.launch {
             app.container.settings.activeTrainNumber.collect { train ->
-                currentTrainNumber = train
-                    .trim()
-                    .takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+                val resolved = Validators.normalizeTrainNumber(train)
+                    .takeIf { Validators.isValidTrainNumber(it) }
                     ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
+                if (resolved != currentTrainNumber) {
+                    switchTrainSubscription(resolved)
+                }
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val extraTrain = intent?.getStringExtra(EXTRA_TRAIN_NUMBER)
+            ?.let { Validators.normalizeTrainNumber(it) }
+            ?.takeIf { Validators.isValidTrainNumber(it) }
         when (intent?.action) {
             ACTION_STOP -> {
                 scope.launch {
@@ -73,24 +84,43 @@ class AlertForegroundService : Service() {
                 }
                 return START_NOT_STICKY
             }
+            ACTION_UPDATE_TRAIN -> {
+                scope.launch {
+                    val app = application as com.railbite.picker.RailBitePickerApp
+                    val target = extraTrain ?: Validators
+                        .normalizeTrainNumber(app.container.settings.activeTrainNumber.first())
+                        .takeIf { Validators.isValidTrainNumber(it) }
+                        ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
+                    switchTrainSubscription(target)
+                    if (BlePermissions.isReadyForMesh(this@AlertForegroundService)) {
+                        runCatching {
+                            BleMeshService.start(this@AlertForegroundService, lowLatency = true)
+                        }
+                    }
+                }
+                return START_STICKY
+            }
             ACTION_RECONNECT -> {
+                if (extraTrain != null) currentTrainNumber = extraTrain
                 startForegroundCompat()
                 scope.launch {
                     mutex.withLock {
                         connector?.stop()
                         connector = null
                     }
-                    connectAlerts()
-                    runCatching { setOnline(true) }
+                    connectAlerts(extraTrain)
+                    runCatching { setOnline(true, extraTrain) }
                 }
                 return START_STICKY
             }
             else -> {
+                if (extraTrain != null) currentTrainNumber = extraTrain
                 startForegroundCompat()
-                scope.launch { connectAlerts() }
-                // Re-assert server-side online state so a server restart or login snap-off
-                // cannot leave the picker marked offline server-side while foregrounded.
-                scope.launch { runCatching { setOnline(true) } }
+                scope.launch { connectAlerts(extraTrain) }
+                if (intent == null || extraTrain == null) {
+                    // System restart recovery without explicit UI toggle
+                    scope.launch { runCatching { setOnline(true, extraTrain) } }
+                }
                 return START_STICKY
             }
         }
@@ -100,13 +130,13 @@ class AlertForegroundService : Service() {
         ServiceCompat.startForeground(
             this,
             Notifications.FOREGROUND_NOTIFICATION_ID,
-            Notifications.onlineNotification(this),
+            Notifications.onlineNotification(this, currentTrainNumber),
             android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
         _running.value = true
     }
 
-    private suspend fun connectAlerts() {
+    private suspend fun connectAlerts(explicitTrain: String? = null) {
         val app = application as com.railbite.picker.RailBitePickerApp
         val container = app.container
 
@@ -123,21 +153,29 @@ class AlertForegroundService : Service() {
         val serverUrl = container.settings.serverUrl.first()
         val mqttWsOverride = container.settings.mqttWsUrl.first()
         val staffId = container.settings.staffId.first()
-        val activeTrainNumber = container.settings.activeTrainNumber.first()
-            .trim()
-            .takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+        val activeTrainNumber = explicitTrain
+            ?: Validators.normalizeTrainNumber(container.settings.activeTrainNumber.first())
+                .takeIf { Validators.isValidTrainNumber(it) }
             ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
         currentTrainNumber = activeTrainNumber
         if ((serverUrl.isBlank() && mqttWsOverride.isBlank()) || staffId.isBlank()) return
 
         mutex.withLock {
-            if (connector != null && subscribedTrainNumber == activeTrainNumber && subscribedStaffId == staffId) {
+            val existing = connector
+            if (existing != null && subscribedStaffId == staffId) {
+                if (subscribedTrainNumber == activeTrainNumber) {
+                    _subscribedTrain.value = activeTrainNumber
+                    startForegroundCompat()
+                    return
+                }
+                if (subscribedTrainNumber.isNotBlank()) {
+                    existing.unsubscribe(RailBiteTopics.captainAlerts(subscribedTrainNumber, staffId))
+                }
+                subscribeAlertsLocked(existing, activeTrainNumber, staffId)
                 return
             }
             connector?.stop()
             connector = null
-            subscribedTrainNumber = activeTrainNumber
-            subscribedStaffId = staffId
             val c = MqttConnector.fromServerUrl(
                 serverUrl = serverUrl,
                 clientId = "c-$staffId",
@@ -146,32 +184,77 @@ class AlertForegroundService : Service() {
                 onDisconnected = { },
             )
             connector = c
-            c.subscribe(RailBiteTopics.captainAlerts(activeTrainNumber, staffId)) { payload ->
-                runCatching {
-                    val alert = json.decodeFromString<MqttOrderAlert>(payload.decodeToString())
-                    val currentTrain = currentTrainNumber
-                    if (alert.trainNumber != currentTrain) {
-                        android.util.Log.i(
-                            "RailBitePicker",
-                            "Ignored cross-train order ${alert.trainNumber} != $currentTrain (order=${alert.orderId})",
-                        )
-                        return@runCatching
-                    }
-                    AlertBus.post(alert)
-                    Notifications.notifyAlert(this, alert)
-                }
-            }
+            subscribeAlertsLocked(c, activeTrainNumber, staffId)
             c.start()
         }
     }
 
-    private suspend fun setOnline(value: Boolean) {
+    private suspend fun switchTrainSubscription(newTrain: String) {
+        val normalized = Validators.normalizeTrainNumber(newTrain)
+        if (!Validators.isValidTrainNumber(normalized)) return
         val app = application as com.railbite.picker.RailBitePickerApp
         val container = app.container
         val staffId = container.settings.staffId.first()
-        val activeTrain = container.settings.activeTrainNumber.first()
-            .trim()
-            .takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+        if (staffId.isBlank()) {
+            currentTrainNumber = normalized
+            return
+        }
+        mutex.withLock {
+            val c = connector
+            if (c != null) {
+                if (subscribedTrainNumber.isNotBlank() && subscribedStaffId.isNotBlank()) {
+                    c.unsubscribe(RailBiteTopics.captainAlerts(subscribedTrainNumber, subscribedStaffId))
+                }
+                subscribeAlertsLocked(c, normalized, staffId)
+            } else {
+                currentTrainNumber = normalized
+            }
+        }
+        if (connector == null && container.settings.online.first()) {
+            connectAlerts(normalized)
+        }
+    }
+
+    private suspend fun subscribeAlertsLocked(
+        c: MqttConnector,
+        trainNumber: String,
+        staffId: String,
+    ) {
+        val topic = RailBiteTopics.captainAlerts(trainNumber, staffId)
+        subscribedTrainNumber = trainNumber
+        subscribedStaffId = staffId
+        currentTrainNumber = trainNumber
+        _subscribedTrain.value = trainNumber
+        android.util.Log.i("RailBiteTrainMatch", "Subscribed picker $staffId to MQTT topic $topic")
+        c.subscribe(topic) { payload ->
+            runCatching {
+                val alert = json.decodeFromString<MqttOrderAlert>(payload.decodeToString())
+                val incomingTrain = Validators.normalizeTrainNumber(alert.trainNumber)
+                val activeTrain = Validators.normalizeTrainNumber(currentTrainNumber)
+                val matched = incomingTrain == activeTrain
+                android.util.Log.i(
+                    "RailBiteTrainMatch",
+                    "Incoming orderId=${alert.orderId} incomingTrain=$incomingTrain activeTrain=$activeTrain ${if (matched) "MATCH" else "DROP"}",
+                )
+                if (!matched) {
+                    return@runCatching
+                }
+                val normalizedAlert = alert.copy(trainNumber = incomingTrain)
+                AlertBus.post(normalizedAlert)
+                Notifications.notifyAlert(this, normalizedAlert)
+                Notifications.launchIncomingActivity(this, normalizedAlert.orderId)
+            }
+        }
+        startForegroundCompat()
+    }
+
+    private suspend fun setOnline(value: Boolean, explicitTrain: String? = null) {
+        val app = application as com.railbite.picker.RailBitePickerApp
+        val container = app.container
+        val staffId = container.settings.staffId.first()
+        val activeTrain = explicitTrain
+            ?: Validators.normalizeTrainNumber(container.settings.activeTrainNumber.first())
+                .takeIf { Validators.isValidTrainNumber(it) }
             ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
         val serverUrl = container.settings.serverUrl.first()
         if (staffId.isBlank() || serverUrl.isBlank()) return
@@ -194,6 +277,9 @@ class AlertForegroundService : Service() {
     private fun stopForegroundService() {
         connector?.stop()
         connector = null
+        subscribedTrainNumber = ""
+        subscribedStaffId = ""
+        _subscribedTrain.value = ""
         (application as? com.railbite.picker.RailBitePickerApp)?.container?.meshGateway?.stop()
         _running.value = false
         ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)

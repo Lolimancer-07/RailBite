@@ -1,8 +1,24 @@
 import { describe, it, expect } from "vitest";
+import { normalizeTrainNumber, TrainNumberSchema } from "../schemas/order.js";
 import { topics } from "../topics.js";
 
-describe("topic builders", () => {
+describe("topic builders and train normalization", () => {
   const t = topics("12345");
+
+  it("normalizes arbitrary alphanumeric train numbers consistently", () => {
+    expect(normalizeTrainNumber(" 88412 ")).toBe("88412");
+    expect(normalizeTrainNumber("ab 123")).toBe("AB123");
+    expect(TrainNumberSchema.parse("777")).toBe("777");
+    expect(TrainNumberSchema.parse(" 98a7b ")).toBe("98A7B");
+    expect(() => TrainNumberSchema.parse("")).toThrow();
+    expect(() => TrainNumberSchema.parse("12345678901")).toThrow();
+    expect(() => TrainNumberSchema.parse("12-34")).toThrow();
+  });
+
+  it("normalizes trainNumber in topic builders", () => {
+    expect(topics(" 88412 ").ordersNew).toBe("rb/train/88412/orders/new");
+    expect(topics("ab 9").captainAlerts("c1")).toBe("rb/train/AB9/captain/c1/alerts");
+  });
 
   it("builds ordersNew topic", () => {
     expect(t.ordersNew).toBe("rb/train/12345/orders/new");

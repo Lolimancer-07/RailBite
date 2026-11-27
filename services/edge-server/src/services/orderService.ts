@@ -4,6 +4,7 @@ import {
   canTransition,
   computeTotal,
   determineTrack,
+  normalizeTrainNumber,
   OrderStatus,
   Track,
   type Order,
@@ -126,11 +127,12 @@ export class OrderService {
     const track = determineTrack(itemTracks);
 
     // 5. Check manifest (set verified=0 if passenger not in manifest on this train)
+    const trainNumber = normalizeTrainNumber(input.trainNumber);
     const isManifested = await this.manifestRepo.checkPassenger(
       input.pnr,
       input.coach,
       input.berth,
-      input.trainNumber,
+      trainNumber,
     );
     const verified = isManifested ? 1 : 0;
 
@@ -144,7 +146,7 @@ export class OrderService {
 
       const inserted = await orderRepo.insertOrder({
         id: input.id,
-        trainNumber: input.trainNumber,
+        trainNumber,
         pnr: input.pnr,
         coach: input.coach,
         berth: input.berth,
@@ -237,11 +239,12 @@ export class OrderService {
       }
     }
     const pricing = computeTotal(input.items, menuMap);
+    const trainNumber = normalizeTrainNumber(input.trainNumber);
     const verified = (await this.manifestRepo.checkPassenger(
       input.pnr,
       input.coach.trim().toUpperCase(),
       input.berth,
-      input.trainNumber,
+      trainNumber,
     ))
       ? 1
       : 0;
@@ -256,7 +259,7 @@ export class OrderService {
 
       const inserted = await orderRepo.insertOrder({
         id: input.id,
-        trainNumber: input.trainNumber,
+        trainNumber,
         pnr: input.pnr,
         coach: input.coach.trim().toUpperCase(),
         berth: input.berth,

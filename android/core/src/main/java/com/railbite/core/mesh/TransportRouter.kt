@@ -205,7 +205,7 @@ class TransportRouter(
             msgSeq = seq,
         )
         val activeTrain = trainNumber
-            ?.trim()
+            ?.let { com.railbite.core.util.Validators.normalizeTrainNumber(it) }
             ?.takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
             ?: runCatching { settings.bleTrainNumber.first() }
                 .getOrDefault(BlePacketCodec.DEFAULT_TRAIN_NUMBER)

@@ -1,5 +1,7 @@
+import { normalizeTrainNumber } from "./schemas/order.js";
+
 export function topics(trainNumber: string) {
-  const prefix = `rb/train/${trainNumber}`;
+  const prefix = `rb/train/${normalizeTrainNumber(trainNumber)}`;
   return {
     ordersNew: `${prefix}/orders/new`,
     orderStatus: (orderId: string) => `${prefix}/orders/${orderId}/status`,

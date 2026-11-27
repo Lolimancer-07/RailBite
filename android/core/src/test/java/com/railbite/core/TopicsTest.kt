@@ -34,4 +34,16 @@ class TopicsTest {
     fun default_train_number_is_valid_5_digits() {
         assertEquals("12345", RailBiteTopics.DEFAULT_TRAIN_NUMBER)
     }
+
+    @Test
+    fun topics_normalize_arbitrary_unseeded_train_numbers() {
+        assertEquals(
+            "rb/train/88412/captain/c1/alerts",
+            RailBiteTopics.captainAlerts(" 88412 ", "c1"),
+        )
+        assertEquals(
+            "rb/train/EXP999/orders/ord-1/status",
+            RailBiteTopics.orderStatus(" exp 999 ", "ord-1"),
+        )
+    }
 }

@@ -25,6 +25,16 @@ class SeatSnapshot(private val settings: RailBiteSettings) {
     val seat: Flow<Seat?> = combine(
         settings.trainNumber, settings.pnr, settings.coach, settings.berth, settings.diners,
     ) { trainNumber, pnr, coach, berth, diners ->
-        if (coach.isBlank() || berth == 0) null else Seat(trainNumber, pnr, coach, berth, diners)
+        if (coach.isBlank() || berth == 0) {
+            null
+        } else {
+            Seat(
+                trainNumber = com.railbite.core.util.Validators.normalizeTrainNumber(trainNumber),
+                pnr = pnr,
+                coach = coach,
+                berth = berth,
+                diners = diners,
+            )
+        }
     }
 }

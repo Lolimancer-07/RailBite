@@ -58,9 +58,14 @@ class RailBiteSettings(
     val serverUrlStored: Flow<String> = context.dataStore.data.map { it[Keys.serverUrl] ?: "" }
     /** Optional custom MQTT WebSocket URL ("" = derived automatically from [serverUrl]). */
     val mqttWsUrl: Flow<String> = context.dataStore.data.map { it[Keys.mqttWsUrl] ?: "" }
-    val trainNumber: Flow<String> = context.dataStore.data.map { it[Keys.trainNumber] ?: "" }
-    val activeTrainNumber: Flow<String> = context.dataStore.data.map {
-        it[Keys.activeTrainNumber]?.takeIf { v -> v.isNotBlank() } ?: "12345"
+    val trainNumber: Flow<String> = context.dataStore.data.map {
+        com.railbite.core.util.Validators.normalizeTrainNumber(it[Keys.trainNumber] ?: "")
+    }
+    val activeTrainNumber: Flow<String> = context.dataStore.data.map { prefs ->
+        prefs[Keys.activeTrainNumber]
+            ?.let { com.railbite.core.util.Validators.normalizeTrainNumber(it) }
+            ?.takeIf { it.isNotBlank() }
+            ?: "12345"
     }
     val pnr: Flow<String> = context.dataStore.data.map { it[Keys.pnr] ?: "" }
     val coach: Flow<String> = context.dataStore.data.map { it[Keys.coach] ?: "" }
@@ -87,10 +92,11 @@ class RailBiteSettings(
     val meshKey: Flow<String> = context.dataStore.data.map {
         it[Keys.meshKey]?.takeIf { v -> v.isNotBlank() } ?: com.railbite.core.mesh.BlePacketCodec.RAILBITE_MESH_KEY
     }
-    /** Active 5-digit train number for BLE HMAC scoping (Picker uses activeTrainNumber; Customer uses trainNumber). */
+    /** Active 1-10 char train number for BLE HMAC scoping (Picker uses activeTrainNumber; Customer uses trainNumber). */
     val bleTrainNumber: Flow<String> = combine(staffId, activeTrainNumber, trainNumber) { staff, pickerTrain, customerTrain ->
         val candidate = if (staff.isNotBlank()) pickerTrain else customerTrain.ifBlank { pickerTrain }
-        candidate.trim().takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
+        val normalized = com.railbite.core.util.Validators.normalizeTrainNumber(candidate)
+        normalized.takeIf { com.railbite.core.util.Validators.isValidTrainNumber(it) }
             ?: com.railbite.core.mesh.BlePacketCodec.DEFAULT_TRAIN_NUMBER
     }
 
@@ -116,10 +122,10 @@ class RailBiteSettings(
     suspend fun setServerUrl(value: String) = context.dataStore.edit { it[Keys.serverUrl] = value.trim() }
     suspend fun setMqttWsUrl(value: String) = context.dataStore.edit { it[Keys.mqttWsUrl] = value.trim() }
     suspend fun setTrainNumber(value: String) =
-        context.dataStore.edit { it[Keys.trainNumber] = value.trim() }
+        context.dataStore.edit { it[Keys.trainNumber] = com.railbite.core.util.Validators.normalizeTrainNumber(value) }
 
     suspend fun setActiveTrainNumber(value: String) =
-        context.dataStore.edit { it[Keys.activeTrainNumber] = value.trim() }
+        context.dataStore.edit { it[Keys.activeTrainNumber] = com.railbite.core.util.Validators.normalizeTrainNumber(value) }
 
     suspend fun setSeat(
         pnr: String,
@@ -129,7 +135,7 @@ class RailBiteSettings(
         trainNumber: String? = null,
     ) = context.dataStore.edit {
         if (trainNumber != null) {
-            it[Keys.trainNumber] = trainNumber.trim()
+            it[Keys.trainNumber] = com.railbite.core.util.Validators.normalizeTrainNumber(trainNumber)
         }
         it[Keys.pnr] = pnr.trim()
         it[Keys.coach] = coach.trim().uppercase()
@@ -149,7 +155,7 @@ class RailBiteSettings(
         it[Keys.staffName] = name
         it[Keys.staffZone] = zone
         if (!trainNumber.isNullOrBlank()) {
-            it[Keys.activeTrainNumber] = trainNumber.trim()
+            it[Keys.activeTrainNumber] = com.railbite.core.util.Validators.normalizeTrainNumber(trainNumber)
         }
     }
 

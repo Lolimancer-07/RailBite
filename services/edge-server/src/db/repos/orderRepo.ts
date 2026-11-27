@@ -1,4 +1,5 @@
-import type { Order, OrderStatus } from "@railbite/shared";
+import { normalizeTrainNumber, type Order, type OrderStatus } from "@railbite/shared";
+import { config } from "../../config.js";
 import { toDb, type Db } from "../db.js";
 import type Database from "better-sqlite3";
 
@@ -229,6 +230,18 @@ export class OrderRepo {
     }));
   }
 
+  async ensureTripExists(trainNumber: string): Promise<void> {
+    const normalized = normalizeTrainNumber(trainNumber);
+    if (!normalized) return;
+    const now = new Date().toISOString();
+    await this.db.run(
+      `INSERT INTO trips (id, train_no, run_date, hmac_secret, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO NOTHING`,
+      [normalized, normalized, now.slice(0, 10), config.hmacSecret, now],
+    );
+  }
+
   async insertOrder(order: {
     id: string;
     trainNumber: string;
@@ -246,6 +259,8 @@ export class OrderRepo {
     createdAt: string;
     updatedAt: string;
   }): Promise<boolean> {
+    const normalizedTrain = normalizeTrainNumber(order.trainNumber);
+    await this.ensureTripExists(normalizedTrain);
     const res = await this.db.run(
       `INSERT INTO orders (
         id, train_number, pnr, coach, berth, diners, track, status, payment_mode, total_paise, source, verified, user_id, created_at, updated_at
@@ -253,7 +268,7 @@ export class OrderRepo {
       ON CONFLICT (id) DO NOTHING`,
       [
         order.id,
-        order.trainNumber,
+        normalizedTrain,
         order.pnr,
         order.coach,
         order.berth,

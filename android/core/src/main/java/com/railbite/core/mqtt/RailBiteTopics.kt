@@ -1,6 +1,6 @@
 package com.railbite.core.mqtt
 
-import java.util.concurrent.ConcurrentHashMap
+import com.railbite.core.util.Validators
 
 /**
  * MQTT topic scheme (packages/shared/src/topics.ts):
@@ -12,11 +12,11 @@ object RailBiteTopics {
     const val DEFAULT_TRAIN_NUMBER = "12345"
 
     fun orderStatus(trainNumber: String, orderId: String): String =
-        "rb/train/$trainNumber/orders/$orderId/status"
+        "rb/train/${Validators.normalizeTrainNumber(trainNumber)}/orders/$orderId/status"
 
     fun orderChat(trainNumber: String, orderId: String): String =
-        "rb/train/$trainNumber/orders/$orderId/chat"
+        "rb/train/${Validators.normalizeTrainNumber(trainNumber)}/orders/$orderId/chat"
 
     fun captainAlerts(trainNumber: String, staffId: String): String =
-        "rb/train/$trainNumber/captain/$staffId/alerts"
+        "rb/train/${Validators.normalizeTrainNumber(trainNumber)}/captain/$staffId/alerts"
 }

@@ -1,4 +1,5 @@
-import type { Staff } from "@railbite/shared";
+import { normalizeTrainNumber, type Staff } from "@railbite/shared";
+import { config } from "../../config.js";
 import { toDb, type Db } from "../db.js";
 import type Database from "better-sqlite3";
 
@@ -19,7 +20,7 @@ function mapStaff(row: StaffRow): Staff {
     name: row.name,
     role: row.role,
     zoneCoaches: JSON.parse(row.zone_coaches || "[]"),
-    trainNumber: row.train_number || "12345",
+    trainNumber: normalizeTrainNumber(row.train_number || "12345"),
     online: Boolean(row.online),
     deviceToken: row.device_token || undefined,
   };
@@ -56,16 +57,44 @@ export class StaffRepo {
     return rows.map(mapStaff);
   }
 
-  async setOnline(id: string, online: boolean, trainNumber?: string): Promise<void> {
+  async listOnlineCaptainsByTrain(trainNumber: string): Promise<Staff[]> {
+    const normalized = normalizeTrainNumber(trainNumber);
+    const rows = await this.db.all<StaffRow>(
+      `SELECT id, name, role, zone_coaches, train_number, pin_hash, device_token, online
+       FROM staff
+       WHERE role IN ('CAPTAIN', 'PICKER')
+         AND online = 1
+         AND REPLACE(UPPER(TRIM(train_number)), ' ', '') = ?`,
+      [normalized],
+    );
+    return rows.map(mapStaff);
+  }
+
+  async ensureTripExists(trainNumber: string): Promise<void> {
+    const normalized = normalizeTrainNumber(trainNumber);
+    if (!normalized) return;
+    const now = new Date().toISOString();
+    await this.db.run(
+      `INSERT INTO trips (id, train_no, run_date, hmac_secret, created_at)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (id) DO NOTHING`,
+      [normalized, normalized, now.slice(0, 10), config.hmacSecret, now],
+    );
+  }
+
+  async setOnline(id: string, online: boolean, trainNumber?: string): Promise<string | undefined> {
     if (trainNumber) {
+      const normalized = normalizeTrainNumber(trainNumber);
+      await this.ensureTripExists(normalized);
       await this.db.run("UPDATE staff SET online = ?, train_number = ? WHERE id = ?", [
         online ? 1 : 0,
-        trainNumber,
+        normalized,
         id,
       ]);
-      return;
+      return normalized;
     }
     await this.db.run("UPDATE staff SET online = ? WHERE id = ?", [online ? 1 : 0, id]);
+    return undefined;
   }
 
   async setDeviceToken(id: string, token: string): Promise<void> {

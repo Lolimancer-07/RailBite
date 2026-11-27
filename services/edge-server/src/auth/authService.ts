@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { OAuth2Client } from "google-auth-library";
+import { normalizeTrainNumber } from "@railbite/shared";
 import { config } from "../config.js";
 import type { Db } from "../db/db.js";
 
@@ -210,7 +211,7 @@ export class AuthService {
     }
     if (!valid) throw new AuthError("Invalid staff ID or password");
 
-    const activeTrain = credentials.trainNumber || row.train_number || "12345";
+    const activeTrain = normalizeTrainNumber(credentials.trainNumber || row.train_number || "12345");
     // Seeded/existing accounts keep working; a password set later upgrades them.
     const now = new Date().toISOString();
     await this.db.run("UPDATE staff SET online = 1, train_number = ? WHERE id = ?", [

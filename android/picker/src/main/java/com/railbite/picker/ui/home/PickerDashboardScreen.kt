@@ -85,6 +85,7 @@ import com.railbite.core.util.Money
 import com.railbite.core.util.Statuses
 import com.railbite.picker.PickerGraph
 import com.railbite.picker.alert.AlertBus
+import com.railbite.picker.alert.AlertForegroundService
 import com.railbite.picker.ui.components.LocalPickerBleActionRequester
 import com.railbite.picker.ui.components.PickerBottomBar
 import com.railbite.picker.ui.components.PickerErrorBanner
@@ -124,6 +125,7 @@ fun PickerDashboardScreen(
 ) {
     val vm = viewModel(key = "home") { HomeViewModel(graph.container) }
     val state by vm.state.collectAsState()
+    val subscribedTrain by AlertForegroundService.subscribedTrain.collectAsState()
     val transportStatus by graph.container.transportRouter.status.collectAsState()
     val meshStats by BleMeshHub.stats.collectAsState()
     val requestBle = LocalPickerBleActionRequester.current
@@ -326,7 +328,9 @@ fun PickerDashboardScreen(
                         }
                     }
                 }
-            } else if (state.error != null) {
+            }
+
+            if (state.error != null) {
                 item {
                     PickerErrorBanner(message = state.error ?: "Server error")
                 }
@@ -336,6 +340,7 @@ fun PickerDashboardScreen(
             item {
                 HeroDutyToggleCard(
                     state = state,
+                    subscribedTrain = subscribedTrain,
                     onToggle = vm::setOnline,
                     onTrainInputChange = vm::onTrainInputChange,
                 )
@@ -641,10 +646,12 @@ private fun PermissionsAlertBanner(
 @Composable
 private fun HeroDutyToggleCard(
     state: HomeUiState,
+    subscribedTrain: String,
     onToggle: (Boolean) -> Unit,
     onTrainInputChange: (String) -> Unit,
 ) {
     val online = state.online
+    val liveTrain = subscribedTrain.ifBlank { state.activeTrainNumber }
     val zoneLabel = state.zone.ifBlank { "All" }.replace(", ", "–")
     PickerSectionCard(
         containerColor = if (online) {
@@ -713,7 +720,7 @@ private fun HeroDutyToggleCard(
                     Spacer(Modifier.height(2.dp))
                     Text(
                         text = if (online) {
-                            "ONLINE • Train ${state.activeTrainNumber} • Zone $zoneLabel"
+                            "ONLINE • Listening on Train: $liveTrain • Zone $zoneLabel"
                         } else {
                             "Set Train Number below, then toggle ON for Zone $zoneLabel"
                         },
@@ -757,7 +764,7 @@ private fun HeroDutyToggleCard(
                         color = RailBitePickerPalette.TextSecondary,
                     )
                     Text(
-                        text = if (online) "Go OFFLINE to switch" else "5 digits • strict isolation",
+                        text = if (online) "Go OFFLINE to switch" else "1–10 chars • strict isolation",
                         style = MaterialTheme.typography.labelSmall,
                         color = if (online) RailBitePickerPalette.SemanticGreenInk else RailBitePickerPalette.TextMuted,
                     )
@@ -776,7 +783,7 @@ private fun HeroDutyToggleCard(
                         textStyle = PickerNumericType.MetaMono,
                         placeholder = { Text("12345", style = PickerNumericType.MetaMono) },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
+                            capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters,
                         ),
                         shape = RoundedCornerShape(PickerRadii.Button),
                         colors = OutlinedTextFieldDefaults.colors(

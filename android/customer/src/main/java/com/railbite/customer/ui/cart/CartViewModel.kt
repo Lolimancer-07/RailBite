@@ -69,11 +69,14 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
         _state.update { it.copy(placing = true, error = null, needsBleAction = false) }
         viewModelScope.launch {
             val seatSnapshot = com.railbite.core.data.SeatSnapshot(container.settings).seat.first()
-            if (seatSnapshot == null || !com.railbite.core.util.Validators.isValidTrainNumber(seatSnapshot.trainNumber)) {
+            val normalizedTrain = seatSnapshot?.trainNumber
+                ?.let { com.railbite.core.util.Validators.normalizeTrainNumber(it) }
+                .orEmpty()
+            if (seatSnapshot == null || !com.railbite.core.util.Validators.isValidTrainNumber(normalizedTrain)) {
                 _state.update {
                     it.copy(
                         placing = false,
-                        error = "Set your 5-digit Train Number, Coach, and Seat before placing an order",
+                        error = "Set your Train Number, Coach, and Seat before placing an order",
                     )
                 }
                 return@launch
@@ -86,7 +89,7 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                     val orderId = UUID.randomUUID().toString()
                     val body = OrderCreateRequest(
                         id = orderId,
-                        trainNumber = seatSnapshot.trainNumber,
+                        trainNumber = normalizedTrain,
                         pnr = seatSnapshot.pnr,
                         coach = seatSnapshot.coach,
                         berth = seatSnapshot.berth,
@@ -149,7 +152,7 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
 
             _state.update { it.copy(sendingRelay = true) }
             val relayed = container.meshSender.send(
-                trainNumber = seatSnapshot.trainNumber,
+                trainNumber = normalizedTrain,
                 pnr = seatSnapshot.pnr,
                 coach = seatSnapshot.coach,
                 berth = seatSnapshot.berth,

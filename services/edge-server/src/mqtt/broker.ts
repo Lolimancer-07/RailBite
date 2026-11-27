@@ -19,9 +19,9 @@ export function createBroker(): MqttBrokerInstance {
   const aedes = new Aedes();
 
   const extractTrainSubtopic = (topic: string): { trainNumber: string; sub: string } | null => {
-    const match = topic.match(/^rb\/train\/(\d{5})\/(.+)$/);
+    const match = topic.match(/^rb\/train\/([A-Za-z0-9]{1,10})\/(.+)$/);
     if (!match) return null;
-    return { trainNumber: match[1]!, sub: match[2]! };
+    return { trainNumber: match[1]!.toUpperCase(), sub: match[2]! };
   };
 
   // ACL - authorizePublish
@@ -41,7 +41,7 @@ export function createBroker(): MqttBrokerInstance {
 
     const parsed = extractTrainSubtopic(topic);
     if (!parsed) {
-      logger.warn({ clientId, topic }, "Unauthorized publish attempt outside rb/train/{5-digit}");
+      logger.warn({ clientId, topic }, "Unauthorized publish attempt outside rb/train/{trainNumber}");
       return callback(new Error("Unauthorized publish topic"));
     }
 
@@ -91,7 +91,7 @@ export function createBroker(): MqttBrokerInstance {
 
     const parsed = extractTrainSubtopic(topic);
     if (!parsed) {
-      logger.warn({ clientId, topic }, "Unauthorized subscribe attempt outside rb/train/{5-digit}");
+      logger.warn({ clientId, topic }, "Unauthorized subscribe attempt outside rb/train/{trainNumber}");
       return callback(new Error("Unauthorized subscribe topic"), null);
     }
 

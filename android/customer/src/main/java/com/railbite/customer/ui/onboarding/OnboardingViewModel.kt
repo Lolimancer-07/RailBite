@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.customer.AppContainer
 import com.railbite.core.api.ApiClient
+import com.railbite.core.mesh.BleMeshService
+import com.railbite.core.mesh.BlePermissions
 import com.railbite.core.util.Validators
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,7 +70,7 @@ class OnboardingViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setTrainNumber(value: String) = _state.update {
         it.copy(
-            trainNumber = value.filter(Char::isDigit).take(5),
+            trainNumber = Validators.normalizeTrainNumber(value).filter { ch -> ch.isLetterOrDigit() }.take(10),
             autoFilledTrainName = null,
             error = null,
         )
@@ -119,10 +121,11 @@ class OnboardingViewModel(private val container: AppContainer) : ViewModel() {
         val s = _state.value
         if (!s.seatValid) {
             _state.update {
-                it.copy(error = "Enter a valid 5-digit train number, 10-digit PNR, coach and berth")
+                it.copy(error = "Enter a valid train number (1–10 chars), 10-digit PNR, coach and berth")
             }
             return
         }
+        val normalizedTrain = Validators.normalizeTrainNumber(s.trainNumber)
         viewModelScope.launch {
             try {
                 container.settings.setSeat(
@@ -130,10 +133,13 @@ class OnboardingViewModel(private val container: AppContainer) : ViewModel() {
                     coach = s.coach,
                     berth = s.berth.toInt(),
                     diners = s.diners,
-                    trainNumber = s.trainNumber,
+                    trainNumber = normalizedTrain,
                 )
                 container.settings.setOnboardingDone()
                 container.mqtt.ensureConnected()
+                if (BlePermissions.isReadyForMesh(container.app) && container.settings.meshRelayEnabled.first()) {
+                    BleMeshService.start(container.app, lowLatency = false)
+                }
                 onDone()
             } catch (e: Exception) {
                 _state.update { it.copy(error = e.message ?: "Could not save") }

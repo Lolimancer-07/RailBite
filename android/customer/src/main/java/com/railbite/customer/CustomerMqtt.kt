@@ -74,9 +74,10 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
         ensureConnected()
         val c = connector ?: return
         val trainNumber = trainNumberOverride
-            ?.trim()
+            ?.let { Validators.normalizeTrainNumber(it) }
             ?.takeIf { Validators.isValidTrainNumber(it) }
-            ?: settings.trainNumber.first().trim().takeIf { Validators.isValidTrainNumber(it) }
+            ?: Validators.normalizeTrainNumber(settings.trainNumber.first())
+                .takeIf { Validators.isValidTrainNumber(it) }
             ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
 
         val previousTrain = watchedOrderTrains.put(orderId, trainNumber)

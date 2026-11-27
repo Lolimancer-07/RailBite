@@ -196,13 +196,17 @@ private fun IncomingOrderAlertContent(
         if (a != null) {
             val app = activityContext.applicationContext as com.railbite.picker.RailBitePickerApp
             val expectedTrain = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                app.container.settings.activeTrainNumber.first()
-            }
-            if (a.trainNumber != expectedTrain) {
-                android.util.Log.i(
-                    "RailBitePicker",
-                    "Ignored cross-train order ${a.trainNumber} != $expectedTrain",
+                com.railbite.core.util.Validators.normalizeTrainNumber(
+                    app.container.settings.activeTrainNumber.first(),
                 )
+            }
+            val incomingTrain = com.railbite.core.util.Validators.normalizeTrainNumber(a.trainNumber)
+            val matched = incomingTrain == expectedTrain
+            android.util.Log.i(
+                "RailBiteTrainMatch",
+                "Incoming orderId=${a.orderId} incomingTrain=$incomingTrain activeTrain=$expectedTrain ${if (matched) "MATCH" else "DROP"}",
+            )
+            if (!matched) {
                 AlertSoundController.stop()
                 AlertBus.clear()
                 onFinished()

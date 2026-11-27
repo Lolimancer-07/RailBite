@@ -214,7 +214,7 @@ describe("Strict 5-digit Train Number scoping", () => {
   });
 
   it("rejects invalid trainNumber values with HTTP 400 across orders, mesh-sync, and picker status", async () => {
-    for (const badTrain of ["123", "ABCDE", "123456", ""]) {
+    for (const badTrain of ["", "   ", "12345678901", "12-34"]) {
       const orderRes = await app.inject({
         method: "POST",
         url: "/orders",
@@ -240,6 +240,121 @@ describe("Strict 5-digit Train Number scoping", () => {
       });
       expect(pickerRes.statusCode).toBe(400);
     }
+  });
+
+  it("matches arbitrary unseeded train numbers (e.g. 88412 and 999) dynamically and isolates non-matching orders", async () => {
+    // 1. Picker c1 switches to unseeded train " 88412 " (any coach zone fallback must still match)
+    const statusRes = await app.inject({
+      method: "POST",
+      url: "/pickers/c1/status",
+      payload: { online: true, trainNumber: " 88412 " },
+    });
+    expect(statusRes.statusCode).toBe(200);
+    expect(JSON.parse(statusRes.body)).toMatchObject({
+      ok: true,
+      staffId: "c1",
+      online: true,
+      trainNumber: "88412",
+    });
+
+    // Picker c2 switches to 3-digit unseeded train "999" (also verify MQTT ACL allows 3-digit & alphanumeric trains)
+    const statusRes2 = await app.inject({
+      method: "POST",
+      url: "/pickers/c2/status",
+      payload: { online: true, trainNumber: "999" },
+    });
+    expect(statusRes2.statusCode).toBe(200);
+    expect(JSON.parse(statusRes2.body).trainNumber).toBe("999");
+
+    const { alerts } = collectMqtt();
+
+    // 2. Customer places order on "88412" with out-of-zone coach H1 & unseeded PNR
+    const orderMatch = crypto.randomUUID();
+    const resMatch = await app.inject({
+      method: "POST",
+      url: "/orders",
+      payload: {
+        id: orderMatch,
+        trainNumber: "88412",
+        pnr: "9999999999",
+        coach: "H1",
+        berth: 12,
+        diners: 1,
+        paymentMode: "COD",
+        items: [{ itemId: CHAI_ID, qty: 1 }],
+        createdAt: new Date().toISOString(),
+        source: "WIFI",
+      },
+    });
+    expect(resMatch.statusCode).toBe(201);
+    expect(JSON.parse(resMatch.body).trainNumber).toBe("88412");
+
+    // 3. Customer places order on "77777" -> Picker c1 on "88412" must receive NOTHING
+    const orderOther = crypto.randomUUID();
+    const resOther = await app.inject({
+      method: "POST",
+      url: "/orders",
+      payload: {
+        id: orderOther,
+        trainNumber: "77777",
+        pnr: "9999999998",
+        coach: "B1",
+        berth: 4,
+        diners: 1,
+        paymentMode: "COD",
+        items: [{ itemId: CHAI_ID, qty: 1 }],
+        createdAt: new Date().toISOString(),
+        source: "WIFI",
+      },
+    });
+    expect(resOther.statusCode).toBe(201);
+    expect(JSON.parse(resOther.body).status).toBe("PLACED");
+
+    // 4. Customer places order on 3-digit " 999 " -> Picker c2 on "999" receives alert
+    const orderShort = crypto.randomUUID();
+    const resShort = await app.inject({
+      method: "POST",
+      url: "/orders",
+      payload: {
+        id: orderShort,
+        trainNumber: " 999 ",
+        pnr: "9999999997",
+        coach: "S4",
+        berth: 7,
+        diners: 1,
+        paymentMode: "COD",
+        items: [{ itemId: CHAI_ID, qty: 2 }],
+        createdAt: new Date().toISOString(),
+        source: "WIFI",
+      },
+    });
+    expect(resShort.statusCode).toBe(201);
+
+    await new Promise((r) => setTimeout(r, 40));
+    dispatcher.cancelTimer(orderMatch);
+    dispatcher.cancelTimer(orderShort);
+
+    const alertsFor88412 = alerts.filter((a) => a.payload.orderId === orderMatch);
+    expect(alertsFor88412.length).toBeGreaterThanOrEqual(1);
+    expect(alertsFor88412.every((a) => a.topic === "rb/train/88412/captain/c1/alerts")).toBe(true);
+    expect(alertsFor88412.every((a) => a.payload.trainNumber === "88412")).toBe(true);
+
+    expect(alerts.filter((a) => a.payload.orderId === orderOther)).toHaveLength(0);
+
+    const alertsFor999 = alerts.filter((a) => a.payload.orderId === orderShort);
+    expect(alertsFor999.length).toBeGreaterThanOrEqual(1);
+    expect(alertsFor999.every((a) => a.topic === "rb/train/999/captain/c2/alerts")).toBe(true);
+    expect(alertsFor999.every((a) => a.payload.trainNumber === "999")).toBe(true);
+
+    // Verify Aedes ACL permits arbitrary 1-10 char train subscriptions for captains
+    const canSubDynamic = await new Promise<boolean>((resolve) => {
+      broker.aedes.authorizeSubscribe(
+        { id: "c-c1" } as any,
+        { topic: "rb/train/88412/captain/c1/alerts", qos: 1 } as any,
+        (err) => resolve(!err),
+      );
+    });
+    expect(canSubDynamic).toBe(true);
   });
 
   it("exposes GET /manifest/:pnr for both seeded trains and allows POST /pickers/:id/status train switching", async () => {

@@ -1,5 +1,5 @@
 import pino from "pino";
-import { OrderStatus, type Order } from "@railbite/shared";
+import { normalizeTrainNumber, OrderStatus, topics, type Order } from "@railbite/shared";
 import type { OrderRepo } from "../db/repos/orderRepo.js";
 import type { StaffRepo } from "../db/repos/staffRepo.js";
 import type { MqttPublisher } from "../mqtt/publisher.js";
@@ -44,51 +44,61 @@ export class Dispatcher {
   ): Promise<void> {
     this.cancelTimer(order.id);
 
-    const captains = await this.staffRepo.listCaptains();
     const assignedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const targetTrain = normalizeTrainNumber(order.trainNumber);
 
-    // Strict train isolation: ONLY pickers assigned to this exact 5-digit trainNumber and online qualify.
-    const trainOnlineCaptains = captains.filter(
-      (c) => c.online && c.trainNumber === order.trainNumber,
-    );
+    // Strict train isolation: ONLY online pickers assigned to this exact normalized trainNumber qualify.
+    const trainOnlineCaptains = await this.staffRepo.listOnlineCaptainsByTrain(targetTrain);
 
     if (trainOnlineCaptains.length === 0) {
       logger.warn(
-        { orderId: order.id, trainNumber: order.trainNumber, attempt },
-        "No online picker on train; keeping order PLACED / emitting NO_PICKER_ON_TRAIN",
+        { orderId: order.id, trainNumber: targetTrain, attempt },
+        `[DISPATCH] orderId=${order.id} trainNumber=${targetTrain} matchedPickers=[] topic=none (NO_PICKER_ON_TRAIN)`,
       );
-      await this.publisher.publishOrderStatus(order.trainNumber, order.id, {
+      await this.publisher.publishOrderStatus(targetTrain, order.id, {
         status: order.status,
-        trainNumber: order.trainNumber,
+        trainNumber: targetTrain,
         code: "NO_PICKER_ON_TRAIN",
-        message: `Waiting for an online picker on Train ${order.trainNumber}...`,
+        message: `Waiting for an online picker on Train ${targetTrain}...`,
         updatedAt: assignedAt,
       });
       return;
     }
 
-    // Single-target dispatch must reach a picker we can actually alert. A captain
-    // without a deviceToken only gets a private MQTT topic no phone may be listening
-    // to, which burns the whole 60s window in dead air. Prefer token-equipped captains;
-    // fall back to every online captain on this same train.
+    // Single-target dispatch must reach a picker we can actually alert. Prefer token-equipped
+    // captains; fall back immediately to EVERY online captain on this exact train regardless of zone.
     const reachable = trainOnlineCaptains.filter((c) => c.deviceToken);
     const alertPool = reachable.length > 0 ? reachable : trainOnlineCaptains;
 
-    // Find best captain STRICTLY on the same trainNumber
+    // Prefer coach-zone match first, then nearest/any online captain on THIS train
     const captain = findBestCaptain(
       order.coach,
       alertPool,
       excludedCaptainIds,
-      order.trainNumber,
+      targetTrain,
     );
 
     // If attempt >= 3 or no direct captain available after exclusions, alert all online pickers on THIS train only
     const isBroadcast = attempt >= 3 || !captain;
 
+    const dispatchTopics = isBroadcast
+      ? trainOnlineCaptains.map((c) => topics(targetTrain).captainAlerts(c.id))
+      : [topics(targetTrain).captainAlerts(captain!.id)];
+    logger.info(
+      {
+        orderId: order.id,
+        trainNumber: targetTrain,
+        matchedPickers: trainOnlineCaptains.map((c) => c.id),
+        topics: dispatchTopics,
+        attempt,
+      },
+      `[DISPATCH] orderId=${order.id} trainNumber=${targetTrain} matchedPickers=[${trainOnlineCaptains.map((c) => c.id).join(",")}] topic=${dispatchTopics.join(",")}`,
+    );
+
     const alertPayload = {
       orderId: order.id,
-      trainNumber: order.trainNumber,
+      trainNumber: targetTrain,
       coach: order.coach,
       berth: order.berth,
       items: (order.items || []).map((i) => ({

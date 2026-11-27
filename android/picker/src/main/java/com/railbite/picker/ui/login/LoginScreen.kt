@@ -223,7 +223,7 @@ fun LoginScreen(
                             text = if (com.railbite.core.util.Validators.isValidTrainNumber(state.trainNumber)) {
                                 "Train ${state.trainNumber} (${if (state.trainNumber == "12423") "Rajdhani Express" else if (state.trainNumber == "12345") "Saraighat Express" else "Custom"})"
                             } else {
-                                "Enter 5-digit Train Number"
+                                "Enter Train Number (1–10 chars)"
                             },
                             style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                             color = RailBitePickerPalette.TextPrimary,
@@ -345,10 +345,10 @@ fun LoginScreen(
                         }
                     }
 
-                    // 5-Digit Assigned Train Number + Quick Pick Chips
+                    // Assigned Train Number + Quick Pick Chips
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "Assigned Train Number (5 digits)",
+                            text = "Assigned Train Number (1–10 chars)",
                             style = MaterialTheme.typography.labelLarge,
                             color = RailBitePickerPalette.TextPrimary,
                         )
@@ -372,7 +372,7 @@ fun LoginScreen(
                             singleLine = true,
                             textStyle = PickerNumericType.PriceMedium,
                             keyboardOptions = KeyboardOptions(
-                                keyboardType = KeyboardType.Number,
+                                capitalization = androidx.compose.ui.text.input.KeyboardCapitalization.Characters,
                                 imeAction = ImeAction.Next,
                             ),
                             shape = RoundedCornerShape(PickerRadii.Button),

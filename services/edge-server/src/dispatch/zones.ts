@@ -1,4 +1,4 @@
-import type { Staff } from "@railbite/shared";
+import { normalizeTrainNumber, type Staff } from "@railbite/shared";
 
 // Coach ordering along a typical Indian Railways rake
 const COACH_ORDER = [
@@ -42,11 +42,12 @@ export function findBestCaptain(
   trainNumber?: string,
 ): Staff | null {
   // Strict train isolation + online rule: ONLY online pickers on the matching train number qualify
+  const normalizedTarget = trainNumber ? normalizeTrainNumber(trainNumber) : undefined;
   const candidates = captains.filter(
     (c) =>
       c.online &&
       !excludeCaptainIds.includes(c.id) &&
-      (!trainNumber || c.trainNumber === trainNumber),
+      (!normalizedTarget || normalizeTrainNumber(c.trainNumber) === normalizedTarget),
   );
   if (candidates.length === 0) return null;
 

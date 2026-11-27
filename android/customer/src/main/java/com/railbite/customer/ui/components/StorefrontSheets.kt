@@ -174,14 +174,17 @@ fun SeatSetupBottomSheet(
             OutlinedTextField(
                 value = trainNumber,
                 onValueChange = {
-                    trainNumber = it.filter(Char::isDigit).take(5)
+                    trainNumber = com.railbite.core.util.Validators
+                        .normalizeTrainNumber(it)
+                        .filter { ch -> ch.isLetterOrDigit() }
+                        .take(10)
                     autoFilledTrainName = null
                     error = null
                 },
                 label = {
                     Text(
-                        autoFilledTrainName?.let { "5-Digit Train Number ($it)" }
-                            ?: "5-Digit Train Number",
+                        autoFilledTrainName?.let { "Train Number ($it)" }
+                            ?: "Train Number (1–10 chars)",
                     )
                 },
                 placeholder = { Text("12345", style = RailBiteNumericType.PriceMedium) },
@@ -198,7 +201,7 @@ fun SeatSetupBottomSheet(
                     }
                 },
                 colors = flatTextFieldColors(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
                 modifier = Modifier.fillMaxWidth(),
             )
 

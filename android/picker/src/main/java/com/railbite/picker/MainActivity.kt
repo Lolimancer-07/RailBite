@@ -191,14 +191,31 @@ private fun PickerRoot(
 
     LaunchedEffect(Unit) {
         val staffId = container.settings.staffId.first()
-        if (staffId.isNotBlank()) {
+        val isOnline = container.settings.online.first()
+        if (staffId.isNotBlank() && isOnline) {
+            val activeTrain = container.settings.activeTrainNumber.first()
             ContextCompat.startForegroundService(
                 container.app,
                 Intent(container.app, AlertForegroundService::class.java)
-                    .setAction(AlertForegroundService.ACTION_START),
+                    .setAction(AlertForegroundService.ACTION_START)
+                    .putExtra(AlertForegroundService.EXTRA_TRAIN_NUMBER, activeTrain),
             )
         }
         if (initialOpenOrderId != null) OpenOrderRouter.post(initialOpenOrderId)
+    }
+
+    LaunchedEffect(Unit) {
+        var lastLaunchedOrderId: String? = null
+        AlertBus.alert.collect { incoming ->
+            if (incoming != null) {
+                if (incoming.orderId != lastLaunchedOrderId) {
+                    lastLaunchedOrderId = incoming.orderId
+                    Notifications.launchIncomingActivity(container.app, incoming.orderId)
+                }
+            } else {
+                lastLaunchedOrderId = null
+            }
+        }
     }
 
     LaunchedEffect(Unit) {

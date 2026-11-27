@@ -90,7 +90,9 @@ class TrackingViewModel(
     init {
         // MQTT live updates (retained message gives instant current status)
         viewModelScope.launch {
-            val savedTrain = runCatching { container.settings.trainNumber.first() }.getOrNull()
+            val savedTrain = runCatching { container.settings.trainNumber.first() }
+                .getOrNull()
+                ?.let { com.railbite.core.util.Validators.normalizeTrainNumber(it) }
             if (!savedTrain.isNullOrBlank()) {
                 _state.update { it.copy(trainNumber = it.trainNumber ?: savedTrain) }
             }

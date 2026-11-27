@@ -77,7 +77,9 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
     }
 
     fun onTrainNumberChange(value: String) {
-        val clean = value.filter(Char::isDigit).take(5)
+        val clean = Validators.normalizeTrainNumber(value)
+            .filter { it.isLetterOrDigit() }
+            .take(10)
         _state.update { it.copy(trainNumber = clean, trainNumberEdited = true, error = null) }
     }
 
@@ -158,11 +160,11 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
     fun submit(onLoggedIn: () -> Unit) {
         val s = _state.value
         if (s.busy || s.staffId.isBlank() || s.password.length < 4) return
-        if (!Validators.isValidTrainNumber(s.trainNumber)) {
-            _state.update { it.copy(error = "Enter a valid 5-digit train number (e.g. 12345)") }
+        val selectedTrain = Validators.normalizeTrainNumber(s.trainNumber)
+        if (!Validators.isValidTrainNumber(selectedTrain)) {
+            _state.update { it.copy(error = "Enter a valid train number (1–10 chars, e.g. 12345 or 777)") }
             return
         }
-        val selectedTrain = s.trainNumber.trim()
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             val lanReachable = container.transportRouter.checkLanReachable()

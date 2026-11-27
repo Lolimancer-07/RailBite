@@ -8,7 +8,7 @@ export const StaffLoginSchema = z
     password: z.string().min(4).max(128).optional(),
     /** Legacy 4-8 digit PIN — still accepted until every pantry phone is updated. */
     pin: z.string().min(4).max(8).optional(),
-    /** Optional 5-digit active train number set/confirmed at login. */
+    /** Optional active train number (1-10 chars) set/confirmed at login. */
     trainNumber: TrainNumberSchema.optional(),
   })
   .refine((value) => Boolean(value.password || value.pin), {

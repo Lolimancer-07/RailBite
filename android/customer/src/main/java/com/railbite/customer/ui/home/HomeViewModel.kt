@@ -217,7 +217,7 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
         onSaved: () -> Unit,
         onError: (String) -> Unit,
     ) {
-        val cleanTrain = trainNumber.filter(Char::isDigit).take(5)
+        val cleanTrain = Validators.normalizeTrainNumber(trainNumber).filter { it.isLetterOrDigit() }.take(10)
         val cleanPnr = pnr.filter(Char::isDigit).take(10)
         val cleanCoach = coach.trim().uppercase()
         val berth = berthText.trim().toIntOrNull() ?: 0
@@ -227,7 +227,7 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
             !Validators.isValidCoach(cleanCoach) ||
             !Validators.isValidBerth(berth)
         ) {
-            onError("Enter a valid 5-digit Train Number, 10-digit PNR, Coach (e.g. B2), and Berth (1–100)")
+            onError("Enter a valid Train Number (1–10 chars), 10-digit PNR, Coach (e.g. B2), and Berth (1–100)")
             return
         }
         viewModelScope.launch {
@@ -235,6 +235,12 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
                 container.settings.setSeat(cleanPnr, cleanCoach, berth, diners.value, cleanTrain)
                 container.settings.setOnboardingDone()
                 container.mqtt.ensureConnected()
+                if (
+                    com.railbite.core.mesh.BlePermissions.isReadyForMesh(container.app) &&
+                    container.settings.meshRelayEnabled.first()
+                ) {
+                    com.railbite.core.mesh.BleMeshService.start(container.app, lowLatency = false)
+                }
             }.onSuccess {
                 onSaved()
             }.onFailure { err ->

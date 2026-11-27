@@ -43,19 +43,20 @@ class PickerFirebaseMessagingService : FirebaseMessagingService() {
         if (type != "ORDER_DISPATCH") return
 
         val orderId = data["orderId"] ?: return
-        val incomingTrainNumber = data["trainNumber"]?.trim().orEmpty()
+        val incomingTrainNumber = com.railbite.core.util.Validators.normalizeTrainNumber(data["trainNumber"].orEmpty())
         val app = applicationContext as? RailBitePickerApp
         if (app != null) {
-            val activeTrain = runCatching {
-                runBlocking(Dispatchers.IO) { app.container.settings.activeTrainNumber.first() }
-            }.getOrDefault("12345")
-            if (incomingTrainNumber != activeTrain) {
-                Log.i(
-                    "RailBitePicker",
-                    "Ignored cross-train order $incomingTrainNumber != $activeTrain (order=$orderId)",
-                )
-                return
-            }
+            val activeTrain = com.railbite.core.util.Validators.normalizeTrainNumber(
+                runCatching {
+                    runBlocking(Dispatchers.IO) { app.container.settings.activeTrainNumber.first() }
+                }.getOrDefault("12345"),
+            )
+            val matched = incomingTrainNumber == activeTrain
+            Log.i(
+                "RailBiteTrainMatch",
+                "Incoming orderId=$orderId incomingTrain=$incomingTrainNumber activeTrain=$activeTrain ${if (matched) "MATCH" else "DROP"}",
+            )
+            if (!matched) return
         }
         val coach = data["coach"] ?: ""
         val berth = data["berth"]?.toIntOrNull() ?: 1

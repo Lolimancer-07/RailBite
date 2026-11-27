@@ -1,16 +1,21 @@
 package com.railbite.picker.alert
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.util.Money
+import com.railbite.core.util.Validators
 
 /**
  * Notification plumbing: two channels —
@@ -44,23 +49,39 @@ object Notifications {
                 description = "Loud full-screen alerts for new orders near your zone"
                 enableVibration(true)
                 vibrationPattern = longArrayOf(0, 600, 300, 600, 300, 600)
-                setBypassDnd(false)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                val alarmUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                setSound(
+                    alarmUri,
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_ALARM)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build(),
+                )
+                setBypassDnd(true)
             },
         )
     }
 
     /** Persistent notification for the ONLINE foreground service. */
-    fun onlineNotification(context: Context): android.app.Notification {
+    fun onlineNotification(context: Context, trainNumber: String = ""): android.app.Notification {
         val stopIntent = PendingIntent.getService(
             context,
             1,
             Intent(context, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val cleanTrain = Validators.normalizeTrainNumber(trainNumber)
+        val contentText = if (cleanTrain.isNotBlank()) {
+            "Listening on Train $cleanTrain for incoming orders"
+        } else {
+            "RailBite Picker is listening for new orders"
+        }
         return NotificationCompat.Builder(context, CHANNEL_STATUS)
             .setSmallIcon(com.railbite.picker.R.drawable.ic_stat_picker)
             .setContentTitle("You are online")
-            .setContentText("RailBite Picker is listening for new orders")
+            .setContentText(contentText)
             .setOngoing(true)
             .setSilent(true)
             .addAction(
@@ -99,6 +120,7 @@ object Notifications {
             )
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setFullScreenIntent(fullScreen, true)
             .setContentIntent(fullScreen)
             .setAutoCancel(true)
@@ -112,6 +134,26 @@ object Notifications {
                 NotificationManagerCompat.from(context)
                     .notify(ALERT_NOTIFICATION_ID, alertNotification(context, alert, hopCount))
             }
+        }
+    }
+
+    /**
+     * Launches the full-screen ringing [IncomingOrderActivity] immediately so orders received
+     * while unlocked, in the foreground, or without notification full-screen auto-launch always ring.
+     */
+    fun launchIncomingActivity(context: Context, orderId: String) {
+        runCatching {
+            val intent = Intent(context, IncomingOrderActivity::class.java).apply {
+                putExtra(IncomingOrderActivity.EXTRA_ORDER_ID, orderId)
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP,
+                )
+            }
+            context.startActivity(intent)
+        }.onFailure { err ->
+            Log.w("RailBiteTrainMatch", "Could not start IncomingOrderActivity directly: ${err.message}")
         }
     }
 

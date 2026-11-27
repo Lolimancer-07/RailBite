@@ -1,8 +1,19 @@
 import { z } from "zod";
 
+export const TRAIN_NUMBER_REGEX = /^[A-Z0-9]{1,10}$/;
+
+/** Normalizes any train identifier (`trim`, remove whitespace, uppercase). */
+export function normalizeTrainNumber(raw: string): string {
+  return raw.replace(/\s+/g, "").toUpperCase();
+}
+
 export const TrainNumberSchema = z
   .string()
-  .regex(/^\d{5}$/, "Enter a valid 5-digit train number");
+  .transform((val) => normalizeTrainNumber(val))
+  .refine(
+    (val) => TRAIN_NUMBER_REGEX.test(val),
+    "Enter a valid 1-10 character train number",
+  );
 export type TrainNumber = z.infer<typeof TrainNumberSchema>;
 
 export const OrderItemSchema = z.object({

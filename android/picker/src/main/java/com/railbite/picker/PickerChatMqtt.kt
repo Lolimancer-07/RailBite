@@ -81,7 +81,7 @@ class PickerChatMqtt(private val settings: RailBiteSettings) {
                 connectLocked(cleanStaff, serverUrl, trainNumberOverride)
             }
             val trainNumber = trainNumberOverride
-                ?.trim()
+                ?.let { Validators.normalizeTrainNumber(it) }
                 ?.takeIf { Validators.isValidTrainNumber(it) }
                 ?: activeTrainNumber
             val previous = watchedOrderTrains.put(orderId, trainNumber)
@@ -125,9 +125,10 @@ class PickerChatMqtt(private val settings: RailBiteSettings) {
         currentStaffId = staffId
         val wsOverride = settings.mqttWsUrl.first()
         activeTrainNumber = trainNumberOverride
-            ?.trim()
+            ?.let { Validators.normalizeTrainNumber(it) }
             ?.takeIf { Validators.isValidTrainNumber(it) }
-            ?: settings.activeTrainNumber.first().trim().takeIf { Validators.isValidTrainNumber(it) }
+            ?: Validators.normalizeTrainNumber(settings.activeTrainNumber.first())
+                .takeIf { Validators.isValidTrainNumber(it) }
             ?: RailBiteTopics.DEFAULT_TRAIN_NUMBER
         val c = MqttConnector.fromServerUrl(
             serverUrl = serverUrl,

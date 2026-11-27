@@ -1,6 +1,7 @@
 import type Aedes from "aedes";
 import pino from "pino";
 import {
+  normalizeTrainNumber,
   OrderCreateSchema,
   ComplaintCreateSchema,
   MqttCaptainActionSchema,
@@ -32,9 +33,10 @@ export function registerMqttHandlers(
       return;
     }
 
-    const match = topic.match(/^rb\/train\/(\d{5})\/(.+)$/);
+    const match = topic.match(/^rb\/train\/([A-Za-z0-9]{1,10})\/(.+)$/);
     if (!match) return;
-    const [, topicTrainNumber, sub] = match;
+    const topicTrainNumber = normalizeTrainNumber(match[1]!);
+    const sub = match[2]!;
 
     try {
       const payloadStr = packet.payload.toString("utf-8");

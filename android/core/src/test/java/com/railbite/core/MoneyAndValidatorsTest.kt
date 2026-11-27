@@ -23,13 +23,21 @@ class MoneyAndValidatorsTest {
     }
 
     @Test
-    fun validators_train_number_requires_5_digits() {
+    fun validators_train_number_normalizes_and_accepts_arbitrary_1_to_10_chars() {
+        assertEquals("88412", Validators.normalizeTrainNumber(" 88412 "))
+        assertEquals("AB123", Validators.normalizeTrainNumber(" ab 123 "))
+
         assertTrue(Validators.isValidTrainNumber("12345"))
         assertTrue(Validators.isValidTrainNumber("12423"))
-        assertFalse(Validators.isValidTrainNumber("1234"))
-        assertFalse(Validators.isValidTrainNumber("123456"))
-        assertFalse(Validators.isValidTrainNumber("123AB"))
+        assertTrue(Validators.isValidTrainNumber("777"))
+        assertTrue(Validators.isValidTrainNumber("1234"))
+        assertTrue(Validators.isValidTrainNumber(" 88412 "))
+        assertTrue(Validators.isValidTrainNumber("123456"))
+        assertTrue(Validators.isValidTrainNumber("123ab"))
         assertFalse(Validators.isValidTrainNumber(""))
+        assertFalse(Validators.isValidTrainNumber("   "))
+        assertFalse(Validators.isValidTrainNumber("12345678901"))
+        assertFalse(Validators.isValidTrainNumber("12-34"))
     }
 
     @Test

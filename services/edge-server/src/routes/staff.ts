@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
-import { PickerStatusUpdateSchema, StaffLoginSchema, TrainNumberSchema } from "@railbite/shared";
+import { normalizeTrainNumber, PickerStatusUpdateSchema, StaffLoginSchema, TrainNumberSchema } from "@railbite/shared";
 import type { StaffRepo } from "../db/repos/staffRepo.js";
 import type { LedgerRepo } from "../db/repos/ledgerRepo.js";
 import type { OrderRepo } from "../db/repos/orderRepo.js";
@@ -31,7 +31,7 @@ export function createStaffRoutes(
             name: result.user.name,
             role: result.user.role === "picker" ? "CAPTAIN" : result.user.role === "kitchen" ? "COOK" : "ADMIN",
             zoneCoaches: result.user.zoneCoaches || [],
-            trainNumber: result.user.trainNumber || "12345",
+            trainNumber: normalizeTrainNumber(result.user.trainNumber || "12345"),
             token: result.accessToken,
             accessToken: result.accessToken,
             refreshToken: result.refreshToken,
@@ -45,14 +45,14 @@ export function createStaffRoutes(
       },
     );
 
-    // POST /pickers/:id/status — toggle picker online/offline with required 5-digit trainNumber
+    // POST /pickers/:id/status — toggle picker online/offline with normalized active trainNumber
     fastify.post("/pickers/:id/status", async (request, reply) => {
       if (!requireRoles(request, reply, ["picker", "kitchen", "admin"])) return;
       const { id } = request.params as { id: string };
       const parsed = PickerStatusUpdateSchema.safeParse(request.body);
       if (!parsed.success) {
         return reply.status(400).send({
-          error: parsed.error.issues[0]?.message || "online boolean and 5-digit trainNumber are required",
+          error: parsed.error.issues[0]?.message || "online boolean and trainNumber are required",
           details: parsed.error.issues,
         });
       }
@@ -66,12 +66,13 @@ export function createStaffRoutes(
         return reply.status(404).send({ error: "Staff not found" });
       }
 
-      await staffRepo.setOnline(id, parsed.data.online, parsed.data.trainNumber);
+      const normalizedTrain = normalizeTrainNumber(parsed.data.trainNumber);
+      await staffRepo.setOnline(id, parsed.data.online, normalizedTrain);
       return {
         ok: true,
         staffId: id,
         online: parsed.data.online,
-        trainNumber: parsed.data.trainNumber,
+        trainNumber: normalizedTrain,
       };
     });
 
@@ -87,13 +88,15 @@ export function createStaffRoutes(
       if (typeof online !== "boolean") {
         return reply.status(400).send({ error: "online boolean is required" });
       }
+      let normalizedTrain: string | undefined;
       if (trainNumber !== undefined) {
         const validTrain = TrainNumberSchema.safeParse(trainNumber);
         if (!validTrain.success) {
           return reply.status(400).send({
-            error: validTrain.error.issues[0]?.message || "Enter a valid 5-digit train number",
+            error: validTrain.error.issues[0]?.message || "Enter a valid 1-10 character train number",
           });
         }
+        normalizedTrain = normalizeTrainNumber(validTrain.data);
       }
       if (request.auth && request.auth.role !== "admin" && request.auth.staffId !== id) {
         return reply.status(403).send({ error: "You can only change your own status" });
@@ -104,8 +107,8 @@ export function createStaffRoutes(
         return reply.status(404).send({ error: "Staff not found" });
       }
 
-      await staffRepo.setOnline(id, online, trainNumber);
-      return { ok: true, staffId: id, online, trainNumber: trainNumber ?? staff.trainNumber };
+      await staffRepo.setOnline(id, online, normalizedTrain);
+      return { ok: true, staffId: id, online, trainNumber: normalizedTrain ?? staff.trainNumber };
     });
 
     // POST /staff/device-token — register FCM / APNs device token for staff alerts
