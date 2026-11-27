@@ -16,3 +16,8 @@ export type MenuItem = z.infer<typeof MenuItemSchema>;
 export const MenuResponseSchema = z.array(MenuItemSchema);
 export type MenuResponse = z.infer<typeof MenuResponseSchema>;
 
+export const TrendingMenuItemSchema = MenuItemSchema.extend({
+  orderCount: z.number().int().min(0).default(0),
+});
+export type TrendingMenuItem = z.infer<typeof TrendingMenuItemSchema>;
+

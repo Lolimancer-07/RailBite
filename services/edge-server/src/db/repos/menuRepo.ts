@@ -41,6 +41,27 @@ export class MenuRepo {
     return rows.map(mapRow);
   }
 
+  async listTrending(limit = 6): Promise<(MenuItem & { orderCount: number })[]> {
+    const safeLimit = Math.max(1, Math.min(20, Math.floor(limit)));
+    const rows = await this.db.all(
+      `SELECT m.id, m.name, m.category, m.track, m.mrp_paise as "mrpPaise", m.stock,
+              m.prep_minutes as "prepMinutes", m.is_veg as "isVeg", m.active,
+              COALESCE(SUM(CASE WHEN o.id IS NOT NULL THEN oi.qty ELSE 0 END), 0) as "orderCount"
+       FROM menu_items m
+       LEFT JOIN order_items oi ON oi.item_id = m.id
+       LEFT JOIN orders o ON o.id = oi.order_id AND o.status != 'CANCELLED'
+       WHERE m.active = 1
+       GROUP BY m.id, m.name, m.category, m.track, m.mrp_paise, m.stock, m.prep_minutes, m.is_veg, m.active
+       ORDER BY "orderCount" DESC, m.id ASC
+       LIMIT ?`,
+      [safeLimit],
+    );
+    return rows.map((r: any) => ({
+      ...mapRow(r),
+      orderCount: Number(r.orderCount ?? 0),
+    }));
+  }
+
   async findById(id: string): Promise<MenuItem | null> {
     const row = await this.db.get(
       `SELECT id, name, category, track, mrp_paise as "mrpPaise", stock, prep_minutes as "prepMinutes", is_veg as "isVeg", active FROM menu_items WHERE id = ?`,

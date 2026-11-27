@@ -35,6 +35,7 @@ Passenger endpoints are unauthenticated but PNR-scoped.
 | GET | `/staff/:id/orders` | Picker | Active non-terminal orders (`ACCEPTED`/`PACKING`/`OUT_FOR_DELIVERY`) assigned to `:id` (`deliveryCode` stripped) |
 | GET | `/staff/:id/ledger` | Picker | Today's summary + chronological per-order cash ledger entries (`Confirmed` vs `Awaiting Passenger`) |
 | GET | `/menu` | None | Active items; each includes `isVeg` (FOT-style veg/non-veg marker) |
+| GET | `/menu/trending` | None | Top active `menu_items` ordered by real `order_items` quantity (query `?limit=6`, falls back to catalog order) |
 | POST | `/complaints` | None | Tier determined by type |
 | GET | `/ledger/summary` | Captain | Expected vs collected cash |
 | POST | `/sync/flush` | Admin | STRETCH: triggers outbox sync |
