@@ -13,6 +13,7 @@ import com.railbite.core.mesh.BlePacketCodec
 import com.railbite.core.mesh.BlePermissions
 import com.railbite.core.mesh.MeshEntry
 import com.railbite.core.mesh.MeshOrderPayload
+import com.railbite.core.mesh.OrderChatRepository
 import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.model.Order
 import com.railbite.core.model.OrderItem
@@ -28,14 +29,16 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import java.util.concurrent.ConcurrentHashMap
 
 data class HomeUiState(
     val staffId: String = "",
@@ -72,7 +75,6 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
     private val restStats = MutableStateFlow<PickerStats?>(null)
     private val restMessages = MutableStateFlow<Map<String, List<OrderMessage>>>(emptyMap())
     private val seenLatestMessageIds = MutableStateFlow<Map<String, String>>(emptyMap())
-    private val bleMsgTimestamps = ConcurrentHashMap<String, Long>()
 
     private var refreshJob: Job? = null
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
@@ -174,7 +176,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                     )
                 }
                 mergedOrders to mergedStats
-            }.collect { (mergedOrders, mergedStats) ->
+            }.flowOn(Dispatchers.Default).collect { (mergedOrders, mergedStats) ->
                 _state.update {
                     it.copy(
                         activeOrders = mergedOrders,
@@ -184,37 +186,18 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             }
         }
 
-        // Merge REST, MQTT, and 23-byte BLE Quick-Chat unread badges & previews
+        // Merge REST + single shared chat repository (MQTT + BLE 0x13 land in OrderChatRepository).
         viewModelScope.launch {
             combine(
                 restMessages,
-                container.chatMqtt.orderMessages,
-                BleMeshHub.quickMessages,
+                OrderChatRepository.messages,
                 seenLatestMessageIds,
-            ) { rest, mqtt, bleMsgs, seen ->
-                val bleByUuid = mutableMapOf<String, List<OrderMessage>>()
-                bleMsgs.forEach { (shortId, list) ->
-                    val uuid = BlePacketCodec.shortIdToUuid(shortId)
-                    bleByUuid[uuid] = list.mapNotNull { pkt ->
-                        val preset = BlePacketCodec.presetForCode(pkt.presetCode) ?: return@mapNotNull null
-                        val msgId = "ble-${pkt.senderRole}-${pkt.msgSeq}"
-                        val ts = bleMsgTimestamps.getOrPut(msgId) { System.currentTimeMillis() }
-                        OrderMessage(
-                            id = msgId,
-                            orderId = uuid,
-                            senderRole = if (pkt.senderRole == BlePacketCodec.ROLE_PICKER) "PICKER" else "CUSTOMER",
-                            senderId = null,
-                            presetCode = preset.code,
-                            body = preset.body,
-                            createdAt = ts,
-                        )
-                    }
-                }
-                val allOrderIds = (rest.keys + mqtt.keys + bleByUuid.keys).distinct()
+            ) { rest, chat, seen ->
+                val allOrderIds = (rest.keys + chat.keys).distinct()
                 val latestMap = mutableMapOf<String, OrderMessage>()
                 val unreadMap = mutableMapOf<String, Int>()
                 allOrderIds.forEach { id ->
-                    val merged = (rest[id].orEmpty() + mqtt[id].orEmpty() + bleByUuid[id].orEmpty())
+                    val merged = (rest[id].orEmpty() + chat[id].orEmpty())
                         .distinctBy { it.id }
                         .sortedBy { it.createdAt }
                     val latestCustomer = merged.lastOrNull {
@@ -242,7 +225,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                     }
                 }
                 latestMap to unreadMap
-            }.collect { (latestMap, unreadMap) ->
+            }.flowOn(Dispatchers.Default).collect { (latestMap, unreadMap) ->
                 _state.update {
                     it.copy(
                         latestCustomerMessages = latestMap,
@@ -258,7 +241,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             while (isActive) {
-                loadOnce()
+                withContext(Dispatchers.IO) { loadOnce() }
                 delay(5_000)
             }
         }

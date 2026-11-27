@@ -3,6 +3,7 @@ package com.railbite.customer
 import android.bluetooth.BluetoothAdapter
 import android.content.Intent
 import android.os.Bundle
+import android.os.StrictMode
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -20,6 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import com.railbite.core.mesh.BleMeshService
 import com.railbite.core.mesh.BlePermissions
 import com.railbite.core.mesh.TransportMode
+import com.railbite.customer.BuildConfig
 import com.railbite.customer.ui.components.LocalBleActionRequester
 import com.railbite.customer.ui.theme.RailBiteCustomerTheme
 import kotlinx.coroutines.CoroutineScope
@@ -58,6 +60,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Log-only thread/vm policy while debugging hangs (e.g. Main-thread BLE scan / MQTT).
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(StrictMode.ThreadPolicy.Builder().detectAll().penaltyLog().build())
+            StrictMode.setVmPolicy(StrictMode.VmPolicy.Builder().detectAll().penaltyLog().build())
+        }
         val container = (application as RailBiteCustomerApp).container
 
         container.transportRouter.startMonitoring()

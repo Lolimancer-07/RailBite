@@ -49,13 +49,14 @@ fun VegDot(isVeg: Boolean, modifier: Modifier = Modifier) {
 /** Flat pulsing placeholder blocks used while the menu/orders load. */
 @Composable
 fun LoadingSkeleton(rows: Int = 6, modifier: Modifier = Modifier) {
-    var visible by remember { mutableStateOf(false) }
+    var pulse by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) {
         while (true) {
-            visible = !visible
+            pulse = !pulse
             kotlinx.coroutines.delay(500)
         }
     }
+    val visible = pulse
     val alpha by animateFloatAsState(
         targetValue = if (visible) 1f else 0.35f,
         animationSpec = tween(500),

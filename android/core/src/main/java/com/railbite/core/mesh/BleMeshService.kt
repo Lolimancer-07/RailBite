@@ -29,6 +29,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
@@ -39,8 +41,19 @@ import kotlinx.coroutines.launch
 class BleMeshService : Service() {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * Bounded hand-off from the BLE [ScanCallback] to a dedicated background dispatcher.
+     * The callback only copies bytes + RSSI and `trySend`s; HMAC decode, dedup LRU, StateFlow
+     * updates and relay enqueueing happen in [scanConsumer]. Under a burst the oldest frame is
+     * dropped rather than blocking the scanner.
+     */
+    private val scanFrames = Channel<ScanFrame>(capacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    private val scanScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private lateinit var settings: RailBiteSettings
     private lateinit var scheduler: BleTxScheduler
+
+    private data class ScanFrame(val bytes: ByteArray, val rssi: Int)
 
     @Volatile
     private var currentLowLatency = false
@@ -76,6 +89,19 @@ class BleMeshService : Service() {
         BleMeshHub.attachScheduler(scheduler)
         createNotificationChannel()
         registerReceiver(btStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        scanScope.launch {
+            for (frame in scanFrames) {
+                runCatching {
+                    BleMeshHub.onFrameScanned(
+                        context = applicationContext,
+                        rawBytes = frame.bytes,
+                        rssi = frame.rssi,
+                        meshKey = currentMeshKey,
+                        relayEnabled = currentRelayEnabled,
+                    )
+                }.onFailure { Log.w(TAG, "scan frame processing failed: ${it.message}") }
+            }
+        }
         scope.launch {
             settings.meshKey.collect { key -> currentMeshKey = key }
         }
@@ -157,16 +183,13 @@ class BleMeshService : Service() {
 
         val callback = object : ScanCallback() {
             override fun onScanResult(callbackType: Int, result: ScanResult) {
+                // ScanCallback runs on the Main thread when no Handler is supplied. Keep this
+                // path allocation-light: copy the manufacturer payload and hand it to the
+                // bounded background channel. No HMAC / LRU / DB / advertiser calls here.
                 val payload = result.scanRecord
                     ?.getManufacturerSpecificData(BlePacketCodec.COMPANY_ID)
                     ?: return
-                BleMeshHub.onFrameScanned(
-                    context = applicationContext,
-                    rawBytes = payload,
-                    rssi = result.rssi,
-                    meshKey = currentMeshKey,
-                    relayEnabled = currentRelayEnabled,
-                )
+                scanFrames.trySend(ScanFrame(payload.copyOf(), result.rssi))
             }
 
             override fun onBatchScanResults(results: MutableList<ScanResult>) {
@@ -210,6 +233,8 @@ class BleMeshService : Service() {
     override fun onDestroy() {
         runCatching { unregisterReceiver(btStateReceiver) }
         stopScanner()
+        scanFrames.close()
+        scanScope.cancel()
         scheduler.shutdown()
         BleMeshHub.detachScheduler(scheduler)
         BleMeshHub.updateServiceState(running = false, lowLatencyScan = false, context = this)

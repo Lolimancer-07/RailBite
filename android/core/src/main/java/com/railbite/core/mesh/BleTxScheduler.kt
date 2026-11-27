@@ -41,6 +41,8 @@ class BleTxScheduler(
         val orderShortId: UInt? = null,
         val isOriginOrder: Boolean = false,
         val expiresAtMs: Long? = null,
+        /** Higher values are advertised before lower values; equal priorities stay FIFO. */
+        val priority: Int = 0,
     )
 
     private val lock = Any()
@@ -50,7 +52,14 @@ class BleTxScheduler(
     fun enqueue(item: TxItem) {
         synchronized(lock) {
             queue.removeAll { it.id == item.id }
-            queue.addLast(item)
+            // Priority queue: 0x13 QUICK_MSG (30) jumps ahead of STATUS_ACK (20), origin
+            // orders (10), and relayed frames (0). Equal priorities keep insertion order.
+            val insertAt = queue.indexOfFirst { it.priority < item.priority }
+            if (insertAt < 0) {
+                queue.addLast(item)
+            } else {
+                queue.add(insertAt, item)
+            }
             if (workerJob?.isActive != true) {
                 workerJob = scope.launch { runLoop() }
             }
@@ -149,7 +158,14 @@ class BleTxScheduler(
         const val DEFAULT_ORIGIN_PAUSE_MS = 2_000L
         const val RELAY_SLICES = 4
         const val STATUS_OR_MSG_SLICES = 10 // 10 * 1.5s = 15s
+        /** 0x13 chat gets at least 6 slices (~9s) and a higher queue priority than status. */
+        const val QUICK_MSG_SLICES = 6
         const val ORIGIN_ORDER_DURATION_MS = 90_000L
+
+        const val PRIORITY_QUICK_MSG = 30
+        const val PRIORITY_STATUS = 20
+        const val PRIORITY_ORIGIN_ORDER = 10
+        const val PRIORITY_RELAY = 0
     }
 }
 

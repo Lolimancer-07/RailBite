@@ -1,8 +1,10 @@
 package com.railbite.core.mesh
 
 import android.content.Context
+import android.os.SystemClock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -42,6 +44,16 @@ object BleMeshHub {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val dedupCache = BleDedupCache()
+
+    /**
+     * `_stats` is a debug/RSSI flow read by Compose. Publishing it once per scanned frame caused
+     * a recomposition storm (the Picker dashboard observes it directly), so packet counters and
+     * RSSI are coalesced to at most one emission per [STATS_THROTTLE_MS].
+     */
+    private val statsLock = Any()
+    private var pendingStats: MeshStatsSnapshot? = null
+    private var lastStatsPublishMs = 0L
+    private var statsFlushJob: Job? = null
 
     /** Orders originated by THIS process (never blindly cancelled by relays, etc.). */
     private val locallyOriginatedOrders = HashSet<UInt>()
@@ -91,7 +103,7 @@ object BleMeshHub {
         lowLatencyScan: Boolean,
         context: Context,
     ) {
-        _stats.update {
+        mutateStats(immediate = true) {
             it.copy(
                 serviceRunning = running,
                 lowLatencyScan = lowLatencyScan,
@@ -102,7 +114,7 @@ object BleMeshHub {
     }
 
     fun refreshRadioState(context: Context) {
-        _stats.update {
+        mutateStats(immediate = true) {
             it.copy(
                 bluetoothEnabled = BlePermissions.isBluetoothEnabled(context),
                 permissionsGranted = BlePermissions.requiredPermissions(context).isEmpty(),
@@ -129,10 +141,10 @@ object BleMeshHub {
         dedupCache.markSeen(packet.dedupKey)
         _seenOrders.update { it + (packet.orderId to packet) }
 
-        val encoded = BlePacketCodec.encode(packet, meshKey)
-        BleMeshService.start(context, lowLatency = true)
-
+        // HMAC encode + foreground-service start + queue mutation all run off the caller thread.
         scope.launch {
+            val encoded = BlePacketCodec.encode(packet, meshKey)
+            BleMeshService.start(context, lowLatency = true)
             val tx = ensureTx(context) ?: return@launch
             tx.enqueue(
                 BleTxScheduler.TxItem(
@@ -142,9 +154,10 @@ object BleMeshHub {
                     orderShortId = packet.orderId,
                     isOriginOrder = true,
                     expiresAtMs = System.currentTimeMillis() + BleTxScheduler.ORIGIN_ORDER_DURATION_MS,
+                    priority = BleTxScheduler.PRIORITY_ORIGIN_ORDER,
                 ),
             )
-            _stats.update { it.copy(packetsSent = it.packetsSent + 1) }
+            mutateStats { it.copy(packetsSent = it.packetsSent + 1) }
         }
         return true
     }
@@ -173,10 +186,9 @@ object BleMeshHub {
             scheduler?.cancelOrder(packet.orderId)
         }
 
-        val encoded = BlePacketCodec.encode(packet, meshKey)
-        BleMeshService.start(context, lowLatency = true)
-
         scope.launch {
+            val encoded = BlePacketCodec.encode(packet, meshKey)
+            BleMeshService.start(context, lowLatency = true)
             val tx = ensureTx(context) ?: return@launch
             tx.enqueue(
                 BleTxScheduler.TxItem(
@@ -185,9 +197,10 @@ object BleMeshHub {
                     remainingSlices = slices,
                     orderShortId = packet.orderId,
                     isOriginOrder = false,
+                    priority = BleTxScheduler.PRIORITY_STATUS,
                 ),
             )
-            _stats.update { it.copy(packetsSent = it.packetsSent + 1) }
+            mutateStats { it.copy(packetsSent = it.packetsSent + 1) }
         }
         return true
     }
@@ -199,7 +212,7 @@ object BleMeshHub {
         context: Context,
         packet: BlePacketCodec.QuickMsg,
         meshKey: String = BlePacketCodec.RAILBITE_MESH_KEY,
-        slices: Int = BleTxScheduler.STATUS_OR_MSG_SLICES,
+        slices: Int = BleTxScheduler.QUICK_MSG_SLICES,
     ): Boolean {
         if (!BlePermissions.isReadyForMesh(context)) {
             refreshRadioState(context)
@@ -208,21 +221,22 @@ object BleMeshHub {
         dedupCache.markSeen(packet.dedupKey)
         recordQuickMessage(packet)
 
-        val encoded = BlePacketCodec.encode(packet, meshKey)
-        BleMeshService.start(context, lowLatency = true)
-
         scope.launch {
+            val encoded = BlePacketCodec.encode(packet, meshKey)
+            BleMeshService.start(context, lowLatency = true)
             val tx = ensureTx(context) ?: return@launch
             tx.enqueue(
                 BleTxScheduler.TxItem(
                     id = "msg:${packet.orderId}:${packet.senderRole}:${packet.msgSeq}",
                     payload23 = encoded,
-                    remainingSlices = slices,
+                    // Chat must survive at least 4 slices (~6s) even if a caller passes fewer.
+                    remainingSlices = slices.coerceAtLeast(BleTxScheduler.RELAY_SLICES),
                     orderShortId = packet.orderId,
                     isOriginOrder = false,
+                    priority = BleTxScheduler.PRIORITY_QUICK_MSG,
                 ),
             )
-            _stats.update { it.copy(packetsSent = it.packetsSent + 1) }
+            mutateStats { it.copy(packetsSent = it.packetsSent + 1) }
         }
         return true
     }
@@ -245,7 +259,7 @@ object BleMeshHub {
         val packet = BlePacketCodec.decode(rawBytes, meshKey) ?: return false
         if (!dedupCache.offer(packet.dedupKey)) return false
 
-        _stats.update {
+        mutateStats {
             it.copy(
                 packetsReceived = it.packetsReceived + 1,
                 lastRssiDbm = rssi,
@@ -288,9 +302,10 @@ object BleMeshHub {
                             remainingSlices = BleTxScheduler.RELAY_SLICES,
                             orderShortId = packet.orderId,
                             isOriginOrder = false,
+                            priority = BleTxScheduler.PRIORITY_RELAY,
                         ),
                     )
-                    _stats.update { it.copy(packetsRelayed = it.packetsRelayed + 1) }
+                    mutateStats { it.copy(packetsRelayed = it.packetsRelayed + 1) }
                 }
             }
         }
@@ -304,7 +319,44 @@ object BleMeshHub {
         _latestStatuses.value = emptyMap()
         _quickMessages.value = emptyMap()
         _seenOrders.value = emptyMap()
-        _stats.value = MeshStatsSnapshot()
+        synchronized(statsLock) {
+            statsFlushJob?.cancel()
+            statsFlushJob = null
+            pendingStats = null
+            lastStatsPublishMs = 0L
+            _stats.value = MeshStatsSnapshot()
+        }
+    }
+
+    /**
+     * Coalesces high-frequency packet counters into at most one `_stats` emission per
+     * [STATS_THROTTLE_MS]. Service/radio transitions pass [immediate] so the transport pill
+     * updates instantly.
+     */
+    private fun mutateStats(
+        immediate: Boolean = false,
+        transform: (MeshStatsSnapshot) -> MeshStatsSnapshot,
+    ) {
+        synchronized(statsLock) {
+            val next = transform(pendingStats ?: _stats.value)
+            pendingStats = next
+            val now = SystemClock.elapsedRealtime()
+            val elapsed = now - lastStatsPublishMs
+            if (immediate || elapsed >= STATS_THROTTLE_MS) {
+                publishStatsLocked(now)
+            } else if (statsFlushJob?.isActive != true) {
+                statsFlushJob = scope.launch {
+                    delay(STATS_THROTTLE_MS - elapsed)
+                    synchronized(statsLock) { publishStatsLocked(SystemClock.elapsedRealtime()) }
+                }
+            }
+        }
+    }
+
+    private fun publishStatsLocked(now: Long) {
+        pendingStats?.let { _stats.value = it }
+        pendingStats = null
+        lastStatsPublishMs = now
     }
 
     private fun recordStatusMonotonic(packet: BlePacketCodec.StatusAck) {
@@ -339,5 +391,7 @@ object BleMeshHub {
         }
         return scheduler
     }
+
+    private const val STATS_THROTTLE_MS = 500L
 }
 
