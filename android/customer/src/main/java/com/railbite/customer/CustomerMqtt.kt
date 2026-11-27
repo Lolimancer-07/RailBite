@@ -3,6 +3,8 @@ package com.railbite.customer
 import android.util.Base64
 import com.railbite.core.api.ApiClient
 import com.railbite.core.data.RailBiteSettings
+import com.railbite.core.mesh.ChatTransport
+import com.railbite.core.mesh.OrderChatRepository
 import com.railbite.core.mqtt.MqttConnector
 import com.railbite.core.mqtt.RailBiteTopics
 import com.railbite.core.model.MqttOrderStatus
@@ -90,6 +92,7 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
         c.subscribe(RailBiteTopics.orderChat(tripId, orderId)) { payload ->
             runCatching {
                 val msg = json.decodeFromString<OrderMessage>(payload.decodeToString())
+                OrderChatRepository.ingest(orderId, msg, ChatTransport.LAN)
                 _orderMessages.update { prev ->
                     val current = prev[orderId].orEmpty()
                     if (current.any { it.id == msg.id }) {
@@ -107,6 +110,7 @@ class CustomerMqtt(private val settings: RailBiteSettings) {
         connector?.unsubscribe(RailBiteTopics.orderChat(tripId, orderId))
         _orderStatuses.update { it - orderId }
         _orderMessages.update { it - orderId }
+        OrderChatRepository.clear(orderId)
     }
 
     fun disconnect() {

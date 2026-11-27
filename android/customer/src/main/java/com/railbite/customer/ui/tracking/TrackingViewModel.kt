@@ -1,17 +1,23 @@
 package com.railbite.customer.ui.tracking
 
+import android.content.Context
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.customer.AppContainer
-import com.railbite.core.mesh.BleMeshHub
-import com.railbite.core.mesh.BlePacketCodec
+import com.railbite.core.mesh.ChatTransport
 import com.railbite.core.mesh.MeshEntry
 import com.railbite.core.mesh.MeshOrderPayload
+import com.railbite.core.mesh.OrderChatRepository
+import com.railbite.core.mesh.QuickChatUnavailableException
 import com.railbite.core.model.ChatPresets
 import com.railbite.core.model.MqttOrderStatus
 import com.railbite.core.model.Order
 import com.railbite.core.model.OrderMessage
-import com.railbite.core.model.OrderMessageCreateRequest
 import com.railbite.core.util.Statuses
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -25,7 +31,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 data class TrackingUiState(
     val loading: Boolean = true,
@@ -51,6 +56,8 @@ data class TrackingUiState(
     val chatBanner: OrderMessage? = null,
     val sendingMessage: Boolean = false,
     val chatError: String? = null,
+    /** Client UUIDs currently shown optimistically with a "Sending…" indicator. */
+    val pendingMessageIds: Set<String> = emptySet(),
 ) {
     val delivered: Boolean get() = status == Statuses.DELIVERED
     val failed: Boolean get() = Statuses.isFailed(status)
@@ -72,9 +79,7 @@ class TrackingViewModel(
 
     private var pollJob: Job? = null
     private val seenMessageIds = mutableSetOf<String>()
-    private val bleMsgTimestamps = ConcurrentHashMap<String, Long>()
     private var initialChatSynced = false
-    private var initialBleChatSynced = false
 
     /** True while the order exists only in the local Bluetooth-mesh outbox. */
     private var relayMode = false
@@ -84,38 +89,13 @@ class TrackingViewModel(
         viewModelScope.launch {
             runCatching { container.mqtt.watchOrder(orderId) }
         }
+        // Single chat flow: MQTT and BLE 0x13 both write into OrderChatRepository.
         viewModelScope.launch {
-            container.mqtt.orderMessages.collect { byOrder ->
+            OrderChatRepository.messages.collect { byOrder ->
                 val live = byOrder[orderId].orEmpty()
                 if (live.isNotEmpty()) {
-                    mergeMessages(live, markBaselineOnly = false)
-                }
-            }
-        }
-        // BLE Mesh preset quick-chat frames (`0x13`) for this order
-        viewModelScope.launch {
-            val shortId = BlePacketCodec.uuidToShortId(orderId)
-            BleMeshHub.quickMessages.collect { byOrder ->
-                val list = byOrder[shortId].orEmpty()
-                if (list.isNotEmpty()) {
-                    val converted = list.mapNotNull { pkt ->
-                        val preset = BlePacketCodec.presetForCode(pkt.presetCode) ?: return@mapNotNull null
-                        val msgId = "ble-${pkt.senderRole}-${pkt.msgSeq}"
-                        val ts = bleMsgTimestamps.getOrPut(msgId) { System.currentTimeMillis() }
-                        OrderMessage(
-                            id = msgId,
-                            orderId = orderId,
-                            senderRole = if (pkt.senderRole == BlePacketCodec.ROLE_PICKER) "PICKER" else "CUSTOMER",
-                            senderId = null,
-                            presetCode = preset.code,
-                            body = preset.body,
-                            createdAt = ts,
-                        )
-                    }
-                    if (converted.isNotEmpty()) {
-                        mergeMessages(converted, markBaselineOnly = !initialBleChatSynced)
-                        initialBleChatSynced = true
-                    }
+                    mergeMessages(live, markBaselineOnly = !initialChatSynced)
+                    initialChatSynced = true
                 }
             }
         }
@@ -232,6 +212,7 @@ class TrackingViewModel(
             if (order.status != Statuses.PLACED && order.status != Statuses.ASSIGNED) {
                 val history = runCatching { api.orderMessages(orderId) }.getOrNull()
                 if (history != null) {
+                    OrderChatRepository.ingestAll(orderId, history, ChatTransport.LAN)
                     mergeMessages(history, markBaselineOnly = !initialChatSynced)
                     initialChatSynced = true
                 }
@@ -320,7 +301,10 @@ class TrackingViewModel(
             if (!_state.value.relayed && container.transportRouter.checkLanReachable()) {
                 runCatching { container.client.api().orderMessages(orderId) }
                     .getOrNull()
-                    ?.let { mergeMessages(it, markBaselineOnly = false) }
+                    ?.let {
+                        OrderChatRepository.ingestAll(orderId, it, ChatTransport.LAN)
+                        mergeMessages(it, markBaselineOnly = false)
+                    }
             }
         }
     }
@@ -346,75 +330,83 @@ class TrackingViewModel(
             return
         }
         if (current.sendingMessage) return
-        _state.update { it.copy(sendingMessage = true, chatError = null) }
-        val messageId = UUID.randomUUID().toString()
-        viewModelScope.launch {
-            val lanReachable = !current.relayed && container.transportRouter.checkLanReachable()
-            if (lanReachable) {
-                try {
-                    val created = container.client.api().sendOrderMessage(
-                        orderId,
-                        OrderMessageCreateRequest(
-                            id = messageId,
-                            senderRole = "CUSTOMER",
-                            presetCode = presetCode,
-                            body = trimmed,
-                        ),
-                    )
-                    mergeMessages(listOf(created), markBaselineOnly = false)
-                    _state.update { it.copy(sendingMessage = false) }
-                    return@launch
-                } catch (e: HttpException) {
-                    val msg = if (e.code() == 409) {
-                        "Chat closed — order is no longer active"
-                    } else {
-                        "Could not send message (HTTP ${e.code()})"
-                    }
-                    _state.update { it.copy(sendingMessage = false, chatError = msg) }
-                    if (e.code() == 409) loadOnce()
-                    return@launch
-                } catch (_: Exception) {
-                    // Fall through to BLE preset failover when LAN fails mid-request
-                }
-            }
 
-            if (presetCode == null) {
-                _state.update {
-                    it.copy(
-                        sendingMessage = false,
-                        chatError = "Offline BLE mode supports 1-tap quick presets only",
-                    )
-                }
-                return@launch
-            }
+        val clientMsgId = UUID.randomUUID().toString()
+        val optimistic = OrderMessage(
+            id = clientMsgId,
+            orderId = orderId,
+            senderRole = "CUSTOMER",
+            senderId = null,
+            presetCode = presetCode,
+            body = trimmed,
+            createdAt = System.currentTimeMillis(),
+        )
+        // Optimistic SENDING bubble — replaced by the LAN/BLE message or removed on failure.
+        _state.update { s ->
+            s.copy(
+                sendingMessage = true,
+                chatError = null,
+                messages = (s.messages + optimistic).sortedBy { it.createdAt },
+                pendingMessageIds = s.pendingMessageIds + clientMsgId,
+            )
+        }
+        viewModelScope.launch {
             val coach = current.order?.coach
                 ?: current.relayCoach
                 ?: runCatching { container.settings.coach.first() }.getOrDefault("")
             val berth = current.order?.berth
                 ?: current.relayBerth
                 ?: runCatching { container.settings.berth.first() }.getOrDefault(0)
-            val sent = container.meshSender.sendQuickMessage(
-                orderId = orderId,
-                coach = coach,
-                berth = berth,
-                presetCode = presetCode,
-            )
-            if (sent != null) {
-                mergeMessages(listOf(sent), markBaselineOnly = false)
-                _state.update { it.copy(sendingMessage = false) }
-            } else {
-                _state.update {
-                    it.copy(
+            try {
+                val result = container.transportRouter.sendQuickMessage(
+                    orderId = orderId,
+                    senderRole = "CUSTOMER",
+                    presetCode = presetCode,
+                    body = trimmed,
+                    coach = coach,
+                    berth = berth,
+                )
+                _state.update { s ->
+                    s.copy(
                         sendingMessage = false,
-                        chatError = "Bluetooth off — enable Bluetooth to message over BLE mesh",
+                        pendingMessageIds = s.pendingMessageIds - clientMsgId,
+                        messages = s.messages.filterNot { it.id == clientMsgId },
                     )
                 }
+                mergeMessages(listOf(result.message), markBaselineOnly = false)
+            } catch (e: HttpException) {
+                val msg = if (e.code() == 409) {
+                    "Chat closed — order completed"
+                } else {
+                    "Could not send message (HTTP ${e.code()})"
+                }
+                Log.w(TAG, "customer quick-chat failed: HTTP ${e.code()}", e)
+                failSend(clientMsgId, msg)
+                if (e.code() == 409) loadOnce()
+            } catch (e: QuickChatUnavailableException) {
+                Log.w(TAG, "customer quick-chat unavailable: ${e.message}")
+                failSend(clientMsgId, e.message ?: "Message could not be sent")
+            } catch (e: Exception) {
+                Log.w(TAG, "customer quick-chat failed", e)
+                failSend(clientMsgId, "Message could not be sent — check connection")
             }
+        }
+    }
+
+    private fun failSend(clientMsgId: String, message: String) {
+        _state.update { s ->
+            s.copy(
+                sendingMessage = false,
+                pendingMessageIds = s.pendingMessageIds - clientMsgId,
+                messages = s.messages.filterNot { it.id == clientMsgId },
+                chatError = message,
+            )
         }
     }
 
     private fun mergeMessages(incoming: List<OrderMessage>, markBaselineOnly: Boolean) {
         if (incoming.isEmpty() && _state.value.messages.isEmpty()) return
+        var alert: OrderMessage? = null
         _state.update { s ->
             val byId = LinkedHashMap<String, OrderMessage>()
             s.messages.forEach { byId[it.id] = it }
@@ -433,11 +425,29 @@ class TrackingViewModel(
             } else {
                 null
             }
+            alert = newPicker
             s.copy(
                 messages = merged,
                 unreadCount = unseenPicker.size,
                 chatBanner = newPicker ?: s.chatBanner,
             )
+        }
+        alert?.let { buzz() }
+    }
+
+    /** Short haptic buzz for a picker message arriving while the chat sheet is closed. */
+    private fun buzz() {
+        runCatching {
+            val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (container.app.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager)
+                    .defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                container.app.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            if (vibrator.hasVibrator()) {
+                vibrator.vibrate(VibrationEffect.createOneShot(120L, VibrationEffect.DEFAULT_AMPLITUDE))
+            }
         }
     }
 
@@ -460,5 +470,9 @@ class TrackingViewModel(
         } else {
             "Order updates may be delayed ($msg)"
         }
+    }
+
+    private companion object {
+        const val TAG = "RailBiteChat"
     }
 }

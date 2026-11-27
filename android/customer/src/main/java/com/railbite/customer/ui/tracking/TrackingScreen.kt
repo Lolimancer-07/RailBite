@@ -150,6 +150,13 @@ fun TrackingScreen(
         }
     }
 
+    // Both transports unavailable or the send failed: transient toast surface.
+    LaunchedEffect(state.chatError) {
+        state.chatError?.let { error ->
+            snackbar.showSnackbar(error)
+        }
+    }
+
     var showCashSheet by remember { mutableStateOf(false) }
     LaunchedEffect(state.delivered, state.cashConfirmed) {
         if (state.delivered && !state.cashConfirmed) {
@@ -399,6 +406,7 @@ fun TrackingScreen(
             offlinePresetsOnly = state.relayed || !transportStatus.lanReachable,
             sending = state.sendingMessage,
             error = state.chatError,
+            pendingIds = state.pendingMessageIds,
             onSendPreset = { preset -> vm.sendChatMessage(preset.body, preset.code) },
             onSendCustom = { text -> vm.sendChatMessage(text, null) },
             onDismissError = vm::clearChatError,
@@ -1049,6 +1057,7 @@ private fun OrderChatBottomSheet(
     offlinePresetsOnly: Boolean,
     sending: Boolean,
     error: String?,
+    pendingIds: Set<String> = emptySet(),
     onSendPreset: (com.railbite.core.model.ChatPreset) -> Unit,
     onSendCustom: (String) -> Unit,
     onDismissError: () -> Unit,
@@ -1100,7 +1109,7 @@ private fun OrderChatBottomSheet(
                         color = RailBitePalette.TextPrimary,
                     )
                     Text(
-                        text = if (canSend) "Live quick messages for your order" else "Chat closed for completed order",
+                        text = if (canSend) "Live quick messages for your order" else "Order completed — chat closed (read-only)",
                         style = MaterialTheme.typography.bodySmall,
                         color = RailBitePalette.TextSecondary,
                     )
@@ -1137,7 +1146,7 @@ private fun OrderChatBottomSheet(
                         modifier = Modifier.fillMaxWidth(),
                     ) {
                         items(messages, key = { it.id }) { msg ->
-                            CustomerChatBubble(msg)
+                            CustomerChatBubble(msg, pending = msg.id in pendingIds)
                         }
                     }
                 }
@@ -1175,7 +1184,7 @@ private fun OrderChatBottomSheet(
                                     border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
                                     modifier = Modifier
                                         .weight(1f)
-                                        .heightIn(min = 40.dp),
+                                        .heightIn(min = 44.dp),
                                 ) {
                                     Box(
                                         contentAlignment = Alignment.Center,
@@ -1294,7 +1303,7 @@ private fun OrderChatBottomSheet(
 }
 
 @Composable
-private fun CustomerChatBubble(msg: OrderMessage) {
+private fun CustomerChatBubble(msg: OrderMessage, pending: Boolean) {
     val mine = msg.senderRole == "CUSTOMER"
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -1316,7 +1325,9 @@ private fun CustomerChatBubble(msg: OrderMessage) {
                     color = if (mine) Color.White else RailBitePalette.TextPrimary,
                 )
                 Text(
-                    text = (if (mine) "You" else "Picker") + " · " + formatChatTime(msg.createdAt),
+                    text = (if (mine) "You" else "Picker") + " · " +
+                        chatTransportLabel(msg, pending) + " · " +
+                        formatChatTime(msg.createdAt),
                     style = MaterialTheme.typography.labelSmall,
                     color = if (mine) RailBitePalette.TextMuted else RailBitePalette.TextSecondary,
                 )
@@ -1330,3 +1341,9 @@ private fun formatChatTime(epochMs: Long): String = runCatching {
         .atZone(java.time.ZoneId.systemDefault())
         .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 }.getOrDefault("")
+
+private fun chatTransportLabel(msg: OrderMessage, pending: Boolean): String = when {
+    pending -> "Sending…"
+    msg.id.startsWith("ble-") -> "BLE"
+    else -> "LAN"
+}
