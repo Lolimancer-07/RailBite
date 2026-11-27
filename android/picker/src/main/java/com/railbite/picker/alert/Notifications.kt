@@ -73,7 +73,11 @@ object Notifications {
     }
 
     /** High-importance notification with a full-screen intent for a new order. */
-    fun alertNotification(context: Context, alert: MqttOrderAlert): android.app.Notification {
+    fun alertNotification(
+        context: Context,
+        alert: MqttOrderAlert,
+        hopCount: Int? = null,
+    ): android.app.Notification {
         val fullScreen = PendingIntent.getActivity(
             context,
             alert.orderId.hashCode(),
@@ -82,9 +86,10 @@ object Notifications {
         )
         val itemsText = alert.items.joinToString("\n") { "${it.qty} × ${it.name}" }
         val upiOrder = alert.paymentMode == "UPI_QUEUED"
+        val meshPrefix = hopCount?.let { "Via BLE Mesh ($it hop${if (it == 1) "" else "s"}) • " } ?: ""
         return NotificationCompat.Builder(context, CHANNEL_ALERTS)
             .setSmallIcon(com.railbite.picker.R.drawable.ic_stat_picker)
-            .setContentTitle("New order — Coach ${alert.coach} · Seat ${alert.berth}")
+            .setContentTitle("${meshPrefix}New order — Coach ${alert.coach} · Seat ${alert.berth}")
             .setContentText("${alert.items.sumOf { it.qty }} items · ${Money.rupees(alert.total)} · ${if (upiOrder) "UPI" else "Cash"}")
             .setStyle(
                 NotificationCompat.BigTextStyle().bigText(
@@ -101,10 +106,11 @@ object Notifications {
             .build()
     }
 
-    fun notifyAlert(context: Context, alert: MqttOrderAlert) {
+    fun notifyAlert(context: Context, alert: MqttOrderAlert, hopCount: Int? = null) {
         if (hasPostNotifications(context)) {
             runCatching {
-                NotificationManagerCompat.from(context).notify(ALERT_NOTIFICATION_ID, alertNotification(context, alert))
+                NotificationManagerCompat.from(context)
+                    .notify(ALERT_NOTIFICATION_ID, alertNotification(context, alert, hopCount))
             }
         }
     }

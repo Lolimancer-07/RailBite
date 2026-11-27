@@ -2,11 +2,17 @@ package com.railbite.picker.ui.order
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.railbite.core.data.OfflineMenuCatalog
+import com.railbite.core.mesh.BleMeshHub
+import com.railbite.core.mesh.BlePacketCodec
+import com.railbite.core.mesh.MeshEntry
+import com.railbite.core.mesh.MeshOrderPayload
 import com.railbite.core.model.CaptainActionRequest
 import com.railbite.core.model.ChatPreset
 import com.railbite.core.model.ChatPresets
 import com.railbite.core.model.DeliverRequest
 import com.railbite.core.model.Order
+import com.railbite.core.model.OrderItem
 import com.railbite.core.model.OrderMessage
 import com.railbite.core.model.OrderMessageCreateRequest
 import com.railbite.core.util.Statuses
@@ -20,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -28,12 +35,14 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 data class ProgressUiState(
     val order: Order? = null,
     val loading: Boolean = true,
     val error: String? = null,
-    /** itemId -> packed tick; local only, the server only sees the pickup call. */
+    val isOfflineMesh: Boolean = false,
+    val lanReachable: Boolean = false,
     val checklist: Map<String, Boolean> = emptyMap(),
     val busy: Boolean = false,
     val message: String? = null,
@@ -45,7 +54,6 @@ data class ProgressUiState(
     val sendingChat: Boolean = false,
     val chatError: String? = null,
     val quickUpdateBanner: String? = null,
-    /** Controls the HandoverConfirmSheet overlay on DeliveryAndHandoverScreen. */
     val showHandoverSheet: Boolean = false,
 ) {
     val canSendChat: Boolean
@@ -59,6 +67,9 @@ data class ProgressUiState(
             order?.status == Statuses.DELIVERED ||
             order?.status == Statuses.CANCELLED ||
             chatMessages.isNotEmpty()
+
+    val offlinePresetsOnly: Boolean
+        get() = isOfflineMesh || !lanReachable
 
     companion object {
         const val SLA_TARGET_SECONDS = 600
@@ -79,12 +90,20 @@ class OrderProgressViewModel(
     private var pollJob: Job? = null
     private var autoPacked = false
     private val seenChatIds = mutableSetOf<String>()
+    private val bleMsgTimestamps = ConcurrentHashMap<String, Long>()
     private var initialChatSynced = false
+    private var initialBleChatSynced = false
+    private var cachedExpectedPin: String? = null
 
     init {
         viewModelScope.launch {
+            container.transportRouter.status.collect { st ->
+                _state.update { it.copy(lanReachable = st.lanReachable) }
+            }
+        }
+        viewModelScope.launch {
             val staffId = container.settings.staffId.first()
-            if (staffId.isNotBlank()) {
+            if (staffId.isNotBlank() && container.transportRouter.checkLanReachable()) {
                 runCatching { container.chatMqtt.watchOrder(orderId, staffId) }
             }
         }
@@ -96,7 +115,34 @@ class OrderProgressViewModel(
                 }
             }
         }
-        // Live 1s SLA countdown ticker computed from order.createdAt
+        // Observe incoming 23-byte BLE Quick-Chat messages for this order
+        viewModelScope.launch {
+            val shortId = BlePacketCodec.uuidToShortId(orderId)
+            BleMeshHub.quickMessages.collect { byOrder ->
+                val list = byOrder[shortId].orEmpty()
+                if (list.isNotEmpty()) {
+                    val converted = list.mapNotNull { pkt ->
+                        val preset = BlePacketCodec.presetForCode(pkt.presetCode) ?: return@mapNotNull null
+                        val msgId = "ble-${pkt.senderRole}-${pkt.msgSeq}"
+                        val ts = bleMsgTimestamps.getOrPut(msgId) { System.currentTimeMillis() }
+                        OrderMessage(
+                            id = msgId,
+                            orderId = orderId,
+                            senderRole = if (pkt.senderRole == BlePacketCodec.ROLE_PICKER) "PICKER" else "CUSTOMER",
+                            senderId = null,
+                            presetCode = preset.code,
+                            body = preset.body,
+                            createdAt = ts,
+                        )
+                    }
+                    if (converted.isNotEmpty()) {
+                        mergeChatMessages(converted, markBaselineOnly = !initialBleChatSynced)
+                        initialBleChatSynced = true
+                    }
+                }
+            }
+        }
+        // Live 1s SLA countdown ticker
         viewModelScope.launch {
             while (isActive) {
                 val createdAtIso = _state.value.order?.createdAt
@@ -114,10 +160,25 @@ class OrderProgressViewModel(
         load()
     }
 
-    /** Loads the order and keeps polling every 3 s until it reaches a terminal state. */
+    /** Loads from local MeshLedger first if it's an unsynced BLE order, then follows LAN polling. */
     fun load() {
         pollJob?.cancel()
         pollJob = viewModelScope.launch {
+            val initialMesh = runCatching { container.meshLedger.entryOf(orderId) }.getOrNull()
+            if (initialMesh != null && initialMesh.state != "SYNCED") {
+                container.meshLedger.entries
+                    .takeWhile { list ->
+                        val cur = list.firstOrNull { it.payload.contains("\"orderId\":\"$orderId\"") }
+                        if (cur != null && cur.state != "SYNCED") {
+                            applyMeshEntry(cur)
+                            isActive
+                        } else {
+                            false
+                        }
+                    }
+                    .collect {}
+            }
+
             while (isActive) {
                 refreshOnce()
                 val o = _state.value.order
@@ -127,8 +188,85 @@ class OrderProgressViewModel(
         }
     }
 
+    private suspend fun applyMeshEntry(entry: MeshEntry) {
+        val payload = MeshOrderPayload.decode(entry.payload) ?: return
+        cachedExpectedPin = entry.deliveryCode ?: payload.deliveryCode
+        var effectiveState = entry.state
+
+        if (effectiveState == Statuses.ACCEPTED && !autoPacked) {
+            autoPacked = true
+            effectiveState = Statuses.PACKING
+            container.meshLedger.markState(orderId, Statuses.PACKING)
+            container.meshGateway.broadcastStatus(orderId, Statuses.PACKING, cashPaise = payload.totalPaise)
+        }
+
+        val catalog = OfflineMenuCatalog.bundledEntries(container.app)
+        val orderItems = payload.items.map { item ->
+            val cat = catalog.firstOrNull {
+                it.id.equals(item.itemId, ignoreCase = true) ||
+                    it.name.equals(item.name, ignoreCase = true)
+            }?.category ?: "SNACKS"
+            OrderItem(
+                itemId = item.itemId,
+                qty = item.qty,
+                unitPricePaise = item.unitPricePaise,
+                name = item.name,
+                category = cat,
+            )
+        }
+
+        val order = Order(
+            id = payload.orderId,
+            pnr = payload.pnr,
+            coach = payload.coach,
+            berth = payload.berth,
+            diners = payload.diners,
+            track = "READY",
+            status = effectiveState,
+            paymentMode = "COD",
+            totalPaise = payload.totalPaise,
+            source = "RELAY",
+            verified = 1,
+            createdAt = payload.createdAt,
+            updatedAt = entry.createdAt,
+            deliveryCode = cachedExpectedPin,
+            items = orderItems,
+        )
+
+        val remainingSla = runCatching {
+            val createdEpoch = Instant.parse(order.createdAt).epochSecond
+            val elapsed = (Instant.now().epochSecond - createdEpoch).toInt().coerceAtLeast(0)
+            ProgressUiState.SLA_TARGET_SECONDS - elapsed
+        }.getOrDefault(ProgressUiState.SLA_TARGET_SECONDS)
+
+        _state.update { st ->
+            st.copy(
+                order = order,
+                isOfflineMesh = true,
+                loading = false,
+                error = null,
+                slaRemainingSeconds = remainingSla,
+                checklist = if (st.checklist.isEmpty()) {
+                    orderItems.associate { it.itemId to (effectiveState != Statuses.ACCEPTED && effectiveState != Statuses.PACKING) }
+                } else {
+                    st.checklist
+                },
+            )
+        }
+    }
+
     private suspend fun refreshOnce() {
         try {
+            if (!container.transportRouter.checkLanReachable()) {
+                val fallbackMesh = runCatching { container.meshLedger.entryOf(orderId) }.getOrNull()
+                if (fallbackMesh != null) {
+                    applyMeshEntry(fallbackMesh)
+                    return
+                }
+                _state.update { it.copy(loading = false, error = "Offline mode — no local record found") }
+                return
+            }
+
             val api = container.client.api()
             var order = api.order(orderId, role = "picker")
             if (order.status == Statuses.ACCEPTED && !autoPacked) {
@@ -148,6 +286,7 @@ class OrderProgressViewModel(
                 val incoming = order.items
                 st.copy(
                     order = order,
+                    isOfflineMesh = false,
                     loading = false,
                     error = null,
                     slaRemainingSeconds = remainingSla,
@@ -176,12 +315,28 @@ class OrderProgressViewModel(
         }
     }
 
-    /** All items picked -> transition to OUT_FOR_DELIVERY. */
+    /** All items picked -> transition to OUT_FOR_DELIVERY (LAN or BLE Mesh). */
     fun startPickup() {
         val s = _state.value
         if (s.busy || s.order == null) return
         _state.update { it.copy(busy = true, message = null) }
         viewModelScope.launch {
+            if (s.isOfflineMesh) {
+                container.meshLedger.markState(orderId, Statuses.OUT_FOR_DELIVERY)
+                container.meshGateway.broadcastStatus(
+                    orderId = orderId,
+                    state = Statuses.OUT_FOR_DELIVERY,
+                    etaMins = 5,
+                    cashPaise = s.order.totalPaise,
+                )
+                _state.update { cur ->
+                    cur.copy(
+                        order = cur.order?.copy(status = Statuses.OUT_FOR_DELIVERY),
+                        busy = false,
+                    )
+                }
+                return@launch
+            }
             try {
                 val order = container.client.api().pickupOrder(
                     orderId,
@@ -195,25 +350,64 @@ class OrderProgressViewModel(
     }
 
     /**
-     * Final handover. Verifies the passenger's 4-digit PIN (403 on mismatch)
-     * and records exact cash collected (server defaults to order total when null).
+     * Final handover. Verifies the passenger's 4-digit PIN (server or embedded BLE PIN)
+     * and records exact cash collected before marking DELIVERED.
      */
     fun deliver(code: String, cashText: String) {
         val s = _state.value
-        if (s.busy || s.order == null) return
-        if (code.trim().length != 4) {
+        val curOrder = s.order ?: return
+        if (s.busy) return
+        val cleanCode = code.trim()
+        if (cleanCode.length != 4) {
             _state.update { it.copy(message = "Enter the 4-digit delivery PIN shown on the passenger's screen") }
             return
         }
         _state.update { it.copy(busy = true, message = null) }
         viewModelScope.launch {
+            if (s.isOfflineMesh) {
+                val expectedPin = cachedExpectedPin ?: curOrder.deliveryCode
+                if (!expectedPin.isNullOrBlank() && cleanCode != expectedPin) {
+                    _state.update {
+                        it.copy(
+                            busy = false,
+                            message = "Wrong delivery PIN — ask passenger to check their Order Tracking screen",
+                        )
+                    }
+                    return@launch
+                }
+                val collected = parseCash(cashText) ?: curOrder.totalPaise
+                val staffId = container.settings.staffId.first().ifBlank { "c1" }
+                container.meshLedger.markState(
+                    orderId = orderId,
+                    state = Statuses.DELIVERED,
+                    deliveryCode = expectedPin ?: cleanCode,
+                    cashPaise = collected,
+                    captainId = staffId,
+                )
+                container.settings.setPickerOrderId("")
+                container.meshGateway.broadcastStatus(
+                    orderId = orderId,
+                    state = Statuses.DELIVERED,
+                    etaMins = 0,
+                    cashPaise = collected,
+                )
+                _state.update { cur ->
+                    cur.copy(
+                        order = cur.order?.copy(status = Statuses.DELIVERED),
+                        busy = false,
+                        message = null,
+                        showHandoverSheet = false,
+                    )
+                }
+                return@launch
+            }
             try {
                 val order = container.client.api().deliverOrder(
                     orderId,
                     DeliverRequest(
                         captainId = container.settings.staffId.first(),
                         cashPaise = parseCash(cashText),
-                        deliveryCode = code.trim(),
+                        deliveryCode = cleanCode,
                     ),
                 )
                 _state.update {
@@ -249,9 +443,11 @@ class OrderProgressViewModel(
             )
         }
         viewModelScope.launch {
-            runCatching { container.client.api().orderMessages(orderId) }
-                .getOrNull()
-                ?.let { mergeChatMessages(it, markBaselineOnly = false) }
+            if (!_state.value.isOfflineMesh && container.transportRouter.checkLanReachable()) {
+                runCatching { container.client.api().orderMessages(orderId) }
+                    .getOrNull()
+                    ?.let { mergeChatMessages(it, markBaselineOnly = false) }
+            }
         }
     }
 
@@ -263,12 +459,10 @@ class OrderProgressViewModel(
         _state.update { it.copy(chatError = null) }
     }
 
-    /** Shows the HandoverConfirmSheet overlay on the delivery screen. */
     fun openHandoverSheet() {
         _state.update { it.copy(showHandoverSheet = true, message = null) }
     }
 
-    /** Hides the HandoverConfirmSheet overlay. */
     fun closeHandoverSheet() {
         _state.update { it.copy(showHandoverSheet = false) }
     }
@@ -281,7 +475,8 @@ class OrderProgressViewModel(
         val trimmed = rawBody.trim().take(ChatPresets.MAX_BODY_LENGTH)
         if (trimmed.isEmpty()) return
         val current = _state.value
-        if (!current.canSendChat) {
+        val curOrder = current.order
+        if (!current.canSendChat || curOrder == null) {
             _state.update { it.copy(chatError = "Chat closed — order already completed") }
             return
         }
@@ -289,51 +484,82 @@ class OrderProgressViewModel(
         _state.update { it.copy(sendingChat = true, chatError = null) }
         val messageId = UUID.randomUUID().toString()
         viewModelScope.launch {
-            try {
-                val staffId = container.settings.staffId.first().ifBlank { null }
-                val created = container.client.api().sendOrderMessage(
-                    orderId,
-                    OrderMessageCreateRequest(
-                        id = messageId,
-                        senderRole = "PICKER",
-                        senderId = staffId,
-                        presetCode = presetCode,
-                        body = trimmed,
-                    ),
-                )
-                mergeChatMessages(listOf(created), markBaselineOnly = false)
-                _state.update {
-                    it.copy(
-                        sendingChat = false,
-                        quickUpdateBanner = if (showBanner) "Sent: $trimmed" else it.quickUpdateBanner,
+            val useLan = !current.isOfflineMesh && container.transportRouter.checkLanReachable()
+            if (useLan) {
+                try {
+                    val staffId = container.settings.staffId.first().ifBlank { null }
+                    val created = container.client.api().sendOrderMessage(
+                        orderId,
+                        OrderMessageCreateRequest(
+                            id = messageId,
+                            senderRole = "PICKER",
+                            senderId = staffId,
+                            presetCode = presetCode,
+                            body = trimmed,
+                        ),
                     )
-                }
-                if (showBanner) {
-                    launch {
-                        delay(2_500)
-                        _state.update { cur ->
-                            if (cur.quickUpdateBanner == "Sent: $trimmed") {
-                                cur.copy(quickUpdateBanner = null)
-                            } else {
-                                cur
-                            }
-                        }
+                    mergeChatMessages(listOf(created), markBaselineOnly = false)
+                    showBannerIfRequested(trimmed, showBanner)
+                    return@launch
+                } catch (e: HttpException) {
+                    val msg = if (e.code() == 409) {
+                        "Chat closed — order already completed"
+                    } else {
+                        "Could not send message (HTTP ${e.code()})"
                     }
+                    _state.update { it.copy(sendingChat = false, chatError = msg) }
+                    if (e.code() == 409) refreshOnce()
+                    return@launch
+                } catch (_: Exception) {
+                    // Fall through to BLE mesh when LAN fails mid-request
                 }
-            } catch (e: HttpException) {
-                val msg = if (e.code() == 409) {
-                    "Chat closed — order already completed"
-                } else {
-                    "Could not send message (HTTP ${e.code()})"
-                }
-                _state.update { it.copy(sendingChat = false, chatError = msg) }
-                if (e.code() == 409) refreshOnce()
-            } catch (_: Exception) {
+            }
+
+            if (presetCode == null) {
                 _state.update {
                     it.copy(
                         sendingChat = false,
-                        chatError = "Message not sent — check connection",
+                        chatError = "Offline BLE mode supports 1-tap quick presets only",
                     )
+                }
+                return@launch
+            }
+            val sent = container.meshGateway.sendQuickMessage(
+                orderId = orderId,
+                coach = curOrder.coach,
+                berth = curOrder.berth,
+                presetCode = presetCode,
+            )
+            if (sent != null) {
+                mergeChatMessages(listOf(sent), markBaselineOnly = false)
+                showBannerIfRequested(trimmed, showBanner)
+            } else {
+                _state.update {
+                    it.copy(
+                        sendingChat = false,
+                        chatError = "Bluetooth off — enable Bluetooth to message over BLE mesh",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun showBannerIfRequested(trimmed: String, showBanner: Boolean) {
+        _state.update {
+            it.copy(
+                sendingChat = false,
+                quickUpdateBanner = if (showBanner) "Sent: $trimmed" else it.quickUpdateBanner,
+            )
+        }
+        if (showBanner) {
+            viewModelScope.launch {
+                delay(2_500)
+                _state.update { cur ->
+                    if (cur.quickUpdateBanner == "Sent: $trimmed") {
+                        cur.copy(quickUpdateBanner = null)
+                    } else {
+                        cur
+                    }
                 }
             }
         }

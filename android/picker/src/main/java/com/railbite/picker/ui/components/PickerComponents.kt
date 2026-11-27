@@ -19,7 +19,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ReceiptLong
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.runtime.staticCompositionLocalOf
+import com.railbite.core.mesh.TransportMode
+import com.railbite.core.mesh.TransportStatus
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -352,4 +358,80 @@ fun formatLocalTime(iso: String): String = runCatching {
         .atZone(java.time.ZoneId.systemDefault())
         .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
 }.getOrDefault("")
+
+/** Hook allowing any Picker Compose screen to trigger runtime BLE permissions or BT enable prompt. */
+val LocalPickerBleActionRequester = staticCompositionLocalOf<() -> Unit> { {} }
+
+/**
+ * Flat Stitch transport status badge:
+ * `"LAN Connected"`, `"BLE Mesh Offline (Active)"`, or `"BLE Off — Enable Bluetooth"`.
+ */
+@Composable
+fun PickerTransportIndicatorPill(
+    status: TransportStatus,
+    onClick: (() -> Unit)? = null,
+    modifier: Modifier = Modifier,
+) {
+    val (bgColor, borderColor, inkColor, icon) = when (status.mode) {
+        TransportMode.LAN_CONNECTED -> listOf(
+            RailBitePickerPalette.SemanticGreenTint,
+            RailBitePickerPalette.SemanticGreenBorder,
+            RailBitePickerPalette.SemanticGreenInk,
+            Icons.Filled.Wifi,
+        )
+        TransportMode.BLE_MESH_ACTIVE -> listOf(
+            RailBitePickerPalette.CyanTint,
+            RailBitePickerPalette.CyanBorder,
+            RailBitePickerPalette.CyanPressed,
+            Icons.Filled.Bluetooth,
+        )
+        TransportMode.BLE_DISABLED -> listOf(
+            RailBitePickerPalette.SemanticAmberTint,
+            RailBitePickerPalette.SemanticAmberBorder,
+            RailBitePickerPalette.SemanticAmberInk,
+            Icons.Filled.BluetoothDisabled,
+        )
+    }
+
+    val content: @Composable () -> Unit = {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+        ) {
+            Icon(
+                imageVector = icon as androidx.compose.ui.graphics.vector.ImageVector,
+                contentDescription = null,
+                tint = inkColor as Color,
+                modifier = Modifier.size(14.dp),
+            )
+            Text(
+                text = status.label,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = inkColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+
+    if (onClick != null) {
+        Surface(
+            onClick = onClick,
+            shape = RoundedCornerShape(PickerRadii.Pill),
+            color = bgColor as Color,
+            border = BorderStroke(1.dp, borderColor as Color),
+            shadowElevation = 0.dp,
+            modifier = modifier,
+        ) { content() }
+    } else {
+        Surface(
+            shape = RoundedCornerShape(PickerRadii.Pill),
+            color = bgColor as Color,
+            border = BorderStroke(1.dp, borderColor as Color),
+            shadowElevation = 0.dp,
+            modifier = modifier,
+        ) { content() }
+    }
+}
 

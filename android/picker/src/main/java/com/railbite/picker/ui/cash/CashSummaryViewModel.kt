@@ -2,9 +2,11 @@ package com.railbite.picker.ui.cash
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.railbite.core.mesh.MeshOrderPayload
 import com.railbite.core.model.LedgerEntry
 import com.railbite.core.model.LedgerSummaryRow
 import com.railbite.core.model.PickerStats
+import com.railbite.core.util.Statuses
 import com.railbite.picker.PickerContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -12,6 +14,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -43,7 +46,7 @@ data class CashUiState(
     val awaitingCount: Int get() = entries.count { !it.passengerConfirmed }
 }
 
-/** Shift Cash Ledger & Reconciliation for this picker. */
+/** Shift Cash Ledger & Reconciliation (LAN + offline BLE delivered entries). */
 class CashSummaryViewModel(private val container: PickerContainer) : ViewModel() {
 
     private val _state = MutableStateFlow(CashUiState())
@@ -68,47 +71,126 @@ class CashSummaryViewModel(private val container: PickerContainer) : ViewModel()
             )
         }
         viewModelScope.launch {
-            try {
-                val api = container.client.api()
-                val staffId = container.settings.staffId.first()
-                val ledgerRes = runCatching { api.staffLedger(staffId) }.getOrNull()
-                val summaryRows = runCatching { api.ledgerSummary() }.getOrNull()
-                val myRow = summaryRows?.firstOrNull { it.captainId == staffId }
+            val staffId = container.settings.staffId.first()
+            val staffName = container.settings.staffName.first()
+            val localDelivered = runCatching {
+                container.meshLedger.all()
+                    .filter { it.state == Statuses.DELIVERED }
+                    .mapNotNull { entry ->
+                        val payload = MeshOrderPayload.decode(entry.payload) ?: return@mapNotNull null
+                        val collected = entry.cashPaise ?: payload.totalPaise
+                        LedgerEntry(
+                            orderId = payload.orderId,
+                            coach = payload.coach,
+                            berth = payload.berth,
+                            paymentMode = "COD",
+                            totalPaise = payload.totalPaise,
+                            collectedPaise = collected,
+                            passengerConfirmed = entry.passengerConfirmed,
+                            deliveredAt = entry.createdAt,
+                        )
+                    }
+            }.getOrDefault(emptyList())
 
-                if (ledgerRes != null) {
-                    _state.update {
-                        it.copy(
-                            loading = false,
-                            refreshing = false,
-                            staffId = staffId,
-                            stats = ledgerRes.summary,
-                            myRow = myRow,
-                            entries = ledgerRes.entries,
-                            lastUpdatedLabel = LocalTime.now().format(timeFormatter),
-                            error = null,
-                        )
-                    }
-                } else {
-                    val stats = api.staffStats(staffId)
-                    _state.update {
-                        it.copy(
-                            loading = false,
-                            refreshing = false,
-                            staffId = staffId,
-                            stats = stats,
-                            myRow = myRow,
-                            entries = emptyList(),
-                            lastUpdatedLabel = LocalTime.now().format(timeFormatter),
-                            error = null,
-                        )
-                    }
-                }
-            } catch (_: Exception) {
+            if (!container.transportRouter.checkLanReachable()) {
+                val expected = localDelivered.sumOf { it.totalPaise }
+                val collected = localDelivered.sumOf { it.collectedPaise }
+                val confirmed = localDelivered.filter { it.passengerConfirmed }.sumOf { it.collectedPaise }
                 _state.update {
                     it.copy(
                         loading = false,
                         refreshing = false,
-                        error = "Cannot reach server — check Wi-Fi",
+                        staffId = staffId,
+                        stats = PickerStats(
+                            staffId = staffId,
+                            staffName = staffName.ifBlank { staffId.uppercase() },
+                            date = LocalDate.now().toString(),
+                            ordersDelivered = localDelivered.size,
+                            expectedPaise = expected,
+                            collectedPaise = collected,
+                            passengerConfirmedPaise = confirmed,
+                        ),
+                        myRow = null,
+                        entries = localDelivered,
+                        lastUpdatedLabel = LocalTime.now().format(timeFormatter),
+                        error = null,
+                    )
+                }
+                return@launch
+            }
+
+            try {
+                runCatching { container.meshGateway.replayPending() }
+                val api = container.client.api()
+                val ledgerRes = runCatching { api.staffLedger(staffId) }.getOrNull()
+                val summaryRows = runCatching { api.ledgerSummary() }.getOrNull()
+                val myRow = summaryRows?.firstOrNull { it.captainId == staffId }
+
+                val serverEntries = ledgerRes?.entries.orEmpty()
+                val serverIds = serverEntries.map { it.orderId }.toSet()
+                val extraOffline = runCatching {
+                    container.meshLedger.all()
+                        .filter { it.state == Statuses.DELIVERED }
+                        .mapNotNull { entry ->
+                            val payload = MeshOrderPayload.decode(entry.payload) ?: return@mapNotNull null
+                            if (payload.orderId in serverIds) return@mapNotNull null
+                            val collected = entry.cashPaise ?: payload.totalPaise
+                            LedgerEntry(
+                                orderId = payload.orderId,
+                                coach = payload.coach,
+                                berth = payload.berth,
+                                paymentMode = "COD",
+                                totalPaise = payload.totalPaise,
+                                collectedPaise = collected,
+                                passengerConfirmed = entry.passengerConfirmed,
+                                deliveredAt = entry.createdAt,
+                            )
+                        }
+                }.getOrDefault(emptyList())
+
+                val baseSummary = ledgerRes?.summary ?: api.staffStats(staffId)
+                val extraExpected = extraOffline.sumOf { it.totalPaise }
+                val extraCollected = extraOffline.sumOf { it.collectedPaise }
+                val extraConfirmed = extraOffline.filter { it.passengerConfirmed }.sumOf { it.collectedPaise }
+
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        refreshing = false,
+                        staffId = staffId,
+                        stats = baseSummary.copy(
+                            ordersDelivered = baseSummary.ordersDelivered + extraOffline.size,
+                            expectedPaise = baseSummary.expectedPaise + extraExpected,
+                            collectedPaise = baseSummary.collectedPaise + extraCollected,
+                            passengerConfirmedPaise = baseSummary.passengerConfirmedPaise + extraConfirmed,
+                        ),
+                        myRow = myRow,
+                        entries = extraOffline + serverEntries,
+                        lastUpdatedLabel = LocalTime.now().format(timeFormatter),
+                        error = null,
+                    )
+                }
+            } catch (_: Exception) {
+                val expected = localDelivered.sumOf { it.totalPaise }
+                val collected = localDelivered.sumOf { it.collectedPaise }
+                val confirmed = localDelivered.filter { it.passengerConfirmed }.sumOf { it.collectedPaise }
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        refreshing = false,
+                        staffId = staffId,
+                        stats = PickerStats(
+                            staffId = staffId,
+                            staffName = staffName.ifBlank { staffId.uppercase() },
+                            date = LocalDate.now().toString(),
+                            ordersDelivered = localDelivered.size,
+                            expectedPaise = expected,
+                            collectedPaise = collected,
+                            passengerConfirmedPaise = confirmed,
+                        ),
+                        entries = localDelivered,
+                        lastUpdatedLabel = LocalTime.now().format(timeFormatter),
+                        error = null,
                     )
                 }
             }

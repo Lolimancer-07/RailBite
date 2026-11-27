@@ -421,3 +421,4 @@ object BlePacketCodec {
     private fun readUInt16BE(buf: ByteArray, offset: Int): Int =
         ((buf[offset].toInt() and 0xFF) shl 8) or (buf[offset + 1].toInt() and 0xFF)
 }
+

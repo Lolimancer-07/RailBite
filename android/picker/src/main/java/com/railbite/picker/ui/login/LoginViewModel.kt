@@ -4,6 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.core.api.ApiClient
 import com.railbite.core.api.RailBiteApi
+import com.railbite.core.auth.AuthSession
+import com.railbite.core.auth.AuthUser
+import com.railbite.core.auth.DemoAuth
 import com.railbite.picker.PickerContainer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -134,32 +137,86 @@ class LoginViewModel(private val container: PickerContainer) : ViewModel() {
         if (s.busy || s.staffId.isBlank() || s.password.length < 4) return
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            try {
-                // Staff IDs are canonical lowercase in the seed (c1-c4). The field
-                // uppercases for display; AuthRepository lowercases before the request
-                // so the server's exact-match lookup hits.
-                val login = container.auth.staffLogin(s.staffId, s.password)
-                container.settings.setStaffLogin(
-                    staffId = login.staffId,
-                    name = login.name,
-                    zone = login.zoneCoaches.joinToString(", "),
+            val lanReachable = container.transportRouter.checkLanReachable()
+            if (lanReachable) {
+                try {
+                    // Staff IDs are canonical lowercase in the seed (c1-c4).
+                    val login = container.auth.staffLogin(s.staffId, s.password)
+                    container.settings.setStaffLogin(
+                        staffId = login.staffId,
+                        name = login.name,
+                        zone = login.zoneCoaches.joinToString(", "),
+                    )
+                    launch {
+                        com.railbite.picker.fcm.FcmTokenRegistrar.registerCurrentToken(container)
+                    }
+                    runCatching {
+                        container.client.api().setStaffOnline(login.staffId, RailBiteApi.OnlineRequest(false))
+                    }
+                    container.settings.setOnline(false)
+                    _state.update { it.copy(busy = false) }
+                    onLoggedIn()
+                    return@launch
+                } catch (e: HttpException) {
+                    if (e.code() == 400 || e.code() == 401) {
+                        _state.update { it.copy(busy = false, error = friendly(e)) }
+                        return@launch
+                    }
+                    // Other errors fall back to offline shift roster check if applicable
+                } catch (_: Exception) {
+                    // Network dropped mid-login -> try offline crew sign-in
+                }
+            }
+
+            // Offline crew shift sign-in (Airplane Mode / zero Wi-Fi)
+            val normalizedId = s.staffId.trim().lowercase()
+            val secret = s.password.trim()
+            val profile = OFFLINE_CREW_ROSTER[normalizedId]
+            val validSecret = secret == DemoAuth.DEMO_STAFF_PIN || secret == "railbite123"
+            if (profile != null && validSecret) {
+                container.authStore.save(
+                    AuthSession(
+                        accessToken = DemoAuth.ACCESS_TOKEN,
+                        refreshToken = DemoAuth.REFRESH_TOKEN,
+                        user = AuthUser(
+                            id = normalizedId,
+                            name = profile.first,
+                            role = "picker",
+                            staffId = normalizedId,
+                            zoneCoaches = profile.second,
+                        ),
+                    ),
                 )
-                // Register FCM device token with server on login
-                launch {
-                    com.railbite.picker.fcm.FcmTokenRegistrar.registerCurrentToken(container)
-                }
-                // The server marks fresh logins online; snap it back in sync with the app
-                // toggle (OFF) so alerts are only dispatched once the picker goes online.
-                runCatching {
-                    container.client.api().setStaffOnline(login.staffId, RailBiteApi.OnlineRequest(false))
-                }
+                container.settings.setStaffLogin(
+                    staffId = normalizedId,
+                    name = profile.first,
+                    zone = profile.second.joinToString(", "),
+                )
                 container.settings.setOnline(false)
                 _state.update { it.copy(busy = false) }
                 onLoggedIn()
-            } catch (e: Exception) {
-                _state.update { it.copy(busy = false, error = friendly(e)) }
+            } else {
+                _state.update {
+                    it.copy(
+                        busy = false,
+                        error = if (profile == null) {
+                            "Offline shift requires c1–c4 (PIN 1234 or password railbite123)"
+                        } else {
+                            "Invalid offline PIN/password (expected 1234 or railbite123)"
+                        },
+                    )
+                }
             }
         }
+    }
+
+    private companion object {
+        val OFFLINE_CREW_ROSTER = mapOf(
+            "c1" to ("Ramesh Kumar" to listOf("B1", "B2")),
+            "c2" to ("Suresh Sharma" to listOf("B3", "B4")),
+            "c3" to ("Amit Verma" to listOf("S1", "S2")),
+            "c4" to ("Deepak Patel" to listOf("S3", "S4")),
+        )
     }
 
     private suspend fun friendly(e: Exception): String {

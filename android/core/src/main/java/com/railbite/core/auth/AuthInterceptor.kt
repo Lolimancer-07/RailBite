@@ -2,6 +2,8 @@ package com.railbite.core.auth
 
 import com.railbite.core.model.DevLoginRequest
 import com.railbite.core.model.RefreshRequest
+import com.railbite.core.model.StaffLoginRequest
+import com.railbite.core.model.StaffLoginResponse
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
@@ -72,9 +74,12 @@ class AuthInterceptor(
         )
     }
 
-    /** Exchanges a local demo session for a real server JWT when `/auth/dev/login` is enabled. */
+    /** Exchanges a local demo session for a real server JWT when `/auth/dev/login` or `/staff/login` is reachable. */
     private fun upgradeDemoSession(original: Request): String? {
         val user = store.session.value?.user ?: return null
+        if (user.role == "picker" && !user.staffId.isNullOrBlank()) {
+            return exchangeStaffSession(original, user.staffId)
+        }
         val phone = user.phone?.takeIf { it.isNotBlank() } ?: return null
         val name = user.name?.takeUnless { it == "Demo Passenger" }
         return exchangeSession(
@@ -83,6 +88,55 @@ class AuthInterceptor(
             serializer = DevLoginRequest.serializer(),
             payload = DevLoginRequest(phone = phone, name = name),
         )
+    }
+
+    private fun exchangeStaffSession(original: Request, staffId: String): String? {
+        val body = json.encodeToString(
+            StaffLoginRequest.serializer(),
+            StaffLoginRequest(
+                staffId = staffId.trim().lowercase(),
+                password = DemoAuth.DEMO_STAFF_PIN,
+                pin = DemoAuth.DEMO_STAFF_PIN,
+            ),
+        ).toRequestBody(JSON)
+        val request = Request.Builder()
+            .url(original.url.newBuilder().encodedPath("/staff/login").query(null).build())
+            .post(body)
+            .header("Accept", "application/json")
+            .build()
+
+        return runCatching {
+            refreshClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) return@use null
+                val text = response.body?.string() ?: return@use null
+                val parsed = runCatching {
+                    json.decodeFromString(StaffLoginResponse.serializer(), text)
+                }.getOrNull() ?: return@use null
+                val access = parsed.accessToken?.takeIf { it.isNotBlank() } ?: parsed.token
+                if (access.isBlank()) return@use null
+                val mappedRole = when (parsed.role.uppercase()) {
+                    "CAPTAIN" -> "picker"
+                    "COOK" -> "kitchen"
+                    "ADMIN" -> "admin"
+                    else -> parsed.role.lowercase()
+                }
+                store.save(
+                    AuthSession(
+                        accessToken = access,
+                        refreshToken = parsed.refreshToken.orEmpty(),
+                        expiresAt = parsed.expiresAt,
+                        user = AuthUser(
+                            id = parsed.staffId,
+                            name = parsed.name,
+                            role = mappedRole,
+                            staffId = parsed.staffId,
+                            zoneCoaches = parsed.zoneCoaches,
+                        ),
+                    ),
+                )
+                access
+            }
+        }.getOrNull()
     }
 
     /** Returns the new access token, or null when the refresh token is no longer valid. */

@@ -80,6 +80,7 @@ fun OrderQuickChatSheet(
     orderStatus: String,
     messages: List<OrderMessage>,
     canSend: Boolean,
+    offlinePresetsOnly: Boolean = false,
     sending: Boolean,
     error: String?,
     onSendPreset: (ChatPreset) -> Unit,
@@ -265,67 +266,83 @@ fun OrderQuickChatSheet(
                     }
                 }
 
-                // 120-Character Custom Note Input + Send CTA
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    OutlinedTextField(
-                        value = draft,
-                        onValueChange = { input ->
-                            if (input.length <= ChatPresets.MAX_BODY_LENGTH) {
-                                draft = input
-                            }
-                        },
-                        placeholder = {
-                            Text(
-                                text = "Short note (${draft.length}/${ChatPresets.MAX_BODY_LENGTH})…",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = RailBitePickerPalette.TextMuted,
-                            )
-                        },
-                        singleLine = true,
+                if (offlinePresetsOnly) {
+                    Surface(
                         shape = RoundedCornerShape(PickerRadii.Button),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = RailBitePickerPalette.CyanPrimary,
-                            unfocusedBorderColor = RailBitePickerPalette.BorderSubtle,
-                            focusedContainerColor = RailBitePickerPalette.Canvas,
-                            unfocusedContainerColor = RailBitePickerPalette.Canvas,
-                        ),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Button(
-                        onClick = {
-                            val clean = draft.trim()
-                            if (clean.isNotEmpty() && !sending) {
-                                onSendCustom(clean)
-                                draft = ""
-                            }
-                        },
-                        enabled = draft.isNotBlank() && !sending,
-                        shape = RoundedCornerShape(PickerRadii.Button),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = RailBitePickerPalette.CyanPrimary,
-                            contentColor = Color.White,
-                            disabledContainerColor = RailBitePickerPalette.ImageTile,
-                            disabledContentColor = RailBitePickerPalette.TextMuted,
-                        ),
-                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
-                        modifier = Modifier.heightIn(min = 52.dp),
+                        color = RailBitePickerPalette.Canvas,
+                        border = PickerCardBorder,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        if (sending) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
-                                modifier = Modifier.size(18.dp),
-                            )
+                        Text(
+                            text = "Offline BLE Mesh active — tap any 1-tap preset above to update the passenger.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RailBitePickerPalette.TextSecondary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        )
+                    }
+                } else {
+                    // 120-Character Custom Note Input + Send CTA
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = { input ->
+                                if (input.length <= ChatPresets.MAX_BODY_LENGTH) {
+                                    draft = input
+                                }
+                            },
+                            placeholder = {
+                                Text(
+                                    text = "Short note (${draft.length}/${ChatPresets.MAX_BODY_LENGTH})…",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = RailBitePickerPalette.TextMuted,
+                                )
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(PickerRadii.Button),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = RailBitePickerPalette.CyanPrimary,
+                                unfocusedBorderColor = RailBitePickerPalette.BorderSubtle,
+                                focusedContainerColor = RailBitePickerPalette.Canvas,
+                                unfocusedContainerColor = RailBitePickerPalette.Canvas,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Button(
+                            onClick = {
+                                val clean = draft.trim()
+                                if (clean.isNotEmpty() && !sending) {
+                                    onSendCustom(clean)
+                                    draft = ""
+                                }
+                            },
+                            enabled = draft.isNotBlank() && !sending,
+                            shape = RoundedCornerShape(PickerRadii.Button),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = RailBitePickerPalette.CyanPrimary,
+                                contentColor = Color.White,
+                                disabledContainerColor = RailBitePickerPalette.ImageTile,
+                                disabledContentColor = RailBitePickerPalette.TextMuted,
+                            ),
+                            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp),
+                            modifier = Modifier.heightIn(min = 52.dp),
+                        ) {
+                            if (sending) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Send",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }

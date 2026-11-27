@@ -27,12 +27,18 @@ object AlertActions {
         // locally and route to the offline handover screen; the gateway replays it later.
         if (AlertBus.currentSource() == AlertBus.SOURCE_MESH) {
             scope.launch {
-                app.container.meshLedger.markState(alert.orderId, "ACCEPTED")
-                // Tell the passenger over the mesh: their timeline shows "accepted"
-                // within seconds, fully offline.
+                val staffId = app.container.settings.staffId.first().ifBlank { "c1" }
+                app.container.meshLedger.markState(
+                    orderId = alert.orderId,
+                    state = com.railbite.core.util.Statuses.ACCEPTED,
+                    captainId = staffId,
+                )
+                // Broadcast 0x12 ACCEPTED (`ttl = 6`, `15s`) so customer timeline updates
+                // and any distant pickers stand down immediately.
                 app.container.meshGateway.broadcastStatus(
-                    alert.orderId,
-                    com.railbite.core.mesh.MeshPacket.STATUS_ACCEPTED,
+                    orderId = alert.orderId,
+                    state = com.railbite.core.util.Statuses.ACCEPTED,
+                    cashPaise = alert.total,
                 )
                 app.container.settings.setPickerOrderId(alert.orderId)
                 AlertBus.markAccepted(alert.orderId)
@@ -75,12 +81,13 @@ object AlertActions {
     fun reject(context: Context, alert: MqttOrderAlert, onDone: () -> Unit) {
         val app = context.applicationContext as RailBitePickerApp
         if (AlertBus.currentSource() == AlertBus.SOURCE_MESH) {
-            // Rejected relay order: tell the passenger over the mesh, then forget it.
+            // Rejected BLE order: ignore locally on this picker and broadcast REJECTED (`ttl=6`, `15s`)
+            // while other pickers may still claim it until ACCEPTED+.
             scope.launch {
                 app.container.meshLedger.markState(alert.orderId, "REJECTED")
                 app.container.meshGateway.broadcastStatus(
-                    alert.orderId,
-                    com.railbite.core.mesh.MeshPacket.STATUS_REJECTED,
+                    orderId = alert.orderId,
+                    state = "REJECTED",
                 )
             }
             cancelAlertNotification(context)

@@ -179,3 +179,4 @@ class BlePacketCodecTest {
         assertEquals(shortId, BlePacketCodec.uuidToShortId(uuid))
     }
 }
+

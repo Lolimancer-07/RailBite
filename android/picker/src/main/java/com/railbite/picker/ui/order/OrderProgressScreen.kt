@@ -122,6 +122,7 @@ fun OrderProgressScreen(
                 orderStatus = currentOrder.status,
                 messages = state.chatMessages,
                 canSend = state.canSendChat,
+                offlinePresetsOnly = state.offlinePresetsOnly,
                 sending = state.sendingChat,
                 error = state.chatError,
                 onSendPreset = { preset -> vm.sendChatMessage(preset.body, preset.code) },

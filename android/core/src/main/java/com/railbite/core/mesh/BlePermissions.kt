@@ -46,3 +46,4 @@ object BlePermissions {
     fun isReadyForMesh(context: Context): Boolean =
         requiredPermissions(context).isEmpty() && isBluetoothEnabled(context)
 }
+

@@ -63,9 +63,9 @@ All multi-byte integers are **big-endian**.
 ---
 
 ## 4. Nearest-Picker Arbitration & LAN Re-Sync
-- **Arbitration Delay:**
+- **Arbitration Delay (`BleNearestArbitrator.kt`):**
   - `inZone && hopCount == 0`: `0ms`
   - `inZone && hopCount > 0`: `1000ms * hopCount`
-  - `outOfZone`: `3000ms + (1000ms * hopCount) + rssiPenalty` (`((−65 − rssi).coerceIn(0, 40) * 50)ms`)
-  - Arrival of `STATUS_ACK (ACCEPTED+)` cancels pending delayed alerts and dismisses ringing alerts on other pickers for that `orderId`.
-- **Idempotent LAN Re-Sync:** When `edge-server` becomes reachable again, offline BLE orders and handover ledger entries replay idempotently using the canonical UUID `orderId`.
+  - `outOfZone`: `3000ms + (1000ms * hopCount) + rssiPenalty` (`0ms` for `>= -65 dBm`, `500ms` for `-66..-85 dBm`, `1200ms` for `< -85 dBm`)
+  - Arrival of `STATUS_ACK (ACCEPTED+)` cancels pending delayed alerts and dismisses active ringing alerts on other pickers for that `orderId`.
+- **Idempotent LAN Re-Sync:** When `edge-server` becomes reachable again, offline BLE orders and handover ledger entries replay idempotently via `POST /orders/mesh-sync` using the canonical UUID `orderId`.

@@ -53,6 +53,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -161,6 +162,8 @@ private fun IncomingOrderAlertContent(
     onAccepted: (String) -> Unit,
 ) {
     var alert by remember { mutableStateOf(AlertBus.current()) }
+    val source by AlertBus.source.collectAsState()
+    val hopCount by AlertBus.hopCount.collectAsState()
     var secondsLeft by remember { mutableIntStateOf(IncomingOrderActivity.COUNTDOWN_SECONDS) }
     var busy by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
@@ -178,7 +181,12 @@ private fun IncomingOrderAlertContent(
 
     LaunchedEffect(Unit) {
         AlertBus.alert.collect { incoming ->
-            if (incoming != null) alert = incoming
+            if (incoming != null) {
+                alert = incoming
+            } else if (alert != null && !busy) {
+                AlertSoundController.stop()
+                onFinished()
+            }
         }
     }
 
@@ -373,6 +381,15 @@ private fun IncomingOrderAlertContent(
                                         textColor = if (a.paymentMode == "UPI_QUEUED") RailBitePickerPalette.CyanPinDigit else RailBitePickerPalette.SemanticAmberBorder,
                                         borderColor = if (a.paymentMode == "UPI_QUEUED") RailBitePickerPalette.CyanPrimary else RailBitePickerPalette.SemanticAmber,
                                     )
+                                    if (source == AlertBus.SOURCE_MESH) {
+                                        val hops = hopCount ?: 0
+                                        PickerStatusTag(
+                                            text = "VIA BLE MESH • $hops HOP${if (hops == 1) "" else "S"}",
+                                            bgColor = Color(0xFF083344),
+                                            textColor = RailBitePickerPalette.CyanPinDigit,
+                                            borderColor = RailBitePickerPalette.CyanPrimary,
+                                        )
+                                    }
                                     if (a.attempt > 1) {
                                         PickerStatusTag(
                                             text = "RETRY #${a.attempt}",
@@ -586,16 +603,12 @@ private fun IncomingOrderAlertContent(
                                     if (!busy) {
                                         busy = true
                                         AlertSoundController.stop()
-                                        val meshSource = AlertBus.currentSource() == AlertBus.SOURCE_MESH
                                         AlertActions.accept(
                                             activityContext,
                                             a,
                                             onAccepted = {
                                                 AlertBus.clear()
-                                                onAccepted(
-                                                    if (meshSource) PickerRoutes.MESH_PREFIX + a.orderId
-                                                    else a.orderId,
-                                                )
+                                                onAccepted(a.orderId)
                                             },
                                             onFailed = { err ->
                                                 busy = false

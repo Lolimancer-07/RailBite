@@ -118,28 +118,16 @@ Demo accounts: pickers `c1`–`c4` with PIN `1234` (zones B1–B2, B3–B4, S1�
 `8492000001`–`8492000120`. Rejecting an alert or missing the 60 s countdown re-dispatches the
 order to the next picker.
 
-### When the internet dies: Bluetooth mesh relay (optional, off by default)
+### Offline 23-Byte BLE Multi-Hop Flood Mesh (`TransportRouter` failover)
 
-Cloud stays the default path. If the cloud can't be reached **and** the passenger enabled
-*Settings → Offline relay (Bluetooth mesh)*, the order rides phone-to-phone over BLE instead:
+LAN/cloud Wi-Fi stays Step A (`1500ms` fast reachability probe). Whenever `edge-server` is unreachable (Airplane Mode, tunnel dead zones, zero Wi-Fi), `TransportRouter` fails over immediately to Step B — a connectionless **Legacy BLE Multi-Hop Flood Mesh** (`docs/ble-mesh-spec.md`):
 
-1. The passenger's phone bursts the order (compact JSON: item names, prices and a
-   passenger-generated 4-digit handover code) inside legacy BLE advertisements. Every RailBite
-   phone that hears it re-broadcasts it — LRU-500 dedup, TTL 16 hops, loop prevention and an
-   HMAC-8 integrity tag keep the flood sane (ported from `tools/relay-sim`).
-2. The pantry phone (picker ONLINE with the **Bluetooth relay** sink switch on) consumes the
-   packet and rings the **same loud full-screen alert**, marked as a relay order.
-3. The picker works it offline: ACCEPT → the usual checklist → handover verified with the
-   passenger's 4-digit code. Nothing touches the network.
-4. When internet returns, the pantry phone **replays the outcome to the cloud**
-   (create → accept → deliver, idempotent by the passenger's client UUID) and the passenger's
-   outbox syncs any orders the cloud hasn't seen. The cloud then owns the record and the live
-   timeline flows over MQTT as usual.
+1. **Offline-First Catalog (`assets/default_menu.json`)**: Both apps ship with 16 deterministic pantry items (`1..16`, IRCTC MRPs) seeded into DataStore at startup so browsing menus and decoding orders work with zero network.
+2. **23-Byte Wire Codec (`BlePacketCodec.kt`)**: Compact fixed packets inside Legacy Manufacturer Data `0x5242` (`30B <= 31B` limit, zero pairing) carrying `ORDER_NEW (0x11)`, `STATUS_ACK (0x12)`, and `QUICK_MSG (0x13)` signed with HMAC-16 (`RAILBITE_MESH_KEY`).
+3. **Nearest-Picker Arbitration (`BleNearestArbitrator.kt`)**: Pickers online in the order's coach zone (`hop == 0`) ring in `0ms`, relayed in-zone pickers wait `1000ms * hopCount`, and out-of-zone pickers wait `3000ms + (1000ms * hopCount) + rssiPenalty`. Receiving `STATUS_ACK ACCEPTED` auto-dismisses competing pickers.
+4. **Idempotent LAN Sync**: When `edge-server` connectivity returns (`"LAN Connected"`), completed & in-flight offline orders and cash ledger entries replay idempotently via `POST /orders/mesh-sync` using the canonical order UUID.
 
-Emulator note: the AVD has no Bluetooth radio, so the radio hop itself is only exercised on real
-phones; the mesh engine is fully unit-tested in `:core` (22 tests: 12-hop delivery, partitions,
-dedup, LRU eviction, TTL, HMAC, flood), and the queue → sync → cloud-replay loop was verified
-end-to-end on the emulator with the server offline then back online.
+> Emulator note: Standard AVDs lack BLE advertising/scanning radios, so over-the-air hops require physical Android 10+ devices; the wire codec, dedup LRU cache, TxScheduler, arbitration delays, and idempotent server sync are verified by automated unit tests (`BlePacketCodecTest`, `BleDedupAndSchedulerTest`, `BleNearestArbitratorTest`, `mesh-sync.test.ts`).
 
 ### Running the server locally (development / demo fallback)
 
@@ -232,6 +220,23 @@ Test PNRs: `8492000001`–`8492000120` (e.g. `8492000001` = Coach `B1`, Seat `1`
 3. **Lock-Screen Takeover & Picking (~15s)** — Phone A rings loudly over the lock screen with a 60 s countdown -> tap **ACCEPT ORDER**. Category-grouped **Picking Checklist** opens -> check all items (`48.dp` targets) -> tap **Packed — Start Delivery →**.
 4. **Live Quick-Chat & Seat Handover (~25s)** — On Phone B (`TrackingScreen`), verify the 4-digit **Delivery PIN** appears and tap **Message Picker** -> send `"Where are you?"`. On Phone A, hear the haptic/tone cue, tap a 1-tap preset chip (`"2 mins away"` / `"I'm here at your seat"`), then tap **Complete Handover (Enter PIN) →** -> enter the passenger's 4-digit PIN + exact COD cash -> **Confirm Delivery & Record Cash →**.
 5. **Audit & Lock Check (~10s)** — Verify Quick-Chat switches to read-only (`Chat closed`) on both phones and open the **Cash** tab on Phone A to verify Expected / Collected / Awaiting Passenger (then confirm cash on Phone B to see it turn **Confirmed ✓**).
+
+### 5. Test Offline BLE Mesh (Airplane Mode)
+
+Test the entire order, alert, quick-chat, and cash handover loop with **zero internet and zero Wi-Fi router**:
+
+1. **Prepare Devices (Airplane Mode + Bluetooth ON)**:
+   - Put all test phones in **Airplane Mode**, turn **Bluetooth ON**, and grant the runtime **Nearby Devices / Bluetooth** & notification permissions when prompted.
+2. **2-Phone Direct Hop (`Customer -> Picker`)**:
+   - **Phone A (`com.railbite.picker`)**: Sign in offline with crew demo credentials (`c1` / PIN `1234`), flip **ONLINE**, and verify the transport pill reads **`BLE Mesh Offline (Active)`**. Lock the screen.
+   - **Phone B (`com.railbite.customer`)**: Open the app (bundled `default_menu.json` loads immediately), verify the pill reads **`BLE Mesh Offline (Active)`**, enter PNR `8492000001`, Coach `B1`, Seat `1`, add up to 4 distinct items, and tap **Place Cash Order**.
+   - **Live Offline Ring & Fulfillment**: Within seconds (`0ms` arbitration for in-zone `hop == 0`), Phone A wakes over the lock screen tagged **`VIA BLE MESH • 0 HOPS`**. Tap **ACCEPT ORDER** (`0x12 ACCEPTED` broadcasts back to Phone B), exchange 1-tap Quick Messages (`"Where are you?"` ↔ `"I'm here at your seat"` via `0x13`), complete the picking checklist, enter the passenger's embedded 4-digit PIN on handover, and confirm delivery (`0x12 DELIVERED`).
+3. **3-Phone Multi-Hop Relay (`Customer -> Relay -> Picker`)**:
+   - Separate **Phone B (Customer)** and **Phone A (Picker)** out of direct BLE range and place **Phone C** (either RailBite app open in Airplane Mode with Bluetooth ON) between them.
+   - Place a new offline order on Phone B: Phone C validates HMAC-16, increments `hopCount` (`0 -> 1`), decrements `ttl` (`6 -> 5`), applies `150–600ms` jitter, and relays the `0x11` frame to Phone A (**`VIA BLE MESH • 1 HOP`**).
+   - Enable **Mesh Debug** (Customer Settings → Offline Relay, or Picker Shift Tools gear icon) on any phone to watch live `Packets Sent`, `Packets Relayed`, `Last RSSI / Hops`, and `RAILBITE_MESH_KEY`.
+4. **LAN Return Reconciliation**:
+   - Disable Airplane Mode and connect to the LAN with `edge-server` running -> both apps transition to **`LAN Connected`** and idempotently sync offline orders and cash ledger entries via `POST /orders/mesh-sync`.
 
 ---
 

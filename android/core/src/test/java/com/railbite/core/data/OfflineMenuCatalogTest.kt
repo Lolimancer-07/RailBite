@@ -25,3 +25,4 @@ class OfflineMenuCatalogTest {
         assertEquals(1500, entries.first().mrpPaise)
     }
 }
+

@@ -8,8 +8,8 @@
 
 | File | App | Package | Version | Min SDK | Target SDK | Size | SHA-256 |
 |------|-----|---------|---------|---------|-----------|------|---------|
-| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.2.2 (6) | 29 | 35 | 10,782,082 B (~10.3 MB) | `3064b6343b38d80892962ff05e89c46e51006af7c14339621db98a8ad16608bf` |
-| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.2.2 (6) | 29 | 35 | 9,010,543 B (~8.6 MB) | `91c9ed25d96803dcda9895b249a692d363b0008a43165020971ca55318b05c99` |
+| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.2.2 (6) | 29 | 35 | 10,849,092 B (~10.3 MB) | `0b81a35de1dcd07f8c8bd35170f16fa040ff78870f0d581a16ea43a7e73094e5` |
+| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.2.2 (6) | 29 | 35 | 9,093,853 B (~8.7 MB) | `d289c1348432a718b9627333f70e0cc25d45e8f35f6a5fd950367f38667d2e0d` |
 
 Native Kotlin + Jetpack Compose builds, R8-minified and signed with the prototype
 keystore (`android/keystore.properties`; store/key pass `railbite-demo`, alias `railbite`).
@@ -19,9 +19,10 @@ Distinct package names — both install side by side. Build & connect instructio
 > Release builds keep `org.jctools.**`, `io.netty.**` and `com.hivemq.**` unobfuscated
 > (HiveMQ's MQTT client reflects on its own queue fields) and run with R8 full mode off.
 >
-> Both APKs request the Bluetooth LE permissions (`BLUETOOTH_ADVERTISE` / `BLUETOOTH_SCAN`
-> `neverForLocation` / `BLUETOOTH_CONNECT`) for the optional offline **Bluetooth mesh relay**
-> (off by default; see the root README). BLE is not used by the normal cloud flow.
+> Both APKs declare BLE permissions (`BLUETOOTH_ADVERTISE`, `BLUETOOTH_SCAN` `neverForLocation`,
+> `BLUETOOTH_CONNECT`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, plus legacy `BLUETOOTH` /
+> `BLUETOOTH_ADMIN` / `ACCESS_FINE_LOCATION` up to API 30) for automatic LAN -> 23-byte BLE
+> Multi-Hop Flood Mesh offline failover (see [`README.md`](../README.md#5-test-offline-ble-mesh-airplane-mode)).
 
 ### Install via ADB
 

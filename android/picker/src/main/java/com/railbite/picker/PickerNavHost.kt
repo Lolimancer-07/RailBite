@@ -11,7 +11,6 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.railbite.picker.alert.IncomingOrderActivity
-import com.railbite.picker.mesh.MeshHandoverScreen
 import com.railbite.picker.ui.cash.CashLedgerScreen
 import com.railbite.picker.ui.home.PickerDashboardScreen
 import com.railbite.picker.ui.login.LoginScreen
@@ -24,17 +23,14 @@ fun PickerNavHost(graph: PickerGraph, startDestination: String) {
     val nav: NavHostController = rememberNavController()
     val context = LocalContext.current
 
-    // "Open order X" requests (accepted alerts) -> the right screen. Mesh-accepted orders
-    // route to the offline handover; cloud orders to the normal picking checklist.
+    // "Open order X" requests (accepted alerts) -> unified Stitch OrderProgressScreen
+    // (Checklist -> Delivery & Quick-Chat -> PIN Handover) for both LAN and offline BLE orders.
     val openRoute by com.railbite.picker.OpenOrderRouter.route
     androidx.compose.runtime.LaunchedEffect(openRoute) {
         val r = openRoute ?: return@LaunchedEffect
-        if (r.startsWith(PickerRoutes.MESH_PREFIX)) {
-            nav.navigate(PickerRoutes.meshOrder(r.removePrefix(PickerRoutes.MESH_PREFIX))) {
-                launchSingleTop = true
-            }
-        } else if (r.isNotBlank()) {
-            nav.navigate(PickerRoutes.order(r)) { launchSingleTop = true }
+        val orderId = r.removePrefix(PickerRoutes.MESH_PREFIX)
+        if (orderId.isNotBlank()) {
+            nav.navigate(PickerRoutes.order(orderId)) { launchSingleTop = true }
         }
         com.railbite.picker.OpenOrderRouter.consume()
     }
@@ -104,7 +100,12 @@ fun PickerNavHost(graph: PickerGraph, startDestination: String) {
         }
         composable(PickerRoutes.MESH_ORDER) { entry ->
             val orderId = entry.arguments?.getString("orderId").orEmpty()
-            MeshHandoverScreen(graph = graph, orderId = orderId, onDone = { nav.popBackStack() })
+            OrderProgressScreen(
+                graph = graph,
+                orderId = orderId,
+                onBack = { nav.popBackStack() },
+                startChatOpen = false,
+            )
         }
     }
 }

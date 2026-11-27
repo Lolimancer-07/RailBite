@@ -5,6 +5,8 @@ import android.content.Intent
 import android.os.IBinder
 import androidx.core.app.ServiceCompat
 import com.railbite.core.api.ApiClient
+import com.railbite.core.mesh.BleMeshService
+import com.railbite.core.mesh.BlePermissions
 import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.mqtt.MqttConnector
 import com.railbite.core.mqtt.RailBiteTopics
@@ -95,11 +97,15 @@ class AlertForegroundService : Service() {
         val app = application as com.railbite.picker.RailBitePickerApp
         val container = app.container
 
-        if (container.settings.meshSinkEnabled.first() &&
-            container.meshTransport.requiredPermissions().isEmpty()
-        ) {
-            runCatching { container.meshGateway.start() }
+        // Always start BLE mesh foreground scanner in LOW_LATENCY while picker is ONLINE.
+        if (BlePermissions.isReadyForMesh(this)) {
+            runCatching {
+                BleMeshService.start(this, lowLatency = true)
+                container.meshGateway.start(dispatchAlerts = true)
+            }
         }
+
+        if (!container.transportRouter.checkLanReachable()) return
 
         val serverUrl = container.settings.serverUrl.first()
         val mqttWsOverride = container.settings.mqttWsUrl.first()

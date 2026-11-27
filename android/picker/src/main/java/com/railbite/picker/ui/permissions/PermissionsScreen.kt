@@ -29,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.BatteryAlert
+import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.ButtonDefaults
@@ -55,7 +56,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.railbite.core.mesh.BlePermissions
 import com.railbite.picker.PickerGraph
+import com.railbite.picker.ui.components.LocalPickerBleActionRequester
 import com.railbite.picker.ui.components.PickerPrimaryButton
 import com.railbite.picker.ui.components.PickerSectionCard
 import com.railbite.picker.ui.components.PickerStatusTag
@@ -74,7 +77,9 @@ fun PermissionsScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val requestBle = LocalPickerBleActionRequester.current
     var perms by remember { mutableStateOf(readAlertPermissions(context)) }
+    val bleReady = BlePermissions.isReadyForMesh(context)
 
     // Re-read after returning from system settings screens
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -248,6 +253,32 @@ fun PermissionsScreen(
                         }.onFailure { openAppSettings() }
                     }
                 },
+            )
+
+            // 4. Nearby Bluetooth & BLE Mesh
+            PermCard(
+                icon = {
+                    Icon(
+                        imageVector = Icons.Filled.Bluetooth,
+                        contentDescription = null,
+                        tint = if (bleReady) RailBitePickerPalette.SemanticGreen else RailBitePickerPalette.CyanPrimary,
+                    )
+                },
+                title = "Bluetooth Mesh (Offline Orders)",
+                subtitle = if (bleReady) {
+                    "Ready — offline 23B multi-hop BLE dispatch & quick-chat enabled"
+                } else if (!BlePermissions.requiredPermissions(context).isEmpty()) {
+                    "Grant Nearby Devices Bluetooth permission to receive offline BLE orders"
+                } else {
+                    "Turn on Bluetooth to receive coach orders when Wi-Fi is unavailable"
+                },
+                granted = bleReady,
+                primaryLabel = if (!BlePermissions.requiredPermissions(context).isEmpty()) {
+                    "Grant Bluetooth Permission"
+                } else {
+                    "Enable Bluetooth"
+                },
+                onPrimaryClick = requestBle,
             )
 
             if (perms.allGranted) {

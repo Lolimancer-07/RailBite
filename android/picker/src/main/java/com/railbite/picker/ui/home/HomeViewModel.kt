@@ -6,8 +6,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.core.api.ApiClient
 import com.railbite.core.api.RailBiteApi
+import com.railbite.core.data.OfflineMenuCatalog
+import com.railbite.core.mesh.BleMeshHub
+import com.railbite.core.mesh.BleMeshService
+import com.railbite.core.mesh.BlePacketCodec
+import com.railbite.core.mesh.BlePermissions
+import com.railbite.core.mesh.MeshEntry
+import com.railbite.core.mesh.MeshOrderPayload
 import com.railbite.core.model.MqttOrderAlert
 import com.railbite.core.model.Order
+import com.railbite.core.model.OrderItem
 import com.railbite.core.model.OrderMessage
 import com.railbite.core.model.PickerStats
 import com.railbite.core.util.Statuses
@@ -24,8 +32,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.Instant
+import java.time.LocalDate
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
 
 data class HomeUiState(
     val staffId: String = "",
@@ -38,6 +48,8 @@ data class HomeUiState(
     val serverUrl: String = "",
     val serverUrlStored: String = "",
     val mqttWsUrlStored: String = "",
+    val meshKey: String = BlePacketCodec.RAILBITE_MESH_KEY,
+    val meshDebugEnabled: Boolean = false,
     val stats: PickerStats? = null,
     val activeOrders: List<Order> = emptyList(),
     val unreadCounts: Map<String, Int> = emptyMap(),
@@ -56,8 +68,11 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
     private val _state = MutableStateFlow(HomeUiState())
     val state: StateFlow<HomeUiState> = _state.asStateFlow()
 
+    private val restOrders = MutableStateFlow<List<Order>>(emptyList())
+    private val restStats = MutableStateFlow<PickerStats?>(null)
     private val restMessages = MutableStateFlow<Map<String, List<OrderMessage>>>(emptyMap())
     private val seenLatestMessageIds = MutableStateFlow<Map<String, String>>(emptyMap())
+    private val bleMsgTimestamps = ConcurrentHashMap<String, Long>()
 
     private var refreshJob: Job? = null
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
@@ -73,9 +88,10 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                     serverUrl = container.settings.serverUrl.first(),
                     serverUrlStored = container.settings.serverUrlStored.first(),
                     mqttWsUrlStored = container.settings.mqttWsUrl.first(),
+                    meshKey = container.settings.meshKey.first(),
                 )
             }
-            if (staffId.isNotBlank()) {
+            if (staffId.isNotBlank() && container.transportRouter.checkLanReachable()) {
                 container.chatMqtt.ensureConnected(staffId)
             }
         }
@@ -95,6 +111,11 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             }
         }
         viewModelScope.launch {
+            container.settings.meshKey.collect { key ->
+                _state.update { it.copy(meshKey = key) }
+            }
+        }
+        viewModelScope.launch {
             container.chatMqtt.connected.collect { connected ->
                 _state.update { it.copy(mqttConnected = connected) }
             }
@@ -109,17 +130,91 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                 _state.update { it.copy(serviceRunning = running) }
             }
         }
+
+        // Merge REST + live offline BLE Mesh active orders & delivered cash KPIs
+        viewModelScope.launch {
+            combine(
+                restOrders,
+                restStats,
+                container.meshLedger.entries,
+            ) { serverActive, serverStats, meshEntries ->
+                val catalog = OfflineMenuCatalog.bundledEntries(container.app)
+                val meshActive = meshEntries
+                    .filter { it.state in ACTIVE_MESH_STATES }
+                    .mapNotNull { entryToOrder(it, catalog) }
+                val mergedOrders = (meshActive + serverActive)
+                    .distinctBy { it.id }
+
+                val unsyncedDelivered = meshEntries.filter { it.state == Statuses.DELIVERED }
+                val extraDeliveredCount = unsyncedDelivered.size
+                val extraCollectedPaise = unsyncedDelivered.sumOf { entry ->
+                    entry.cashPaise ?: MeshOrderPayload.decode(entry.payload)?.totalPaise ?: 0
+                }
+                val extraConfirmedPaise = unsyncedDelivered
+                    .filter { it.passengerConfirmed }
+                    .sumOf { entry -> entry.cashPaise ?: MeshOrderPayload.decode(entry.payload)?.totalPaise ?: 0 }
+
+                val st = _state.value
+                val mergedStats = if (serverStats != null) {
+                    serverStats.copy(
+                        ordersDelivered = serverStats.ordersDelivered + extraDeliveredCount,
+                        expectedPaise = serverStats.expectedPaise + extraCollectedPaise,
+                        collectedPaise = serverStats.collectedPaise + extraCollectedPaise,
+                        passengerConfirmedPaise = serverStats.passengerConfirmedPaise + extraConfirmedPaise,
+                    )
+                } else {
+                    PickerStats(
+                        staffId = st.staffId,
+                        staffName = st.staffName.ifBlank { st.staffId.uppercase() },
+                        date = LocalDate.now().toString(),
+                        ordersDelivered = extraDeliveredCount,
+                        expectedPaise = extraCollectedPaise,
+                        collectedPaise = extraCollectedPaise,
+                        passengerConfirmedPaise = extraConfirmedPaise,
+                    )
+                }
+                mergedOrders to mergedStats
+            }.collect { (mergedOrders, mergedStats) ->
+                _state.update {
+                    it.copy(
+                        activeOrders = mergedOrders,
+                        stats = mergedStats,
+                    )
+                }
+            }
+        }
+
+        // Merge REST, MQTT, and 23-byte BLE Quick-Chat unread badges & previews
         viewModelScope.launch {
             combine(
                 restMessages,
                 container.chatMqtt.orderMessages,
+                BleMeshHub.quickMessages,
                 seenLatestMessageIds,
-            ) { rest, mqtt, seen ->
-                val allOrderIds = (rest.keys + mqtt.keys).distinct()
+            ) { rest, mqtt, bleMsgs, seen ->
+                val bleByUuid = mutableMapOf<String, List<OrderMessage>>()
+                bleMsgs.forEach { (shortId, list) ->
+                    val uuid = BlePacketCodec.shortIdToUuid(shortId)
+                    bleByUuid[uuid] = list.mapNotNull { pkt ->
+                        val preset = BlePacketCodec.presetForCode(pkt.presetCode) ?: return@mapNotNull null
+                        val msgId = "ble-${pkt.senderRole}-${pkt.msgSeq}"
+                        val ts = bleMsgTimestamps.getOrPut(msgId) { System.currentTimeMillis() }
+                        OrderMessage(
+                            id = msgId,
+                            orderId = uuid,
+                            senderRole = if (pkt.senderRole == BlePacketCodec.ROLE_PICKER) "PICKER" else "CUSTOMER",
+                            senderId = null,
+                            presetCode = preset.code,
+                            body = preset.body,
+                            createdAt = ts,
+                        )
+                    }
+                }
+                val allOrderIds = (rest.keys + mqtt.keys + bleByUuid.keys).distinct()
                 val latestMap = mutableMapOf<String, OrderMessage>()
                 val unreadMap = mutableMapOf<String, Int>()
                 allOrderIds.forEach { id ->
-                    val merged = (rest[id].orEmpty() + mqtt[id].orEmpty())
+                    val merged = (rest[id].orEmpty() + mqtt[id].orEmpty() + bleByUuid[id].orEmpty())
                         .distinctBy { it.id }
                         .sortedBy { it.createdAt }
                     val latestCustomer = merged.lastOrNull {
@@ -172,6 +267,9 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
     fun forceRefresh() {
         viewModelScope.launch {
             _state.update { it.copy(refreshing = true) }
+            if (container.transportRouter.checkLanReachable()) {
+                runCatching { container.meshGateway.replayPending() }
+            }
             loadOnce()
             _state.update { it.copy(refreshing = false) }
         }
@@ -182,7 +280,30 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         seenLatestMessageIds.update { it + (orderId to latest) }
     }
 
+    fun setMeshDebugEnabled(enabled: Boolean) {
+        _state.update { it.copy(meshDebugEnabled = enabled) }
+    }
+
+    fun updateMeshKey(newKey: String) {
+        val clean = newKey.trim().take(32)
+        viewModelScope.launch {
+            container.settings.setMeshKey(clean)
+        }
+    }
+
     private suspend fun loadOnce() {
+        val lanReachable = container.transportRouter.checkLanReachable()
+        if (!lanReachable) {
+            restOrders.value = emptyList()
+            _state.update {
+                it.copy(
+                    serverReachable = false,
+                    loading = false,
+                    error = null,
+                )
+            }
+            return
+        }
         try {
             val api = container.client.api()
             val staffId = container.settings.staffId.first()
@@ -197,7 +318,6 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
             val activeList: List<Order> = if (queueResult.isSuccess) {
                 queueResult.getOrDefault(emptyList()).filter { !Statuses.isTerminal(it.status) }
             } else {
-                // Backward-compatible fallback for older servers without GET /staff/:id/orders
                 val activeId = container.settings.pickerOrderId.first()
                 if (activeId.isNotBlank()) {
                     val order = runCatching { api.order(activeId, role = "picker") }.getOrNull()
@@ -210,13 +330,6 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                 } else {
                     emptyList()
                 }
-            }
-
-            val storedOrderId = container.settings.pickerOrderId.first()
-            if (activeList.isEmpty() && storedOrderId.isNotBlank() && queueResult.isSuccess) {
-                container.settings.setPickerOrderId("")
-            } else if (activeList.isNotEmpty() && storedOrderId.isBlank()) {
-                container.settings.setPickerOrderId(activeList.first().id)
             }
 
             if (staffId.isNotBlank() && activeList.isNotEmpty()) {
@@ -232,10 +345,11 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                 restMessages.value = emptyMap()
             }
 
+            restStats.value = stats
+            restOrders.value = activeList
+
             _state.update {
                 it.copy(
-                    stats = stats,
-                    activeOrders = activeList,
                     lastSyncedLabel = LocalTime.now().format(timeFormatter),
                     serverReachable = true,
                     loading = false,
@@ -247,13 +361,13 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                 it.copy(
                     serverReachable = false,
                     loading = false,
-                    error = "Cannot reach server — retrying",
+                    error = null,
                 )
             }
         }
     }
 
-    /** ONLINE/OFFLINE toggle: starts/stops the alert foreground service and tells the server. */
+    /** ONLINE/OFFLINE toggle: starts/stops alert foreground service & LOW_LATENCY BLE scanning. */
     fun setOnline(online: Boolean) {
         val app = container.app
         if (online) {
@@ -261,18 +375,25 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                 app,
                 Intent(app, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_START),
             )
+            if (BlePermissions.isReadyForMesh(app)) {
+                BleMeshService.start(app, lowLatency = true)
+                container.meshGateway.start(dispatchAlerts = true)
+            }
         } else {
             app.startService(
                 Intent(app, AlertForegroundService::class.java).setAction(AlertForegroundService.ACTION_STOP),
             )
+            container.meshGateway.stop()
         }
         viewModelScope.launch {
             container.settings.setOnline(online)
-            runCatching {
-                container.client.api().setStaffOnline(
-                    container.settings.staffId.first(),
-                    RailBiteApi.OnlineRequest(online),
-                )
+            if (container.transportRouter.checkLanReachable()) {
+                runCatching {
+                    container.client.api().setStaffOnline(
+                        container.settings.staffId.first(),
+                        RailBiteApi.OnlineRequest(online),
+                    )
+                }
             }
         }
     }
@@ -316,7 +437,7 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
                     error = null,
                 )
             }
-            if (staffId.isNotBlank()) {
+            if (staffId.isNotBlank() && container.transportRouter.checkLanReachable()) {
                 container.chatMqtt.reconnect(staffId)
             }
             if (_state.value.online) {
@@ -330,18 +451,65 @@ class HomeViewModel(private val container: PickerContainer) : ViewModel() {
         }
     }
 
-    /** Signs out: revokes the server session and clears the stored login. */
+    /** Signs out: revokes server session, stops alert & BLE dispatch, and clears stored login. */
     fun logout(onDone: () -> Unit) {
         _state.update { it.copy(online = false) }
         container.chatMqtt.disconnect()
+        container.meshGateway.stop()
+        BleMeshService.stop(container.app)
         container.app.startService(
             Intent(container.app, AlertForegroundService::class.java)
                 .setAction(AlertForegroundService.ACTION_STOP),
         )
         viewModelScope.launch {
-            container.auth.logout()
+            runCatching { container.auth.logout() }
             container.settings.clearStaff()
             onDone()
         }
+    }
+
+    private fun entryToOrder(
+        entry: MeshEntry,
+        catalog: List<OfflineMenuCatalog.CatalogEntry>,
+    ): Order? {
+        val payload = MeshOrderPayload.decode(entry.payload) ?: return null
+        val items = payload.items.map { item ->
+            val cat = catalog.firstOrNull {
+                it.id.equals(item.itemId, ignoreCase = true) ||
+                    it.name.equals(item.name, ignoreCase = true)
+            }?.category ?: "SNACKS"
+            OrderItem(
+                itemId = item.itemId,
+                qty = item.qty,
+                unitPricePaise = item.unitPricePaise,
+                name = item.name,
+                category = cat,
+            )
+        }
+        return Order(
+            id = payload.orderId,
+            pnr = payload.pnr,
+            coach = payload.coach,
+            berth = payload.berth,
+            diners = payload.diners,
+            track = "READY",
+            status = entry.state,
+            paymentMode = "COD",
+            totalPaise = payload.totalPaise,
+            source = "RELAY",
+            verified = 1,
+            createdAt = payload.createdAt,
+            updatedAt = entry.createdAt,
+            deliveryCode = entry.deliveryCode ?: payload.deliveryCode,
+            items = items,
+        )
+    }
+
+    companion object {
+        private val ACTIVE_MESH_STATES = setOf(
+            Statuses.ACCEPTED,
+            Statuses.PACKING,
+            Statuses.OUT_FOR_DELIVERY,
+        )
     }
 }

@@ -44,6 +44,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -73,12 +75,17 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.railbite.core.mesh.BleMeshHub
+import com.railbite.core.mesh.BleMeshService
+import com.railbite.core.mesh.BlePermissions
+import com.railbite.core.mesh.TransportMode
 import com.railbite.core.model.Order
 import com.railbite.core.model.OrderMessage
 import com.railbite.core.util.Money
 import com.railbite.core.util.Statuses
 import com.railbite.picker.PickerGraph
 import com.railbite.picker.alert.AlertBus
+import com.railbite.picker.ui.components.LocalPickerBleActionRequester
 import com.railbite.picker.ui.components.PickerBottomBar
 import com.railbite.picker.ui.components.PickerErrorBanner
 import com.railbite.picker.ui.components.PickerSectionCard
@@ -86,6 +93,7 @@ import com.railbite.picker.ui.components.PickerSeatPill
 import com.railbite.picker.ui.components.PickerStatusDot
 import com.railbite.picker.ui.components.PickerStatusTag
 import com.railbite.picker.ui.components.PickerTab
+import com.railbite.picker.ui.components.PickerTransportIndicatorPill
 import com.railbite.picker.ui.components.ServerSettingsSheet
 import com.railbite.picker.ui.components.shortOrderTag
 import com.railbite.picker.ui.permissions.AlertPermissionState
@@ -116,6 +124,9 @@ fun PickerDashboardScreen(
 ) {
     val vm = viewModel(key = "home") { HomeViewModel(graph.container) }
     val state by vm.state.collectAsState()
+    val transportStatus by graph.container.transportRouter.status.collectAsState()
+    val meshStats by BleMeshHub.stats.collectAsState()
+    val requestBle = LocalPickerBleActionRequester.current
     val context = LocalContext.current
     var perms by remember { mutableStateOf(readAlertPermissions(context)) }
     var pendingMesh by remember { mutableIntStateOf(0) }
@@ -231,6 +242,14 @@ fun PickerDashboardScreen(
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            // 0. Live Transport Status Pill
+            item {
+                PickerTransportIndicatorPill(
+                    status = transportStatus,
+                    onClick = if (transportStatus.mode == TransportMode.BLE_DISABLED) requestBle else null,
+                )
+            }
+
             // 1. Staff Identity & Live Connection Card
             item {
                 StaffIdentityCard(
@@ -249,30 +268,67 @@ fun PickerDashboardScreen(
                 }
             }
 
-            // 3. Offline Relay / Server Unreachable Banner
-            if (!state.serverReachable && state.error != null) {
+            // 3. Offline BLE Mesh / Server Banner
+            if (!state.serverReachable) {
                 item {
-                    if (state.serviceRunning) {
-                        PickerSectionCard(
-                            containerColor = RailBitePickerPalette.CyanTint,
-                            border = BorderStroke(1.dp, RailBitePickerPalette.CyanBorder),
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    when {
+                        transportStatus.mode == TransportMode.BLE_DISABLED -> {
+                            PickerSectionCard(
+                                containerColor = RailBitePickerPalette.SemanticAmberTint,
+                                border = BorderStroke(1.dp, RailBitePickerPalette.SemanticAmberBorder),
                             ) {
-                                PickerStatusDot(online = false, colorOverride = RailBitePickerPalette.CyanPrimary)
-                                Text(
-                                    text = "Server unreachable — Bluetooth relay listener active",
-                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                                    color = RailBitePickerPalette.CyanPressed,
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable(onClick = requestBle)
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.weight(1f),
+                                    ) {
+                                        PickerStatusDot(online = false, colorOverride = RailBitePickerPalette.SemanticAmber)
+                                        Text(
+                                            text = "Bluetooth off or missing permission — tap to enable offline mesh alerts",
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = RailBitePickerPalette.SemanticAmberInk,
+                                        )
+                                    }
+                                    Text(
+                                        text = "Enable",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = RailBitePickerPalette.SemanticAmberInk,
+                                    )
+                                }
                             }
                         }
-                    } else {
-                        PickerErrorBanner(message = state.error ?: "Cannot reach server")
+                        state.online -> {
+                            PickerSectionCard(
+                                containerColor = RailBitePickerPalette.CyanTint,
+                                border = BorderStroke(1.dp, RailBitePickerPalette.CyanBorder),
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                ) {
+                                    PickerStatusDot(online = false, colorOverride = RailBitePickerPalette.CyanPrimary)
+                                    Text(
+                                        text = "Zero Wi-Fi mode — 23B BLE Mesh LOW_LATENCY scanner listening",
+                                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = RailBitePickerPalette.CyanPressed,
+                                    )
+                                }
+                            }
+                        }
                     }
+                }
+            } else if (state.error != null) {
+                item {
+                    PickerErrorBanner(message = state.error ?: "Server error")
                 }
             }
 
@@ -395,8 +451,12 @@ fun PickerDashboardScreen(
         DashboardToolsSheet(
             graph = graph,
             state = state,
+            meshStats = meshStats,
             perms = perms,
             pendingMesh = pendingMesh,
+            onRequestBle = requestBle,
+            onToggleMeshDebug = vm::setMeshDebugEnabled,
+            onUpdateMeshKey = vm::updateMeshKey,
             onOpenServerConfig = {
                 showToolsSheet = false
                 showServerSheet = true
@@ -1011,8 +1071,12 @@ private fun EmptyQueueCard(
 private fun DashboardToolsSheet(
     graph: PickerGraph,
     state: HomeUiState,
+    meshStats: com.railbite.core.mesh.MeshStatsSnapshot,
     perms: AlertPermissionState,
     pendingMesh: Int,
+    onRequestBle: () -> Unit,
+    onToggleMeshDebug: (Boolean) -> Unit,
+    onUpdateMeshKey: (String) -> Unit,
     onOpenServerConfig: () -> Unit,
     onOpenPermissions: () -> Unit,
     onTestAlert: () -> Unit,
@@ -1022,15 +1086,18 @@ private fun DashboardToolsSheet(
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val container = graph.container
-    val sinkEnabled by container.settings.meshSinkEnabled.collectAsState(initial = false)
-    var missingBlePerms by remember { mutableStateOf(container.meshTransport.requiredPermissions()) }
+    val context = LocalContext.current
+    val sinkEnabled by container.settings.meshSinkEnabled.collectAsState(initial = true)
+    var meshKeyDraft by remember(state.meshKey) { mutableStateOf(state.meshKey) }
+    var missingBlePerms by remember { mutableStateOf(BlePermissions.requiredPermissions(context)) }
 
     val blePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        missingBlePerms = container.meshTransport.requiredPermissions()
-        if (missingBlePerms.isEmpty() && sinkEnabled) {
-            scope.launch { runCatching { container.meshGateway.start() } }
+        missingBlePerms = BlePermissions.requiredPermissions(context)
+        if (missingBlePerms.isEmpty() && BlePermissions.isBluetoothEnabled(context) && sinkEnabled) {
+            BleMeshService.start(context, lowLatency = state.online)
+            container.meshGateway.start(dispatchAlerts = state.online)
         }
     }
 
@@ -1077,13 +1144,13 @@ private fun DashboardToolsSheet(
                 onClick = onTestAlert,
             )
 
-            // Preserved offline BLE relay toggle
+            // BLE Mesh controls + Mesh Debug strip
             PickerSectionCard(containerColor = RailBitePickerPalette.Canvas) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1096,13 +1163,13 @@ private fun DashboardToolsSheet(
                         )
                         Column(Modifier.weight(1f)) {
                             Text(
-                                text = "Offline Bluetooth Relay",
+                                text = "Offline BLE Mesh Dispatch",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = RailBitePickerPalette.TextPrimary,
                             )
                             Text(
                                 text = if (sinkEnabled) {
-                                    "Listening for offline passenger packets ($pendingMesh queued)"
+                                    "Active when ONLINE ($pendingMesh unsynced)"
                                 } else {
                                     "Disabled"
                                 },
@@ -1116,11 +1183,13 @@ private fun DashboardToolsSheet(
                                 scope.launch {
                                     container.settings.setMeshSinkEnabled(enabled)
                                     if (enabled) {
-                                        val missing = container.meshTransport.requiredPermissions()
-                                        if (missing.isEmpty() && container.meshTransport.isUsable()) {
-                                            container.meshGateway.start()
-                                        } else {
+                                        val missing = BlePermissions.requiredPermissions(context)
+                                        if (missing.isEmpty() && BlePermissions.isBluetoothEnabled(context)) {
+                                            container.meshGateway.start(dispatchAlerts = state.online)
+                                        } else if (missing.isNotEmpty()) {
                                             blePermissionLauncher.launch(missing.toTypedArray())
+                                        } else {
+                                            onRequestBle()
                                         }
                                     } else {
                                         container.meshGateway.stop()
@@ -1129,13 +1198,79 @@ private fun DashboardToolsSheet(
                             },
                         )
                     }
-                    if (missingBlePerms.isNotEmpty() && sinkEnabled) {
+
+                    if (!meshStats.permissionsGranted || !meshStats.bluetoothEnabled) {
                         OutlinedButton(
-                            onClick = { blePermissionLauncher.launch(missingBlePerms.toTypedArray()) },
+                            onClick = onRequestBle,
                             shape = RoundedCornerShape(PickerRadii.Control),
                             border = PickerCardBorder,
+                            modifier = Modifier.fillMaxWidth(),
                         ) {
-                            Text("Grant Nearby Bluetooth Permission")
+                            Text(
+                                if (!meshStats.permissionsGranted) "Grant Bluetooth Permissions" else "Enable Bluetooth Radio",
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(thickness = 1.dp, color = RailBitePickerPalette.BorderSubtle)
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Mesh Debug",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = RailBitePickerPalette.TextPrimary,
+                            )
+                            Text(
+                                text = "Packets sent/relayed, RSSI/hops & train key",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = RailBitePickerPalette.TextSecondary,
+                            )
+                        }
+                        Switch(
+                            checked = state.meshDebugEnabled,
+                            onCheckedChange = onToggleMeshDebug,
+                        )
+                    }
+
+                    if (state.meshDebugEnabled) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Packets Sent", style = MaterialTheme.typography.bodySmall, color = RailBitePickerPalette.TextSecondary)
+                            Text("${meshStats.packetsSent}", style = PickerNumericType.MetaMono, color = RailBitePickerPalette.TextPrimary)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Packets Relayed", style = MaterialTheme.typography.bodySmall, color = RailBitePickerPalette.TextSecondary)
+                            Text("${meshStats.packetsRelayed}", style = PickerNumericType.MetaMono, color = RailBitePickerPalette.TextPrimary)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text("Last RSSI / Hops", style = MaterialTheme.typography.bodySmall, color = RailBitePickerPalette.TextSecondary)
+                            Text(
+                                text = "${meshStats.lastRssiDbm?.let { "$it dBm" } ?: "—"} • ${meshStats.lastHopCount?.let { "$it hops" } ?: "—"}",
+                                style = PickerNumericType.MetaMono,
+                                color = RailBitePickerPalette.CyanPressed,
+                            )
+                        }
+                        OutlinedTextField(
+                            value = meshKeyDraft,
+                            onValueChange = { meshKeyDraft = it.take(32) },
+                            label = { Text("Train Mesh Key (HMAC-16)") },
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = RailBitePickerPalette.CyanPrimary,
+                                unfocusedBorderColor = RailBitePickerPalette.BorderSubtle,
+                            ),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedButton(
+                            onClick = { onUpdateMeshKey(meshKeyDraft) },
+                            shape = RoundedCornerShape(PickerRadii.Control),
+                            border = BorderStroke(1.dp, RailBitePickerPalette.CyanBorder),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text("Apply Mesh Key", color = RailBitePickerPalette.CyanPressed)
                         }
                     }
                 }

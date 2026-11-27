@@ -12,6 +12,7 @@ package com.railbite.core.auth
 object DemoAuth {
     const val ACCESS_TOKEN = "demo-local-access"
     const val REFRESH_TOKEN = "demo-local-refresh"
+    const val DEMO_STAFF_PIN = "1234"
 
     fun isDemoToken(token: String?): Boolean = token == ACCESS_TOKEN
 }
