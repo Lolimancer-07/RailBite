@@ -52,6 +52,14 @@ class MqttConnector(
 
     companion object {
         private const val TAG = "RailBiteMqtt"
+
+        /**
+         * SUBSCRIBE is the only MQTT call that used to block the caller while it waited for the
+         * SUBACK. 1500ms keeps the call bounded and it always runs on [Dispatchers.IO] now, so a
+         * slow broker can never freeze the Main thread (the previous 10s wait did exactly that
+         * every 5s while the Picker dashboard polled chat subscriptions).
+         */
+        private const val SUBSCRIBE_TIMEOUT_MS = 1_500L
         data class Endpoint(
             val host: String,
             val port: Int,
@@ -118,18 +126,27 @@ class MqttConnector(
     private var client: Mqtt3AsyncClient? = null
     private var stopped = false
 
-    /** Subscribes (or registers for later auto-subscribe) and receives payloads as raw bytes. */
+    /**
+     * Subscribes (or registers for later auto-subscribe) and receives payloads as raw bytes.
+     *
+     * Idempotent: repeated calls for an already-registered topic do not emit another SUBSCRIBE
+     * frame. The SUBACK wait is bounded to [SUBSCRIBE_TIMEOUT_MS] and dispatched to
+     * [Dispatchers.IO] so it can never block a ViewModel/Main caller.
+     */
     suspend fun subscribe(topic: String, callback: (ByteArray) -> Unit) {
-        subscriptions[topic] = callback
-        client?.let { c ->
-            if (_connected.value) {
-                runCatching {
-                    c.subscribeWith()
-                        .topicFilter(topic)
-                        .qos(MqttQos.AT_LEAST_ONCE)
-                        .send()
-                        .get(10, TimeUnit.SECONDS)
-                }
+        val isNewTopic = subscriptions.put(topic, callback) == null
+        if (!isNewTopic) return
+        val c = client ?: return
+        if (!_connected.value) return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                c.subscribeWith()
+                    .topicFilter(topic)
+                    .qos(MqttQos.AT_LEAST_ONCE)
+                    .send()
+                    .get(SUBSCRIBE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            }.onFailure {
+                Log.w(TAG, "subscribe failed $topic: ${it.message}")
             }
         }
     }

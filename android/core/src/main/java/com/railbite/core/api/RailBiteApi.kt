@@ -41,6 +41,9 @@ interface RailBiteApi {
     @GET("menu")
     suspend fun menu(): List<MenuItem>
 
+    @GET("menu/trending")
+    suspend fun trendingMenu(@Query("limit") limit: Int = 6): List<MenuItem>
+
     @POST("orders")
     suspend fun createOrder(@Body body: OrderCreateRequest): Order
 

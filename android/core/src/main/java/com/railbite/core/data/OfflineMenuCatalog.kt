@@ -30,6 +30,7 @@ object OfflineMenuCatalog {
         val prepMinutes: Int = 0,
         val isVeg: Boolean = true,
         val active: Boolean = true,
+        val trendingRank: Int = 99,
     ) {
         fun toMenuItem(): MenuItem = MenuItem(
             id = id,
@@ -41,6 +42,7 @@ object OfflineMenuCatalog {
             prepMinutes = prepMinutes,
             isVeg = isVeg,
             active = active,
+            trendingRank = trendingRank,
         )
     }
 
@@ -77,6 +79,37 @@ object OfflineMenuCatalog {
             runCatching { saveMenuCache(settings, bundled) }
         }
         return bundled
+    }
+
+    /** Returns top deterministic trending items from bundled `assets/default_menu.json` when offline. */
+    fun trendingDefaults(context: Context, limit: Int = 6): List<MenuItem> =
+        bundledEntries(context)
+            .filter { it.active && it.track == "READY" }
+            .sortedBy { it.trendingRank }
+            .take(limit)
+            .map { it.toMenuItem() }
+
+    /** Saves trending response to DataStore for offline/fast startup rendering. */
+    suspend fun saveTrendingCache(settings: RailBiteSettings, items: List<MenuItem>) {
+        settings.setTrendingCache(
+            MeshStore.json.encodeToString(ListSerializer(MenuItem.serializer()), items),
+        )
+    }
+
+    /** Reads locally cached trending items or falls back deterministically to [trendingDefaults]. */
+    suspend fun loadTrending(
+        context: Context,
+        settings: RailBiteSettings,
+        limit: Int = 6,
+    ): List<MenuItem> {
+        val raw = runCatching { settings.trendingCache.first() }.getOrDefault("")
+        if (raw.isNotBlank()) {
+            val cached = runCatching {
+                MeshStore.json.decodeFromString(ListSerializer(MenuItem.serializer()), raw)
+            }.getOrDefault(emptyList())
+            if (cached.isNotEmpty()) return cached.take(limit)
+        }
+        return trendingDefaults(context, limit)
     }
 
     suspend fun saveMenuCache(settings: RailBiteSettings, items: List<MenuItem>) {

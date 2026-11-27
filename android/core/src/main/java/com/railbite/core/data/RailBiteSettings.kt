@@ -42,6 +42,8 @@ class RailBiteSettings(
         val meshSinkEnabled = booleanPreferencesKey("mesh_sink_enabled")
         val menuCache = stringPreferencesKey("menu_cache")
         val meshKey = stringPreferencesKey("mesh_key")
+        val recentSearches = stringPreferencesKey("recent_searches")
+        val trendingCache = stringPreferencesKey("trending_cache")
     }
 
     /** Effective server URL: stored override if set, otherwise the baked cloud default. */
@@ -71,6 +73,10 @@ class RailBiteSettings(
     val meshRelayEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshRelayEnabled] ?: true }
     val meshSinkEnabled: Flow<Boolean> = context.dataStore.data.map { it[Keys.meshSinkEnabled] ?: true }
     val menuCache: Flow<String> = context.dataStore.data.map { it[Keys.menuCache] ?: "" }
+    val trendingCache: Flow<String> = context.dataStore.data.map { it[Keys.trendingCache] ?: "" }
+    val recentSearches: Flow<List<String>> = context.dataStore.data.map {
+        com.railbite.core.search.RecentSearchHistory.decode(it[Keys.recentSearches])
+    }
     val meshKey: Flow<String> = context.dataStore.data.map {
         it[Keys.meshKey]?.takeIf { v -> v.isNotBlank() } ?: com.railbite.core.mesh.BlePacketCodec.RAILBITE_MESH_KEY
     }
@@ -134,5 +140,26 @@ class RailBiteSettings(
     suspend fun setMeshKey(value: String) = context.dataStore.edit {
         val clean = value.trim()
         if (clean.isEmpty()) it.remove(Keys.meshKey) else it[Keys.meshKey] = clean
+    }
+
+    suspend fun setTrendingCache(rawJson: String) = context.dataStore.edit {
+        if (rawJson.isBlank()) it.remove(Keys.trendingCache) else it[Keys.trendingCache] = rawJson
+    }
+
+    suspend fun addRecentSearch(rawQuery: String) = context.dataStore.edit { prefs ->
+        val current = com.railbite.core.search.RecentSearchHistory.decode(prefs[Keys.recentSearches])
+        val next = com.railbite.core.search.RecentSearchHistory.addQuery(current, rawQuery)
+        prefs[Keys.recentSearches] = com.railbite.core.search.RecentSearchHistory.encode(next)
+    }
+
+    suspend fun removeRecentSearch(query: String) = context.dataStore.edit { prefs ->
+        val current = com.railbite.core.search.RecentSearchHistory.decode(prefs[Keys.recentSearches])
+        val next = com.railbite.core.search.RecentSearchHistory.removeQuery(current, query)
+        if (next.isEmpty()) prefs.remove(Keys.recentSearches)
+        else prefs[Keys.recentSearches] = com.railbite.core.search.RecentSearchHistory.encode(next)
+    }
+
+    suspend fun clearRecentSearches() = context.dataStore.edit {
+        it.remove(Keys.recentSearches)
     }
 }

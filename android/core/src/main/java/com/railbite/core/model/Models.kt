@@ -15,6 +15,8 @@ data class MenuItem(
     val prepMinutes: Int,
     val isVeg: Boolean = true,
     val active: Boolean = true,
+    val orderCount: Int? = null,
+    val trendingRank: Int? = null,
 )
 
 /** Mirrors GET /health. */
