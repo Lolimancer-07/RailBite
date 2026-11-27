@@ -14,6 +14,8 @@ import kotlinx.coroutines.launch
 
 data class SettingsUiState(
     val serverUrl: String = "",
+    val trainNumber: String = "",
+    val autoFilledTrainName: String? = null,
     val pnr: String = "",
     val coach: String = "",
     val berth: String = "",
@@ -30,7 +32,8 @@ data class SettingsUiState(
     val meshSyncMessage: String? = null,
 ) {
     val seatValid: Boolean
-        get() = com.railbite.core.util.Validators.isValidPnr(pnr) &&
+        get() = com.railbite.core.util.Validators.isValidTrainNumber(trainNumber) &&
+            com.railbite.core.util.Validators.isValidPnr(pnr) &&
             com.railbite.core.util.Validators.isValidCoach(coach) &&
             berth.toIntOrNull()?.let { com.railbite.core.util.Validators.isValidBerth(it) } == true
 }
@@ -47,12 +50,15 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
+    private var pnrLookupJob: kotlinx.coroutines.Job? = null
+
     init {
         viewModelScope.launch {
             val s = container.settings
             _state.update {
                 it.copy(
                     serverUrl = s.serverUrlStored.first(),
+                    trainNumber = s.trainNumber.first(),
                     pnr = s.pnr.first(),
                     coach = s.coach.first(),
                     berth = s.berth.first().let { b -> if (b == 0) "" else b.toString() },
@@ -100,9 +106,37 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun setServerUrl(v: String) = _state.update { it.copy(serverUrl = v, testState = OnboardingLikeTestState.Idle, saved = false) }
-    fun setPnr(v: String) = _state.update { it.copy(pnr = v.take(10), saved = false) }
+    fun setTrainNumber(v: String) = _state.update {
+        it.copy(trainNumber = v.filter(Char::isDigit).take(5), autoFilledTrainName = null, saved = false, error = null)
+    }
+
+    fun setPnr(v: String) {
+        val clean = v.filter(Char::isDigit).take(10)
+        _state.update { it.copy(pnr = clean, saved = false, error = null) }
+        pnrLookupJob?.cancel()
+        if (clean.length == 10) {
+            pnrLookupJob = viewModelScope.launch {
+                val entry = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+                        runCatching { container.client.api().manifestByPnr(clean) }.getOrNull()
+                    }
+                }
+                if (entry != null && _state.value.pnr == clean) {
+                    _state.update { cur ->
+                        cur.copy(
+                            trainNumber = entry.trainNumber,
+                            autoFilledTrainName = entry.trainName,
+                            coach = cur.coach.ifBlank { entry.coach },
+                            berth = cur.berth.ifBlank { entry.berth.toString() },
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     fun setCoach(v: String) = _state.update { it.copy(coach = v.take(3).uppercase(), saved = false) }
-    fun setBerth(v: String) = _state.update { it.copy(berth = v.take(3), saved = false) }
+    fun setBerth(v: String) = _state.update { it.copy(berth = v.filter(Char::isDigit).take(3), saved = false) }
     fun setDiners(v: Int) = _state.update { it.copy(diners = v.coerceIn(1, 8), saved = false) }
 
     fun testConnection() {
@@ -136,8 +170,11 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 container.settings.setServerUrl(ApiClient.normalizeServerUrl(s.serverUrl))
                 container.settings.setMeshKey(s.meshKey)
+                if (com.railbite.core.util.Validators.isValidTrainNumber(s.trainNumber)) {
+                    container.settings.setTrainNumber(s.trainNumber)
+                }
                 if (s.seatValid) {
-                    container.settings.setSeat(s.pnr, s.coach, s.berth.toInt(), s.diners)
+                    container.settings.setSeat(s.pnr, s.coach, s.berth.toInt(), s.diners, s.trainNumber)
                 }
                 container.mqtt.disconnect()
                 container.mqtt.ensureConnected()

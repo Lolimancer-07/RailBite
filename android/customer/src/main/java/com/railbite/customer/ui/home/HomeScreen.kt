@@ -141,6 +141,7 @@ fun HomeScreen(
                 // Wireframe Top Row: RailBite brand box + live server dot on left, tappable SeatInfoBox on right
                 StorefrontTopRow(
                     online = online,
+                    trainNumber = seat?.trainNumber.orEmpty(),
                     pnr = seat?.pnr.orEmpty(),
                     coach = seat?.coach.orEmpty(),
                     berth = seat?.berth,
@@ -319,12 +320,14 @@ fun HomeScreen(
         }
     }
 
-    // Bottom Sheet 1: Seat Setup / Edit PNR & Berth
+    // Bottom Sheet 1: Seat Setup / Edit Train Number, PNR & Berth
     if (showSeatSheet) {
         SeatSetupBottomSheet(
+            initialTrainNumber = seat?.trainNumber.orEmpty(),
             initialPnr = seat?.pnr.orEmpty(),
             initialCoach = seat?.coach.orEmpty(),
             initialBerth = seat?.berth,
+            onLookupPnr = vm::lookupManifestByPnr,
             onDismiss = { showSeatSheet = false },
             onOpenSettings = onOpenSettings,
             onSave = vm::updateSeat,

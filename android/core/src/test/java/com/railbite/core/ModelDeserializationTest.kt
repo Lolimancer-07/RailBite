@@ -199,12 +199,13 @@ class ModelDeserializationTest {
         assertEquals(11000, parsed[1].collectedPaise)
     }
 
-    // dispatcher.alertPayload — rb/{tripId}/captain/{captainId}/alerts
+    // dispatcher.alertPayload — rb/train/{trainNumber}/captain/{staffId}/alerts
     @Test
     fun mqtt_order_alert_decodes_exactly_as_dispatcher_publishes() {
         val alert = """
             {
               "orderId": "2f0c8a7e-1111-4bbb-8ccc-000000000001",
+              "trainNumber": "12423",
               "coach": "B3", "berth": 12,
               "items": [
                 { "name": "Veg Biryani", "qty": 2, "unitPricePaise": 12000 },
@@ -216,27 +217,34 @@ class ModelDeserializationTest {
             }
         """.trimIndent()
         val parsed = json.decodeFromString(MqttOrderAlert.serializer(), alert)
+        assertEquals("12423", parsed.trainNumber)
         assertEquals(2, parsed.items.size)
         assertEquals(2, parsed.attempt)
         assertEquals(27000, parsed.total)
         assertEquals(12000, parsed.items[0].unitPricePaise)
     }
 
-    // orderService.publishOrderStatus — rb/{tripId}/orders/{orderId}/status (retained)
+    // orderService.publishOrderStatus — rb/train/{trainNumber}/orders/{orderId}/status (retained)
     @Test
     fun mqtt_order_status_decodes_with_and_without_captain() {
         val accepted = """
-            { "status": "ACCEPTED", "updatedAt": "2026-11-13T10:01:00.000Z",
+            { "status": "ACCEPTED", "trainNumber": "12345", "updatedAt": "2026-11-13T10:01:00.000Z",
               "captainName": "Captain One" }
         """.trimIndent()
         val s1 = json.decodeFromString(MqttOrderStatus.serializer(), accepted)
         assertEquals("ACCEPTED", s1.status)
+        assertEquals("12345", s1.trainNumber)
         assertEquals("Captain One", s1.captainName)
         assertNull(s1.etaMin)
 
-        val placed = """{"status": "PLACED", "updatedAt": "2026-11-13T10:00:00.000Z"}"""
-        val s2 = json.decodeFromString(MqttOrderStatus.serializer(), placed)
+        val noPicker = """
+            {"status": "PLACED", "trainNumber": "12423", "code": "NO_PICKER_ON_TRAIN",
+             "message": "Waiting for an online picker on Train 12423...", "updatedAt": "2026-11-13T10:00:00.000Z"}
+        """.trimIndent()
+        val s2 = json.decodeFromString(MqttOrderStatus.serializer(), noPicker)
         assertEquals("PLACED", s2.status)
+        assertEquals("NO_PICKER_ON_TRAIN", s2.code)
+        assertEquals("Waiting for an online picker on Train 12423...", s2.message)
         assertNull(s2.captainName)
     }
 
@@ -245,6 +253,7 @@ class ModelDeserializationTest {
     fun order_create_request_encodes_server_shape() {
         val body = OrderCreateRequest(
             id = "2f0c8a7e-1111-4bbb-8ccc-000000000001",
+            trainNumber = "12345",
             pnr = "8492000001",
             coach = "B3",
             berth = 12,
@@ -253,6 +262,7 @@ class ModelDeserializationTest {
             createdAt = "2026-11-13T10:00:00.000Z",
         )
         val encoded = json.encodeToString(OrderCreateRequest.serializer(), body)
+        assertTrue(encoded.contains("\"trainNumber\":\"12345\""))
         assertTrue(encoded.contains("\"paymentMode\":\"COD\""))
         assertTrue(encoded.contains("\"source\":\"WIFI\""))
         assertTrue(encoded.contains("\"itemId\":\"3c2a1b0d"))

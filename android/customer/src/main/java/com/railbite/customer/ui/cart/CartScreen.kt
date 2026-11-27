@@ -124,7 +124,11 @@ fun CartScreen(
                                 modifier = Modifier.padding(end = 12.dp),
                             ) {
                                 Text(
-                                    text = "${s.coach} • Seat ${s.berth}",
+                                    text = if (s.trainNumber.isNotBlank()) {
+                                        "${s.trainNumber} • ${s.coach}-${s.berth}"
+                                    } else {
+                                        "${s.coach} • Seat ${s.berth}"
+                                    },
                                     style = MaterialTheme.typography.labelMedium,
                                     color = RailBitePalette.CyanPressed,
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),

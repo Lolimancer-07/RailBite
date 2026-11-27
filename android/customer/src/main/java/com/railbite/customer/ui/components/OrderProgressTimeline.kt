@@ -55,14 +55,18 @@ private val TRACKING_STEPS = listOf(
 fun OrderProgressTimeline(
     status: String,
     etaMin: Int?,
+    trainNumber: String? = null,
     coach: String?,
     berth: Int?,
     relayed: Boolean,
+    statusCode: String? = null,
+    statusMessage: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val activeStep = Statuses.timelineStep(status)
     val failed = Statuses.isFailed(status)
     val delivered = status == Statuses.DELIVERED
+    val noPickerOnTrain = !relayed && status == Statuses.PLACED && statusCode == "NO_PICKER_ON_TRAIN"
 
     Card(
         shape = RoundedCornerShape(RailBiteRadii.Card),
@@ -117,6 +121,7 @@ fun OrderProgressTimeline(
                         text = when {
                             failed -> "ORDER STATUS"
                             delivered -> "BERTH HANDOVER COMPLETE"
+                            noPickerOnTrain -> "WAITING FOR TRAIN CREW"
                             relayed && status == Statuses.BROADCASTING -> "BLE MESH BROADCASTING"
                             relayed -> "BLUETOOTH MESH ACTIVE"
                             else -> "ESTIMATED BERTH ARRIVAL"
@@ -129,6 +134,7 @@ fun OrderProgressTimeline(
                             status == Statuses.CANCELLED -> "Order Cancelled"
                             status == Statuses.EXPIRED -> "Order Expired"
                             delivered -> "Delivered to Seat"
+                            noPickerOnTrain -> "No online picker on Train ${trainNumber.orEmpty()}"
                             relayed && status == Statuses.BROADCASTING -> "Searching for nearest picker..."
                             relayed -> Statuses.label(status)
                             else -> "~${etaMin ?: 10} mins away"
@@ -145,7 +151,7 @@ fun OrderProgressTimeline(
                         border = RailBiteCardBorder,
                     ) {
                         Text(
-                            text = "$coach • $berth",
+                            text = if (!trainNumber.isNullOrBlank()) "$trainNumber • $coach-$berth" else "$coach • $berth",
                             style = MaterialTheme.typography.labelMedium,
                             color = RailBitePalette.TextPrimary,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -306,6 +312,8 @@ fun OrderProgressTimeline(
                         relayed && status == Statuses.OUT_FOR_DELIVERY -> "Runner is on the way to your seat — keep cash & PIN ready."
                         relayed && status == Statuses.DELIVERED -> "Delivered — cash handover completed offline."
                         relayed -> "Waiting for a nearby runner to accept your Bluetooth mesh order."
+                        noPickerOnTrain -> statusMessage
+                            ?: "Waiting for an online picker on Train ${trainNumber.orEmpty()}..."
                         status == Statuses.PLACED || status == Statuses.ASSIGNED -> "Your order has been queued to the Pantry Car."
                         status == Statuses.ACCEPTED -> "Pantry runner accepted your order and queued preparation."
                         status == Statuses.PACKING -> "Pantry staff is freshly sealing your order at Coach Pantry."

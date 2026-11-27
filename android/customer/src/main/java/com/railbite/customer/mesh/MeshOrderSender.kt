@@ -61,6 +61,7 @@ class MeshOrderSender(private val container: AppContainer) {
 
     /** Creates an offline BLE order, saves to [MeshOutbox], and starts `0x11` mesh broadcast. */
     suspend fun send(
+        trainNumber: String,
         pnr: String,
         coach: String,
         berth: Int,
@@ -82,6 +83,7 @@ class MeshOrderSender(private val container: AppContainer) {
 
         val payload = MeshOrderPayload(
             orderId = orderId,
+            trainNumber = trainNumber.trim(),
             pnr = pnr,
             coach = coach.trim().uppercase(),
             berth = berth,
@@ -215,6 +217,7 @@ class MeshOrderSender(private val container: AppContainer) {
                     api.syncMeshOrder(
                         MeshOrderSyncRequest(
                             id = payload.orderId,
+                            trainNumber = payload.trainNumber,
                             pnr = payload.pnr,
                             coach = payload.coach,
                             berth = payload.berth,
@@ -238,6 +241,7 @@ class MeshOrderSender(private val container: AppContainer) {
                             api.createOrder(
                                 OrderCreateRequest(
                                     id = payload.orderId,
+                                    trainNumber = payload.trainNumber,
                                     pnr = payload.pnr,
                                     coach = payload.coach,
                                     berth = payload.berth,

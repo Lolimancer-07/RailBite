@@ -68,6 +68,7 @@ import com.railbite.customer.ui.theme.RailBiteRadii
 import com.railbite.customer.ui.theme.RailBiteSelectedBorder
 
 private val COACH_QUICK_PICKS = listOf("A1", "B1", "B2", "B3", "S1", "S2")
+private val TRAIN_QUICK_PICKS = listOf("12345" to "Saraighat", "12423" to "Rajdhani")
 
 private val PRICE_CAPS: List<Pair<Int?, String>> = listOf(
     null to "Any Price",
@@ -77,24 +78,40 @@ private val PRICE_CAPS: List<Pair<Int?, String>> = listOf(
 )
 
 /**
- * Stitch `2291ee04` Edit Berth & PNR bottom sheet (`SeatSetupBottomSheet`).
- * Pre-fills persisted PNR/Coach/Berth and persists updates directly to DataStore.
+ * Stitch `2291ee04` Edit Berth, PNR & Train bottom sheet (`SeatSetupBottomSheet`).
+ * Pre-fills persisted Train/PNR/Coach/Berth and persists updates directly to DataStore.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun SeatSetupBottomSheet(
+    initialTrainNumber: String,
     initialPnr: String,
     initialCoach: String,
     initialBerth: Int?,
+    onLookupPnr: suspend (String) -> com.railbite.core.model.ManifestLookupResponse? = { null },
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
-    onSave: (pnr: String, coach: String, berthText: String, onSuccess: () -> Unit, onErr: (String) -> Unit) -> Unit,
+    onSave: (trainNumber: String, pnr: String, coach: String, berthText: String, onSuccess: () -> Unit, onErr: (String) -> Unit) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var trainNumber by remember(initialTrainNumber) { mutableStateOf(initialTrainNumber) }
     var pnr by remember(initialPnr) { mutableStateOf(initialPnr) }
     var coach by remember(initialCoach) { mutableStateOf(initialCoach) }
     var berthText by remember(initialBerth) { mutableStateOf(initialBerth?.takeIf { it > 0 }?.toString() ?: "") }
+    var autoFilledTrainName by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+
+    androidx.compose.runtime.LaunchedEffect(pnr) {
+        if (pnr.length == 10) {
+            val found = onLookupPnr(pnr)
+            if (found != null) {
+                trainNumber = found.trainNumber
+                autoFilledTrainName = found.trainName
+                if (coach.isBlank()) coach = found.coach
+                if (berthText.isBlank()) berthText = found.berth.toString()
+            }
+        }
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -136,7 +153,7 @@ fun SeatSetupBottomSheet(
                 value = pnr,
                 onValueChange = { pnr = it.filter(Char::isDigit).take(10); error = null },
                 label = { Text("10-Digit PNR Number") },
-                placeholder = { Text("8492014410", style = RailBiteNumericType.PriceMedium) },
+                placeholder = { Text("8492000001", style = RailBiteNumericType.PriceMedium) },
                 textStyle = RailBiteNumericType.PriceMedium,
                 singleLine = true,
                 shape = RoundedCornerShape(RailBiteRadii.Button),
@@ -153,6 +170,64 @@ fun SeatSetupBottomSheet(
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth(),
             )
+
+            OutlinedTextField(
+                value = trainNumber,
+                onValueChange = {
+                    trainNumber = it.filter(Char::isDigit).take(5)
+                    autoFilledTrainName = null
+                    error = null
+                },
+                label = {
+                    Text(
+                        autoFilledTrainName?.let { "5-Digit Train Number ($it)" }
+                            ?: "5-Digit Train Number",
+                    )
+                },
+                placeholder = { Text("12345", style = RailBiteNumericType.PriceMedium) },
+                textStyle = RailBiteNumericType.PriceMedium,
+                singleLine = true,
+                shape = RoundedCornerShape(RailBiteRadii.Button),
+                trailingIcon = {
+                    if (com.railbite.core.util.Validators.isValidTrainNumber(trainNumber)) {
+                        Icon(
+                            imageVector = Icons.Filled.CheckCircle,
+                            contentDescription = "Valid train number",
+                            tint = RailBitePalette.SemanticGreen,
+                        )
+                    }
+                },
+                colors = flatTextFieldColors(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                TRAIN_QUICK_PICKS.forEach { (num, label) ->
+                    val selected = trainNumber == num
+                    Surface(
+                        onClick = { trainNumber = num; autoFilledTrainName = null; error = null },
+                        shape = RoundedCornerShape(RailBiteRadii.Pill),
+                        color = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.Canvas,
+                        contentColor = if (selected) Color.White else RailBitePalette.TextPrimary,
+                        border = BorderStroke(
+                            1.dp,
+                            if (selected) RailBitePalette.CyanPrimary else RailBitePalette.BorderSubtle,
+                        ),
+                        modifier = Modifier.heightIn(min = RailBiteMetrics.TouchTargetMin),
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) {
+                            Text("$num · $label", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
 
             Text(
                 text = "Coach Identifier",
@@ -219,6 +294,7 @@ fun SeatSetupBottomSheet(
             Button(
                 onClick = {
                     onSave(
+                        trainNumber,
                         pnr,
                         coach,
                         berthText,

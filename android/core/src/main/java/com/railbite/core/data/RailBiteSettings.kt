@@ -24,6 +24,8 @@ class RailBiteSettings(
     private object Keys {
         val serverUrl = stringPreferencesKey("server_url")
         val mqttWsUrl = stringPreferencesKey("mqtt_ws_url")
+        val trainNumber = stringPreferencesKey("train_number")
+        val activeTrainNumber = stringPreferencesKey("active_train_number")
         val pnr = stringPreferencesKey("pnr")
         val coach = stringPreferencesKey("coach")
         val berth = intPreferencesKey("berth")
@@ -55,6 +57,10 @@ class RailBiteSettings(
     val serverUrlStored: Flow<String> = context.dataStore.data.map { it[Keys.serverUrl] ?: "" }
     /** Optional custom MQTT WebSocket URL ("" = derived automatically from [serverUrl]). */
     val mqttWsUrl: Flow<String> = context.dataStore.data.map { it[Keys.mqttWsUrl] ?: "" }
+    val trainNumber: Flow<String> = context.dataStore.data.map { it[Keys.trainNumber] ?: "" }
+    val activeTrainNumber: Flow<String> = context.dataStore.data.map {
+        it[Keys.activeTrainNumber]?.takeIf { v -> v.isNotBlank() } ?: "12345"
+    }
     val pnr: Flow<String> = context.dataStore.data.map { it[Keys.pnr] ?: "" }
     val coach: Flow<String> = context.dataStore.data.map { it[Keys.coach] ?: "" }
     val berth: Flow<Int> = context.dataStore.data.map { it[Keys.berth] ?: 0 }
@@ -102,7 +108,22 @@ class RailBiteSettings(
 
     suspend fun setServerUrl(value: String) = context.dataStore.edit { it[Keys.serverUrl] = value.trim() }
     suspend fun setMqttWsUrl(value: String) = context.dataStore.edit { it[Keys.mqttWsUrl] = value.trim() }
-    suspend fun setSeat(pnr: String, coach: String, berth: Int, diners: Int) = context.dataStore.edit {
+    suspend fun setTrainNumber(value: String) =
+        context.dataStore.edit { it[Keys.trainNumber] = value.trim() }
+
+    suspend fun setActiveTrainNumber(value: String) =
+        context.dataStore.edit { it[Keys.activeTrainNumber] = value.trim() }
+
+    suspend fun setSeat(
+        pnr: String,
+        coach: String,
+        berth: Int,
+        diners: Int,
+        trainNumber: String? = null,
+    ) = context.dataStore.edit {
+        if (trainNumber != null) {
+            it[Keys.trainNumber] = trainNumber.trim()
+        }
         it[Keys.pnr] = pnr.trim()
         it[Keys.coach] = coach.trim().uppercase()
         it[Keys.berth] = berth
@@ -111,12 +132,19 @@ class RailBiteSettings(
 
     suspend fun setDiners(value: Int) = context.dataStore.edit { it[Keys.diners] = value }
     suspend fun setOnboardingDone() = context.dataStore.edit { it[Keys.onboardingDone] = true }
-    suspend fun setStaffLogin(staffId: String, name: String, zone: String) =
-        context.dataStore.edit {
-            it[Keys.staffId] = staffId
-            it[Keys.staffName] = name
-            it[Keys.staffZone] = zone
+    suspend fun setStaffLogin(
+        staffId: String,
+        name: String,
+        zone: String,
+        trainNumber: String? = null,
+    ) = context.dataStore.edit {
+        it[Keys.staffId] = staffId
+        it[Keys.staffName] = name
+        it[Keys.staffZone] = zone
+        if (!trainNumber.isNullOrBlank()) {
+            it[Keys.activeTrainNumber] = trainNumber.trim()
         }
+    }
 
     suspend fun clearStaff() = context.dataStore.edit {
         it.remove(Keys.staffId)

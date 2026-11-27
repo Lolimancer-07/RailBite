@@ -250,9 +250,12 @@ fun TrackingScreen(
                 OrderProgressTimeline(
                     status = state.status,
                     etaMin = state.etaMin,
+                    trainNumber = order?.trainNumber ?: state.trainNumber,
                     coach = order?.coach ?: state.relayCoach,
                     berth = order?.berth ?: state.relayBerth,
                     relayed = state.relayed,
+                    statusCode = state.statusCode,
+                    statusMessage = state.statusMessage,
                 )
 
                 // Berth Delivery PIN (`HandoverPinCard`)

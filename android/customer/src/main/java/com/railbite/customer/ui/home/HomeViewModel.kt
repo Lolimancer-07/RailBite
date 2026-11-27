@@ -197,24 +197,42 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** Updates passenger PNR, coach, and berth into local settings from Home's SeatSetupBottomSheet. */
+    /** Non-blocking 1500ms PNR lookup on IO dispatcher for Seat Setup auto-fill. */
+    suspend fun lookupManifestByPnr(pnr: String): com.railbite.core.model.ManifestLookupResponse? {
+        val clean = pnr.filter(Char::isDigit).take(10)
+        if (clean.length != 10) return null
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            kotlinx.coroutines.withTimeoutOrNull(1_500L) {
+                runCatching { container.client.api().manifestByPnr(clean) }.getOrNull()
+            }
+        }
+    }
+
+    /** Updates passenger Train Number, PNR, coach, and berth into local settings from Home's SeatSetupBottomSheet. */
     fun updateSeat(
+        trainNumber: String,
         pnr: String,
         coach: String,
         berthText: String,
         onSaved: () -> Unit,
         onError: (String) -> Unit,
     ) {
+        val cleanTrain = trainNumber.filter(Char::isDigit).take(5)
         val cleanPnr = pnr.filter(Char::isDigit).take(10)
         val cleanCoach = coach.trim().uppercase()
         val berth = berthText.trim().toIntOrNull() ?: 0
-        if (!Validators.isValidPnr(cleanPnr) || !Validators.isValidCoach(cleanCoach) || !Validators.isValidBerth(berth)) {
-            onError("Enter a valid 10-digit PNR, Coach (e.g. B2), and Berth (1–100)")
+        if (
+            !Validators.isValidTrainNumber(cleanTrain) ||
+            !Validators.isValidPnr(cleanPnr) ||
+            !Validators.isValidCoach(cleanCoach) ||
+            !Validators.isValidBerth(berth)
+        ) {
+            onError("Enter a valid 5-digit Train Number, 10-digit PNR, Coach (e.g. B2), and Berth (1–100)")
             return
         }
         viewModelScope.launch {
             runCatching {
-                container.settings.setSeat(cleanPnr, cleanCoach, berth, diners.value)
+                container.settings.setSeat(cleanPnr, cleanCoach, berth, diners.value, cleanTrain)
                 container.settings.setOnboardingDone()
                 container.mqtt.ensureConnected()
             }.onSuccess {

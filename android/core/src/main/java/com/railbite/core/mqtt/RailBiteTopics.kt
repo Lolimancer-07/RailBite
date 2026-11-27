@@ -4,18 +4,19 @@ import java.util.concurrent.ConcurrentHashMap
 
 /**
  * MQTT topic scheme (packages/shared/src/topics.ts):
- *   rb/{tripId}/orders/{orderId}/status        — retained status updates (passenger)
- *   rb/{tripId}/captain/{captainId}/alerts     — new-order alerts (picker)
+ *   rb/train/{trainNumber}/orders/{orderId}/status    — retained status updates (passenger)
+ *   rb/train/{trainNumber}/orders/{orderId}/chat      — quick-chat messages (passenger & picker)
+ *   rb/train/{trainNumber}/captain/{staffId}/alerts   — new-order alerts (picker)
  */
 object RailBiteTopics {
-    const val DEFAULT_TRIP_ID = "TRIP_001"
+    const val DEFAULT_TRAIN_NUMBER = "12345"
 
-    fun orderStatus(tripId: String, orderId: String): String =
-        "rb/$tripId/orders/$orderId/status"
+    fun orderStatus(trainNumber: String, orderId: String): String =
+        "rb/train/$trainNumber/orders/$orderId/status"
 
-    fun orderChat(tripId: String, orderId: String): String =
-        "rb/$tripId/orders/$orderId/chat"
+    fun orderChat(trainNumber: String, orderId: String): String =
+        "rb/train/$trainNumber/orders/$orderId/chat"
 
-    fun captainAlerts(tripId: String, captainId: String): String =
-        "rb/$tripId/captain/$captainId/alerts"
+    fun captainAlerts(trainNumber: String, staffId: String): String =
+        "rb/train/$trainNumber/captain/$staffId/alerts"
 }

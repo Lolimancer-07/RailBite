@@ -49,6 +49,7 @@ data class FeedbackRead(
 @Serializable
 data class Order(
     val id: String,
+    val trainNumber: String = "12345",
     val pnr: String,
     val coach: String,
     val berth: Int,
@@ -71,6 +72,7 @@ data class Order(
 @Serializable
 data class OrderCreateRequest(
     val id: String, // client-generated UUID, used as idempotency key
+    val trainNumber: String,
     val pnr: String,
     val coach: String,
     val berth: Int,
@@ -87,6 +89,7 @@ data class OrderCreateRequest(
 @Serializable
 data class MeshOrderSyncRequest(
     val id: String,
+    val trainNumber: String,
     val pnr: String,
     val coach: String,
     val berth: Int,
@@ -99,6 +102,15 @@ data class MeshOrderSyncRequest(
     val deliveryCode: String? = null,
     val cashPaise: Int? = null,
     val passengerConfirmed: Boolean? = null,
+)
+
+@Serializable
+data class ManifestLookupResponse(
+    val pnr: String,
+    val trainNumber: String,
+    val trainName: String,
+    val coach: String,
+    val berth: Int,
 )
 
 @Serializable
@@ -119,6 +131,7 @@ data class StaffLoginRequest(
     val staffId: String,
     val password: String? = null,
     val pin: String? = null,
+    val trainNumber: String? = null,
 )
 
 @Serializable
@@ -127,6 +140,7 @@ data class StaffLoginResponse(
     val name: String,
     val role: String,
     val zoneCoaches: List<String> = emptyList(),
+    val trainNumber: String = "12345",
     /** Legacy alias for the access token (pre-auth pantry APKs). */
     val token: String = "",
     val expiresAt: String = "",
@@ -203,19 +217,23 @@ data class StaffLedgerResponse(
 
 // ---------- MQTT payloads (packages/shared/src/schemas/mqtt.ts) ----------
 
-/** Retained payload on rb/{tripId}/orders/{orderId}/status. */
+/** Retained payload on rb/train/{trainNumber}/orders/{orderId}/status. */
 @Serializable
 data class MqttOrderStatus(
     val status: String,
+    val trainNumber: String? = null,
+    val code: String? = null,
+    val message: String? = null,
     val updatedAt: String,
     val captainName: String? = null,
     val etaMin: Int? = null,
 )
 
-/** Payload on rb/{tripId}/captain/{captainId}/alerts. */
+/** Payload on rb/train/{trainNumber}/captain/{staffId}/alerts. */
 @Serializable
 data class MqttOrderAlert(
     val orderId: String,
+    val trainNumber: String = "12345",
     val coach: String,
     val berth: Int,
     val items: List<AlertItem>,

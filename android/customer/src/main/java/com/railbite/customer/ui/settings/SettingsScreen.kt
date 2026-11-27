@@ -425,6 +425,48 @@ fun SettingsScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                    OutlinedTextField(
+                        value = state.trainNumber,
+                        onValueChange = vm::setTrainNumber,
+                        label = {
+                            Text(
+                                state.autoFilledTrainName?.let { "Train Number ($it)" }
+                                    ?: "Train Number (5 digits)",
+                            )
+                        },
+                        placeholder = { Text("12345", style = RailBiteNumericType.PriceMedium) },
+                        textStyle = RailBiteNumericType.PriceMedium,
+                        singleLine = true,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        colors = flatTextFieldColors(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("12345" to "Saraighat", "12423" to "Rajdhani").forEach { (num, name) ->
+                            val selected = state.trainNumber == num
+                            Surface(
+                                onClick = { vm.setTrainNumber(num) },
+                                shape = RoundedCornerShape(RailBiteRadii.Pill),
+                                color = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.Canvas,
+                                contentColor = if (selected) Color.White else RailBitePalette.TextPrimary,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (selected) RailBitePalette.CyanPrimary else RailBitePalette.BorderSubtle,
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .heightIn(min = RailBiteMetrics.TouchTargetMin),
+                            ) {
+                                androidx.compose.foundation.layout.Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                                ) {
+                                    Text("$num · $name", style = MaterialTheme.typography.labelMedium)
+                                }
+                            }
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedTextField(
                             value = state.coach,

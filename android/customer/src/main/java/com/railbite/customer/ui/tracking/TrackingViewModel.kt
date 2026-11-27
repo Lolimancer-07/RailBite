@@ -35,7 +35,10 @@ import java.util.UUID
 data class TrackingUiState(
     val loading: Boolean = true,
     val order: Order? = null,
+    val trainNumber: String? = null,
     val status: String = "PLACED",
+    val statusCode: String? = null,
+    val statusMessage: String? = null,
     val captainName: String? = null,
     val etaMin: Int? = null,
     val error: String? = null,
@@ -87,7 +90,11 @@ class TrackingViewModel(
     init {
         // MQTT live updates (retained message gives instant current status)
         viewModelScope.launch {
-            runCatching { container.mqtt.watchOrder(orderId) }
+            val savedTrain = runCatching { container.settings.trainNumber.first() }.getOrNull()
+            if (!savedTrain.isNullOrBlank()) {
+                _state.update { it.copy(trainNumber = it.trainNumber ?: savedTrain) }
+            }
+            runCatching { container.mqtt.watchOrder(orderId, savedTrain) }
         }
         // Single chat flow: MQTT and BLE 0x13 both write into OrderChatRepository.
         viewModelScope.launch {
@@ -183,8 +190,20 @@ class TrackingViewModel(
         val mqttStatus = mqtt[orderId]
         val order = _state.value.order
         _state.update { s ->
+            val nextStatus = mqttStatus?.status ?: s.status
+            val nextTrain = mqttStatus?.trainNumber ?: s.trainNumber ?: order?.trainNumber
+            val isWaitingNoPicker =
+                nextStatus == Statuses.PLACED && mqttStatus?.code == "NO_PICKER_ON_TRAIN"
             s.copy(
-                status = mqttStatus?.status ?: s.status,
+                status = nextStatus,
+                trainNumber = nextTrain,
+                statusCode = if (isWaitingNoPicker) "NO_PICKER_ON_TRAIN" else null,
+                statusMessage = if (isWaitingNoPicker) {
+                    mqttStatus?.message
+                        ?: "Waiting for an online picker on Train ${nextTrain.orEmpty()}..."
+                } else {
+                    null
+                },
                 captainName = mqttStatus?.captainName ?: s.captainName,
                 etaMin = mqttStatus?.etaMin ?: s.etaMin,
             )
@@ -201,13 +220,20 @@ class TrackingViewModel(
         try {
             val api = container.client.api()
             val order = api.order(orderId)
+            val prevTrain = _state.value.trainNumber
             _state.update { s ->
                 s.copy(
                     loading = false,
                     order = order,
+                    trainNumber = order.trainNumber,
                     status = order.status,
+                    statusCode = if (order.status == Statuses.PLACED) s.statusCode else null,
+                    statusMessage = if (order.status == Statuses.PLACED) s.statusMessage else null,
                     error = null,
                 )
+            }
+            if (prevTrain != order.trainNumber) {
+                runCatching { container.mqtt.watchOrder(order.id, order.trainNumber) }
             }
             if (order.status != Statuses.PLACED && order.status != Statuses.ASSIGNED) {
                 val history = runCatching { api.orderMessages(orderId) }.getOrNull()

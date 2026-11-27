@@ -31,9 +31,11 @@ object Money {
 
 /** Simple validation shared by both apps. */
 object Validators {
+    private val TRAIN_NUMBER_REGEX = Regex("""^\d{5}$""")
     private val PNR_REGEX = Regex("""^\d{10}$""")
     private val COACH_REGEX = Regex("""^[A-Za-z]{1,2}\d{1,2}$""")
 
+    fun isValidTrainNumber(trainNumber: String): Boolean = TRAIN_NUMBER_REGEX.matches(trainNumber.trim())
     fun isValidPnr(pnr: String): Boolean = PNR_REGEX.matches(pnr.trim())
     fun isValidCoach(coach: String): Boolean = COACH_REGEX.matches(coach.trim())
     fun isValidBerth(berth: Int): Boolean = berth in 1..100

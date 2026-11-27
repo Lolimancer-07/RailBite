@@ -23,6 +23,16 @@ class MoneyAndValidatorsTest {
     }
 
     @Test
+    fun validators_train_number_requires_5_digits() {
+        assertTrue(Validators.isValidTrainNumber("12345"))
+        assertTrue(Validators.isValidTrainNumber("12423"))
+        assertFalse(Validators.isValidTrainNumber("1234"))
+        assertFalse(Validators.isValidTrainNumber("123456"))
+        assertFalse(Validators.isValidTrainNumber("123AB"))
+        assertFalse(Validators.isValidTrainNumber(""))
+    }
+
+    @Test
     fun validators_pnr() {
         assertTrue(Validators.isValidPnr("8492000001"))
         assertFalse(Validators.isValidPnr("849200000"))

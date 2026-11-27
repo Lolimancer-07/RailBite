@@ -10,14 +10,21 @@ import kotlinx.coroutines.flow.combine
  */
 class SeatSnapshot(private val settings: RailBiteSettings) {
 
-    data class Seat(val pnr: String, val coach: String, val berth: Int, val diners: Int) {
-        val chip: String get() = "Coach $coach · Seat $berth"
-        val valid: Boolean get() = coach.isNotBlank() && berth > 0
+    data class Seat(
+        val trainNumber: String,
+        val pnr: String,
+        val coach: String,
+        val berth: Int,
+        val diners: Int,
+    ) {
+        val chip: String
+            get() = if (trainNumber.isNotBlank()) "$trainNumber • $coach-$berth" else "Coach $coach · Seat $berth"
+        val valid: Boolean get() = com.railbite.core.util.Validators.isValidTrainNumber(trainNumber) && coach.isNotBlank() && berth > 0
     }
 
     val seat: Flow<Seat?> = combine(
-        settings.pnr, settings.coach, settings.berth, settings.diners,
-    ) { pnr, coach, berth, diners ->
-        if (coach.isBlank() || berth == 0) null else Seat(pnr, coach, berth, diners)
+        settings.trainNumber, settings.pnr, settings.coach, settings.berth, settings.diners,
+    ) { trainNumber, pnr, coach, berth, diners ->
+        if (coach.isBlank() || berth == 0) null else Seat(trainNumber, pnr, coach, berth, diners)
     }
 }

@@ -63,6 +63,10 @@ import com.railbite.customer.ui.theme.RailBitePalette
 import com.railbite.customer.ui.theme.RailBiteRadii
 
 private val QUICK_COACHES = listOf("A1", "B1", "B2", "B3", "S1", "S2")
+private val QUICK_TRAINS = listOf(
+    "12345" to "Saraighat Exp",
+    "12423" to "Rajdhani Exp",
+)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -175,7 +179,7 @@ fun OnboardingScreen(
                             color = RailBitePalette.TextPrimary,
                         )
                         Text(
-                            text = "Required for berth drop",
+                            text = "Auto-detects train online",
                             style = MaterialTheme.typography.labelSmall,
                             color = RailBitePalette.TextSecondary,
                         )
@@ -183,7 +187,7 @@ fun OnboardingScreen(
                     OutlinedTextField(
                         value = state.pnr,
                         onValueChange = vm::setPnr,
-                        placeholder = { Text("2458910482", style = RailBiteNumericType.PriceMedium) },
+                        placeholder = { Text("8492000001", style = RailBiteNumericType.PriceMedium) },
                         textStyle = RailBiteNumericType.PriceMedium,
                         singleLine = true,
                         shape = RoundedCornerShape(RailBiteRadii.Button),
@@ -200,6 +204,79 @@ fun OnboardingScreen(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth(),
                     )
+                }
+
+                // Mandatory 5-Digit Train Number Input + Quick Pick Demo Chips
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "5-Digit Train Number",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = RailBitePalette.TextPrimary,
+                        )
+                        Text(
+                            text = state.autoFilledTrainName ?: "Required for train isolation",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (state.autoFilledTrainName != null) {
+                                RailBitePalette.SemanticGreen
+                            } else {
+                                RailBitePalette.TextSecondary
+                            },
+                        )
+                    }
+                    OutlinedTextField(
+                        value = state.trainNumber,
+                        onValueChange = vm::setTrainNumber,
+                        placeholder = { Text("12345", style = RailBiteNumericType.PriceMedium) },
+                        textStyle = RailBiteNumericType.PriceMedium,
+                        singleLine = true,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        trailingIcon = {
+                            if (com.railbite.core.util.Validators.isValidTrainNumber(state.trainNumber)) {
+                                Icon(
+                                    imageVector = Icons.Filled.CheckCircle,
+                                    contentDescription = "Valid train number",
+                                    tint = RailBitePalette.SemanticGreen,
+                                )
+                            }
+                        },
+                        colors = flatTextFieldColors(),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        QUICK_TRAINS.forEach { (num, name) ->
+                            val selected = state.trainNumber == num
+                            Surface(
+                                onClick = { vm.setTrainNumber(num) },
+                                shape = RoundedCornerShape(RailBiteRadii.Pill),
+                                color = if (selected) RailBitePalette.CyanPrimary else RailBitePalette.Canvas,
+                                contentColor = if (selected) Color.White else RailBitePalette.TextPrimary,
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (selected) RailBitePalette.CyanPrimary else RailBitePalette.BorderSubtle,
+                                ),
+                                modifier = Modifier.heightIn(min = RailBiteMetrics.TouchTargetMin),
+                            ) {
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                                ) {
+                                    Text(
+                                        text = "$num · $name",
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
 
                 // Coach Number + Quick Pick Chips

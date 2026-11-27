@@ -69,11 +69,11 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
         _state.update { it.copy(placing = true, error = null, needsBleAction = false) }
         viewModelScope.launch {
             val seatSnapshot = com.railbite.core.data.SeatSnapshot(container.settings).seat.first()
-            if (seatSnapshot == null) {
+            if (seatSnapshot == null || !com.railbite.core.util.Validators.isValidTrainNumber(seatSnapshot.trainNumber)) {
                 _state.update {
                     it.copy(
                         placing = false,
-                        error = "Set your PNR, Coach, and Seat before placing an order",
+                        error = "Set your 5-digit Train Number, Coach, and Seat before placing an order",
                     )
                 }
                 return@launch
@@ -86,6 +86,7 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                     val orderId = UUID.randomUUID().toString()
                     val body = OrderCreateRequest(
                         id = orderId,
+                        trainNumber = seatSnapshot.trainNumber,
                         pnr = seatSnapshot.pnr,
                         coach = seatSnapshot.coach,
                         berth = seatSnapshot.berth,
@@ -98,7 +99,7 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                     val order = container.client.api().createOrder(body)
                     container.cart.clear()
                     container.settings.setActiveOrderId(order.id)
-                    container.mqtt.watchOrder(order.id)
+                    container.mqtt.watchOrder(order.id, order.trainNumber)
                     _state.update { it.copy(placing = false, sendingRelay = false, error = null) }
                     onPlaced(order.id)
                     return@launch
@@ -148,6 +149,7 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
 
             _state.update { it.copy(sendingRelay = true) }
             val relayed = container.meshSender.send(
+                trainNumber = seatSnapshot.trainNumber,
                 pnr = seatSnapshot.pnr,
                 coach = seatSnapshot.coach,
                 berth = seatSnapshot.berth,

@@ -8,6 +8,7 @@ import com.railbite.core.model.FirebaseLoginRequest
 import com.railbite.core.model.Health
 import com.railbite.core.model.LedgerSummaryRow
 import com.railbite.core.model.LogoutRequest
+import com.railbite.core.model.ManifestLookupResponse
 import com.railbite.core.model.MeResponse
 import com.railbite.core.model.MenuItem
 import com.railbite.core.model.MeshOrderSyncRequest
@@ -37,6 +38,9 @@ interface RailBiteApi {
 
     @GET("health")
     suspend fun health(): Health
+
+    @GET("manifest/{pnr}")
+    suspend fun manifestByPnr(@Path("pnr") pnr: String): ManifestLookupResponse
 
     @GET("menu")
     suspend fun menu(): List<MenuItem>
@@ -114,6 +118,9 @@ interface RailBiteApi {
     @GET("auth/me")
     suspend fun me(): MeResponse
 
+    @POST("pickers/{id}/status")
+    suspend fun setPickerStatus(@Path("id") id: String, @Body body: PickerStatusRequest): PickerStatusResponse
+
     @POST("staff/{id}/online")
     suspend fun setStaffOnline(@Path("id") id: String, @Body body: OnlineRequest): OnlineResponse
 
@@ -147,10 +154,26 @@ interface RailBiteApi {
     data class FeedbackAck(val ok: Boolean, val orderId: String)
 
     @kotlinx.serialization.Serializable
-    data class OnlineRequest(val online: Boolean)
+    data class PickerStatusRequest(val online: Boolean, val trainNumber: String)
 
     @kotlinx.serialization.Serializable
-    data class OnlineResponse(val ok: Boolean, val staffId: String, val online: Boolean)
+    data class PickerStatusResponse(
+        val ok: Boolean = true,
+        val staffId: String,
+        val online: Boolean,
+        val trainNumber: String,
+    )
+
+    @kotlinx.serialization.Serializable
+    data class OnlineRequest(val online: Boolean, val trainNumber: String? = null)
+
+    @kotlinx.serialization.Serializable
+    data class OnlineResponse(
+        val ok: Boolean,
+        val staffId: String,
+        val online: Boolean,
+        val trainNumber: String? = null,
+    )
 
     @kotlinx.serialization.Serializable
     data class DeviceTokenRequest(val staffId: String, val deviceToken: String)

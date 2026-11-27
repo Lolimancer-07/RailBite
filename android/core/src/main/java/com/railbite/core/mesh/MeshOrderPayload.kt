@@ -14,6 +14,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class MeshOrderPayload(
     val orderId: String,
+    val trainNumber: String = "12345",
     val pnr: String,
     val coach: String,
     val berth: Int,

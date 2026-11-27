@@ -65,6 +65,7 @@ import kotlinx.coroutines.delay
 @Composable
 fun StorefrontTopRow(
     online: Boolean,
+    trainNumber: String,
     pnr: String,
     coach: String,
     berth: Int?,
@@ -103,8 +104,9 @@ fun StorefrontTopRow(
             }
         }
 
-        // Right: Compact tappable SeatInfoBox (PNR + Coach + Seat)
+        // Right: Compact tappable SeatInfoBox (Train + PNR + Coach + Seat)
         SeatInfoBox(
+            trainNumber = trainNumber,
             pnr = pnr,
             coach = coach,
             berth = berth,
@@ -116,6 +118,7 @@ fun StorefrontTopRow(
 
 @Composable
 fun SeatInfoBox(
+    trainNumber: String,
     pnr: String,
     coach: String,
     berth: Int?,
@@ -139,7 +142,7 @@ fun SeatInfoBox(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = if (pnr.isNotBlank()) "PNR: $pnr" else "Set PNR & Seat",
+                    text = if (pnr.isNotBlank()) "PNR: $pnr" else "Set Train & Seat",
                     style = RailBiteNumericType.MetaMono,
                     color = RailBitePalette.DarkSlate,
                     maxLines = 1,
@@ -154,10 +157,12 @@ fun SeatInfoBox(
                 )
             }
             Text(
-                text = if (coach.isNotBlank() && berth != null && berth > 0) {
-                    "Coach $coach  |  Seat $berth"
-                } else {
-                    "Tap to select Coach & Berth"
+                text = when {
+                    trainNumber.isNotBlank() && coach.isNotBlank() && berth != null && berth > 0 ->
+                        "$trainNumber • $coach-$berth"
+                    coach.isNotBlank() && berth != null && berth > 0 ->
+                        "Set Train • $coach-$berth"
+                    else -> "Tap to select Train, Coach & Berth"
                 },
                 style = MaterialTheme.typography.labelSmall,
                 color = RailBitePalette.TextSecondary,
