@@ -18,8 +18,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Payments
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -191,7 +191,7 @@ fun PickerBottomBar(
             ) {
                 BottomTabItem(
                     label = "Orders",
-                    icon = Icons.Filled.ReceiptLong,
+                    icon = Icons.AutoMirrored.Filled.ReceiptLong,
                     selected = selectedTab == PickerTab.ORDERS,
                     onClick = { onSelectTab(PickerTab.ORDERS) },
                     modifier = Modifier.weight(1f),

@@ -8,8 +8,8 @@
 
 | File | App | Package | Version | Min SDK | Target SDK | Size | SHA-256 |
 |------|-----|---------|---------|---------|-----------|------|---------|
-| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.2.2 (6) | 29 | 35 | 10,312,702 B (~9.8 MB) | `9210163b5369129607be9226cd360596cc94c0006df62fc74e6c7712b7fdf5b5` |
-| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.2.2 (6) | 29 | 35 | 8,491,011 B (~8.1 MB) | `5fc85b1ca842ea91331ebd1183005e51c11c852ae3631aafdeb13b82d80fe8ca` |
+| `railbite-customer.apk` | RailBite (Passenger) | `com.railbite.customer` | 1.2.2 (6) | 29 | 35 | 10,782,082 B (~10.3 MB) | `3064b6343b38d80892962ff05e89c46e51006af7c14339621db98a8ad16608bf` |
+| `railbite-picker.apk` | RailBite Picker (Vendor) | `com.railbite.picker` | 1.2.2 (6) | 29 | 35 | 9,010,543 B (~8.6 MB) | `91c9ed25d96803dcda9895b249a692d363b0008a43165020971ca55318b05c99` |
 
 Native Kotlin + Jetpack Compose builds, R8-minified and signed with the prototype
 keystore (`android/keystore.properties`; store/key pass `railbite-demo`, alias `railbite`).

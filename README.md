@@ -189,18 +189,49 @@ pnpm --filter @railbite/edge-server build
 # Seed the SQLite DB (re-run any time to reset demo data)
 cd services/edge-server && pnpm seed && cd ../..
 
-# Start REST API on :8080 + MQTT (TCP :1883, WebSocket :8883)
+# Start Fastify REST + Aedes MQTT-over-WebSocket (/mqtt) on :8080
 pnpm --filter @railbite/edge-server dev
+# (Optional standalone TCP MQTT on :1883: ENABLE_TCP_MQTT=true pnpm --filter @railbite/edge-server dev)
 ```
 
-Find your laptop's LAN IP and use it everywhere (Settings screen in both apps):
+Find your laptop's LAN IP and point both phones at `http://<LAPTOP_IP>:8080`:
 
 ```bash
-ip addr show | grep "inet "        # Linux — look for e.g. 192.168.1.7
-ifconfig | grep "inet "            # macOS
+hostname -I | awk '{print $1}'     # Linux — e.g. 192.168.1.7
+ipconfig getifaddr en0             # macOS
 ```
 
 Verify from a phone browser: `http://<LAPTOP_IP>:8080/health` → `{"ok":true,...}`
+
+### 2. Install standalone APKs on both phones (`adb install -r`)
+
+Both apps have distinct package IDs (`com.railbite.customer` and `com.railbite.picker`) and run side-by-side (`minSdk 29`, `usesCleartextTraffic = true`):
+
+```bash
+adb install -r release/railbite-customer.apk
+adb install -r release/railbite-picker.apk
+```
+
+*(To rebuild release APKs yourself: `cd android && ./gradlew :customer:assembleRelease :picker:assembleRelease && bash scripts/copy-release.sh`.)*
+
+### 3. Picker demo credentials & test PNRs
+
+| Staff ID | Name | 4-Digit PIN | Password Fallback | Assigned Coach Zone |
+|---|---|---|---|---|
+| `c1` | Ramesh Kumar | `1234` | `railbite123` | `B1–B2` |
+| `c2` | Suresh Sharma | `1234` | `railbite123` | `B3–B4` |
+| `c3` | Amit Verma | `1234` | `railbite123` | `S1–S2` |
+| `c4` | Deepak Patel | `1234` | `railbite123` | `S3–S4` |
+
+Test PNRs: `8492000001`–`8492000120` (e.g. `8492000001` = Coach `B1`, Seat `1`).
+
+### 4. 1-Minute Two-Phone LAN Test Script
+
+1. **Phone A (Picker App)** — Open **RailBite Picker**, tap the server pill -> enter `http://<LAPTOP_IP>:8080` (check live green `ms • LIVE` status) -> sign in as `c1` / PIN `1234` -> grant notification & full-screen alert permissions -> toggle **ONLINE** and lock the phone screen.
+2. **Phone B (Customer App)** — Open **RailBite**, set Server URL to `http://<LAPTOP_IP>:8080` -> enter PNR `8492000001`, Coach `B1`, Seat `1` -> add items -> place a **Cash on Delivery** order.
+3. **Lock-Screen Takeover & Picking (~15s)** — Phone A rings loudly over the lock screen with a 60 s countdown -> tap **ACCEPT ORDER**. Category-grouped **Picking Checklist** opens -> check all items (`48.dp` targets) -> tap **Packed — Start Delivery →**.
+4. **Live Quick-Chat & Seat Handover (~25s)** — On Phone B (`TrackingScreen`), verify the 4-digit **Delivery PIN** appears and tap **Message Picker** -> send `"Where are you?"`. On Phone A, hear the haptic/tone cue, tap a 1-tap preset chip (`"2 mins away"` / `"I'm here at your seat"`), then tap **Complete Handover (Enter PIN) →** -> enter the passenger's 4-digit PIN + exact COD cash -> **Confirm Delivery & Record Cash →**.
+5. **Audit & Lock Check (~10s)** — Verify Quick-Chat switches to read-only (`Chat closed`) on both phones and open the **Cash** tab on Phone A to verify Expected / Collected / Awaiting Passenger (then confirm cash on Phone B to see it turn **Confirmed ✓**).
 
 ---
 

@@ -48,3 +48,7 @@
 - Radii: `8.dp` PIN slots, `12.dp` buttons/inputs, `16.dp` cards, `18.dp` food tiles, `24.dp` top corners on `ModalBottomSheet`, `999.dp` pills.
 - Tabular numerals (`fontFeatureSettings = "tnum"`) across all `₹` currency amounts, SLA countdowns, timers, order tags, and 4-digit PINs.
 
+## 4. Verification Summary
+- Backend + Shared contracts (`pnpm -r build && pnpm -r test`) passing, including `order-messages.test.ts` (chat validation, idempotent UUID retries, QoS 1 MQTT delivery, `GET /staff/:id/orders`, and `GET /staff/:id/ledger`).
+- Native Kotlin Picker & Customer builds passing (`compileDebugKotlin`, `:core:testDebugUnitTest`, `assembleDebug`, and signed `assembleRelease` APKs exported to `release/railbite-customer.apk` and `release/railbite-picker.apk`).
+

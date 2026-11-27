@@ -12,7 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.railbite.picker.alert.IncomingOrderActivity
 import com.railbite.picker.mesh.MeshHandoverScreen
-import com.railbite.picker.ui.cash.CashSummaryScreen
+import com.railbite.picker.ui.cash.CashLedgerScreen
 import com.railbite.picker.ui.home.PickerDashboardScreen
 import com.railbite.picker.ui.login.LoginScreen
 import com.railbite.picker.ui.order.OrderProgressScreen
@@ -91,7 +91,16 @@ fun PickerNavHost(graph: PickerGraph, startDestination: String) {
             )
         }
         composable(PickerRoutes.CASH) {
-            CashSummaryScreen(graph = graph, onBack = { nav.popBackStack() })
+            CashLedgerScreen(
+                graph = graph,
+                onBack = { nav.popBackStack() },
+                onOpenOrders = {
+                    nav.navigate(PickerRoutes.HOME) {
+                        popUpTo(PickerRoutes.HOME) { inclusive = false }
+                        launchSingleTop = true
+                    }
+                },
+            )
         }
         composable(PickerRoutes.MESH_ORDER) { entry ->
             val orderId = entry.arguments?.getString("orderId").orEmpty()

@@ -45,6 +45,8 @@ data class ProgressUiState(
     val sendingChat: Boolean = false,
     val chatError: String? = null,
     val quickUpdateBanner: String? = null,
+    /** Controls the HandoverConfirmSheet overlay on DeliveryAndHandoverScreen. */
+    val showHandoverSheet: Boolean = false,
 ) {
     val canSendChat: Boolean
         get() = order?.status in listOf(
@@ -53,7 +55,10 @@ data class ProgressUiState(
             Statuses.OUT_FOR_DELIVERY,
         )
     val chatAvailable: Boolean
-        get() = canSendChat || order?.status == Statuses.DELIVERED || chatMessages.isNotEmpty()
+        get() = canSendChat ||
+            order?.status == Statuses.DELIVERED ||
+            order?.status == Statuses.CANCELLED ||
+            chatMessages.isNotEmpty()
 
     companion object {
         const val SLA_TARGET_SECONDS = 600
@@ -211,7 +216,14 @@ class OrderProgressViewModel(
                         deliveryCode = code.trim(),
                     ),
                 )
-                _state.update { it.copy(order = order, busy = false, message = null) }
+                _state.update {
+                    it.copy(
+                        order = order,
+                        busy = false,
+                        message = null,
+                        showHandoverSheet = false,
+                    )
+                }
             } catch (e: Exception) {
                 _state.update { it.copy(busy = false, message = friendly(e)) }
             }
@@ -249,6 +261,16 @@ class OrderProgressViewModel(
 
     fun clearChatError() {
         _state.update { it.copy(chatError = null) }
+    }
+
+    /** Shows the HandoverConfirmSheet overlay on the delivery screen. */
+    fun openHandoverSheet() {
+        _state.update { it.copy(showHandoverSheet = true, message = null) }
+    }
+
+    /** Hides the HandoverConfirmSheet overlay. */
+    fun closeHandoverSheet() {
+        _state.update { it.copy(showHandoverSheet = false) }
     }
 
     fun sendQuickChip(preset: ChatPreset) {
