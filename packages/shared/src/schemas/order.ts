@@ -20,6 +20,26 @@ export const OrderCreateSchema = z.object({
 });
 export type OrderCreate = z.infer<typeof OrderCreateSchema>;
 
+/** Idempotent offline BLE mesh sync payload submitted when LAN returns. */
+export const MeshOrderSyncSchema = z.object({
+  id: z.string().uuid(),
+  pnr: z.string().regex(/^\d{10}$/, "PNR must be 10 digits"),
+  coach: z.string().min(1).max(4),
+  berth: z.number().int().min(1).max(100),
+  diners: z.number().int().min(1).max(8).default(1),
+  paymentMode: z.enum(["COD", "UPI_QUEUED"]).default("COD"),
+  items: z.array(OrderItemSchema).min(1),
+  createdAt: z.string().datetime(),
+  status: z
+    .enum(["PLACED", "ACCEPTED", "PACKING", "OUT_FOR_DELIVERY", "DELIVERED"])
+    .default("PLACED"),
+  captainId: z.string().optional(),
+  deliveryCode: z.string().regex(/^\d{4}$/).optional(),
+  cashPaise: z.number().int().min(0).optional(),
+  passengerConfirmed: z.boolean().optional(),
+});
+export type MeshOrderSync = z.infer<typeof MeshOrderSyncSchema>;
+
 export const OrderStatusUpdateSchema = z.object({
   status: z.string(),
   updatedAt: z.string().datetime(),

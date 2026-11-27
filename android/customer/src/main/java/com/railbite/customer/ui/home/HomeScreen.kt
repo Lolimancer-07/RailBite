@@ -57,6 +57,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.railbite.core.mesh.TransportMode
 import com.railbite.core.model.MenuItem
 import com.railbite.core.ui.EmptyState
 import com.railbite.core.ui.LoadingSkeleton
@@ -67,10 +68,12 @@ import com.railbite.customer.ui.components.FilterBottomSheet
 import com.railbite.customer.ui.components.FloatingCartBar
 import com.railbite.customer.ui.components.FoodProductCard
 import com.railbite.customer.ui.components.ItemQuickViewSheet
+import com.railbite.customer.ui.components.LocalBleActionRequester
 import com.railbite.customer.ui.components.SeatSetupBottomSheet
 import com.railbite.customer.ui.components.SortBottomSheet
 import com.railbite.customer.ui.components.StorefrontTopRow
 import com.railbite.customer.ui.components.StorefrontUtilityRow
+import com.railbite.customer.ui.components.TransportIndicatorPill
 import com.railbite.customer.ui.theme.RailBiteCardBorder
 import com.railbite.customer.ui.theme.RailBiteMetrics
 import com.railbite.customer.ui.theme.RailBitePalette
@@ -92,6 +95,8 @@ fun HomeScreen(
     val cartLines by vm.cartLines.collectAsState()
     val seat by vm.seatInfo.seat.collectAsState(initial = null)
     val mqttConnected by graph.mqtt.connected.collectAsState()
+    val transportStatus by graph.transport.status.collectAsState()
+    val requestBleAction = LocalBleActionRequester.current
     val session by graph.authStore.session.collectAsState()
     val serverUrl by graph.settings.serverUrl.collectAsState(initial = "")
 
@@ -105,7 +110,7 @@ fun HomeScreen(
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
-    val online = mqttConnected || (state.error == null && !state.loading)
+    val online = mqttConnected || transportStatus.lanReachable
     val cartCount = cartLines.values.sumOf { it.qty }
     val products = state.filtered
 
@@ -141,6 +146,34 @@ fun HomeScreen(
                     onBrandClick = onOpenSettings,
                     onSeatBoxClick = { showSeatSheet = true },
                 )
+
+                // Slim live transport pill (LAN Connected / BLE Mesh Offline (Active) / BLE Off)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = RailBiteMetrics.ScreenPadding)
+                        .padding(bottom = 8.dp),
+                ) {
+                    TransportIndicatorPill(
+                        status = transportStatus,
+                        onClick = {
+                            if (transportStatus.mode == TransportMode.BLE_DISABLED) {
+                                requestBleAction()
+                            } else {
+                                onOpenSettings()
+                            }
+                        },
+                    )
+                    if (transportStatus.mode == TransportMode.BLE_MESH_ACTIVE) {
+                        Text(
+                            text = "Offline instant delivery",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = RailBitePalette.CyanPressed,
+                        )
+                    }
+                }
 
                 // Wireframe Utility Row: SearchPill + AccountIconButton + CartIconButton
                 StorefrontUtilityRow(
@@ -528,7 +561,8 @@ private fun ActiveOrderBanner(
     val orderId by graph.activeOrderId.collectAsState(initial = "")
     val statusMap by graph.mqtt.orderStatuses.collectAsState()
     if (orderId.isBlank()) return
-    val status = statusMap[orderId]?.status
+    val meshEntry by graph.container.meshSender.observeEntry(orderId).collectAsState(initial = null)
+    val status = meshEntry?.ack ?: statusMap[orderId]?.status
     if (status != null && Statuses.isTerminal(status)) return
 
     Surface(

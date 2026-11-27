@@ -117,6 +117,7 @@ fun OrderProgressTimeline(
                         text = when {
                             failed -> "ORDER STATUS"
                             delivered -> "BERTH HANDOVER COMPLETE"
+                            relayed && status == Statuses.BROADCASTING -> "BLE MESH BROADCASTING"
                             relayed -> "BLUETOOTH MESH ACTIVE"
                             else -> "ESTIMATED BERTH ARRIVAL"
                         },
@@ -128,6 +129,7 @@ fun OrderProgressTimeline(
                             status == Statuses.CANCELLED -> "Order Cancelled"
                             status == Statuses.EXPIRED -> "Order Expired"
                             delivered -> "Delivered to Seat"
+                            relayed && status == Statuses.BROADCASTING -> "Searching for nearest picker..."
                             relayed -> Statuses.label(status)
                             else -> "~${etaMin ?: 10} mins away"
                         },

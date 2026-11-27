@@ -1,49 +1,49 @@
 package com.railbite.customer.mesh
 
-import com.railbite.customer.AppContainer
-import com.railbite.core.api.ApiClient
-import com.railbite.core.mesh.MeshCodec
+import com.railbite.core.data.OfflineMenuCatalog
+import com.railbite.core.mesh.BleMeshHub
+import com.railbite.core.mesh.BleMeshService
+import com.railbite.core.mesh.BlePacketCodec
+import com.railbite.core.mesh.BlePermissions
 import com.railbite.core.mesh.MeshEntry
 import com.railbite.core.mesh.MeshOrderPayload
 import com.railbite.core.mesh.MeshOutbox
-import com.railbite.core.mesh.MeshPacket
-import com.railbite.core.mesh.MeshRelay
-import com.railbite.core.mesh.MeshTrip
+import com.railbite.core.model.MeshOrderSyncRequest
 import com.railbite.core.model.OrderCreateRequest
+import com.railbite.core.model.OrderMessage
+import com.railbite.core.util.Statuses
+import com.railbite.customer.AppContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import retrofit2.HttpException
 import java.time.Instant
-import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
- * Passenger side of the Bluetooth relay (offline feature):
- *  - "send" persists the order in the outbox and bursts it over BLE advertisements —
- *    nearby phones relay it until the pantry phone (sink) consumes it
- *  - a background duty cycle ([startLoop]) keeps re-broadcasting pending orders until
- *    the pantry confirms, and listens for STATUS announcements — the pantry app is NOT
- *    guaranteed to be scanning at the exact second the order is sent, so a single
- *    burst loses orders (field-observed 2026-11-17: "the alert never rang")
- *  - "sync" runs whenever the cloud is reachable again and POSTs pending relay orders
- *    with their original client UUID (idempotent); the cloud then owns dispatch/status
- *
- * The relay never replaces the cloud path — it only exists when the cloud can't be
- * reached and the relay toggle is on (plus dual-path bursts for instant alerts, see
- * [burstOnly]).
+ * Customer-side coordinator for the 23-byte BLE multi-hop flood mesh:
+ * - Originates binary `ORDER_NEW (0x11)` broadcasts via [BleMeshHub] & [BleMeshService]
+ * - Listens continuously for incoming `STATUS_ACK (0x12)` & `QUICK_MSG (0x13)` frames
+ *   even after screen transitions
+ * - Broadcasts preset `QUICK_MSG (0x13)` replies when LAN is unreachable
+ * - Syncs completed & in-flight offline BLE orders idempotently when LAN connectivity returns.
  */
 class MeshOrderSender(private val container: AppContainer) {
 
     private val outbox = MeshOutbox(container.app)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var loopJob: Job? = null
+    private var collectorJob: Job? = null
+    private val msgSeqByOrder = ConcurrentHashMap<UInt, AtomicInteger>()
 
     private val _pending = MutableStateFlow(0)
     val pending: StateFlow<Int> = _pending.asStateFlow()
@@ -51,160 +51,254 @@ class MeshOrderSender(private val container: AppContainer) {
     private val _syncing = MutableStateFlow(false)
     val syncing: StateFlow<Boolean> = _syncing.asStateFlow()
 
+    val entriesFlow: Flow<List<MeshEntry>> = outbox.entries
+
     suspend fun refreshPending() {
         _pending.value = outbox.pendingCount()
     }
 
-    /** Tracking's offline view: the queued relay order, if any, with its live state. */
     suspend fun relayEntry(orderId: String): MeshEntry? = outbox.entryOf(orderId)
 
-    /** Builds the payload, queues it, and bursts it over the mesh. Returns the code. */
+    /** Observe live status/ack updates persisted for a specific offline order. */
+    fun observeEntry(orderId: String): Flow<MeshEntry?> =
+        outbox.entries.map { list -> list.firstOrNull { it.payload.contains("\"orderId\":\"$orderId\"") } }
+
+    /** Creates an offline BLE order, saves to [MeshOutbox], and starts `0x11` mesh broadcast. */
     suspend fun send(
-        orderId: String,
         pnr: String,
         coach: String,
         berth: Int,
         diners: Int,
         items: List<MeshOrderPayload.Item>,
         totalPaise: Int,
-    ): MeshOrderPayload {
+    ): MeshOrderPayload? {
+        val slots = items.take(BlePacketCodec.MAX_ORDER_ITEMS).mapNotNull { item ->
+            val numericId = OfflineMenuCatalog.numericIdFor(container.app, item.itemId, item.name)
+                ?: return@mapNotNull null
+            BlePacketCodec.ItemSlot(itemId = numericId, qty = item.qty)
+        }
+        if (slots.isEmpty()) return null
+
+        val shortOrderId = BlePacketCodec.generateShortOrderId()
+        val orderId = BlePacketCodec.shortIdToUuid(shortOrderId)
+        val handoverPin = (1000..9999).random()
+        val pinString = BlePacketCodec.formatPin4(handoverPin)
+
         val payload = MeshOrderPayload(
             orderId = orderId,
             pnr = pnr,
-            coach = coach,
+            coach = coach.trim().uppercase(),
             berth = berth,
             diners = diners,
             createdAt = Instant.now().toString(),
-            deliveryCode = randomCode(),
-            items = items,
+            deliveryCode = pinString,
+            items = items.take(BlePacketCodec.MAX_ORDER_ITEMS),
             totalPaise = totalPaise,
         )
-        outbox.add(MeshEntry(payload = payload.encode(), createdAt = payload.createdAt))
+
+        val packet = BlePacketCodec.OrderNew(
+            orderId = shortOrderId,
+            hopCount = 0,
+            ttl = BlePacketCodec.DEFAULT_TTL,
+            coach = coach.trim().uppercase(),
+            seat = berth,
+            pnrLast4 = BlePacketCodec.parsePnrLast4(pnr),
+            handoverPin = handoverPin,
+            items = slots,
+        )
+
+        val meshKey = container.settings.meshKey.first()
+        val sent = BleMeshHub.sendOrderNew(container.app, packet, meshKey)
+        if (!sent) return null
+
+        outbox.add(
+            MeshEntry(
+                payload = payload.encode(),
+                createdAt = payload.createdAt,
+                state = "PENDING",
+                ack = Statuses.BROADCASTING,
+            ),
+        )
         refreshPending()
-        container.meshTransport.advertiseBurst(packetFor(payload))
-        startLoop() // keep re-broadcasting until the pantry confirms — timing can't lose orders
+        startLoop()
         return payload
     }
 
-    /**
-     * Dual-path delivery: the order was ALSO created in the cloud. Burst it over the
-     * mesh so a nearby pantry phone rings instantly instead of waiting on FCM. Not
-     * queued in the outbox (the cloud owns the record) — the pantry phone dedupes the
-     * mesh copy against the cloud before alerting, so it never rings twice.
-     */
-    fun burstOnly(
+    /** Persists passenger's offline cash confirmation so LAN sync sends `passengerConfirmed=true`. */
+    suspend fun markCashConfirmed(orderId: String) {
+        outbox.markPassengerConfirmed(orderId)
+    }
+
+    /** Re-enqueues `0x11` broadcast for an existing offline order still in `BROADCASTING`. */
+    suspend fun retryBroadcast(orderId: String): Boolean {
+        val entry = outbox.entryOf(orderId) ?: return false
+        val payload = MeshOrderPayload.decode(entry.payload) ?: return false
+        val slots = payload.items.take(BlePacketCodec.MAX_ORDER_ITEMS).mapNotNull { item ->
+            val numericId = OfflineMenuCatalog.numericIdFor(container.app, item.itemId, item.name)
+                ?: return@mapNotNull null
+            BlePacketCodec.ItemSlot(itemId = numericId, qty = item.qty)
+        }
+        if (slots.isEmpty()) return false
+        val shortId = BlePacketCodec.uuidToShortId(payload.orderId)
+        val packet = BlePacketCodec.OrderNew(
+            orderId = shortId,
+            hopCount = 0,
+            ttl = BlePacketCodec.DEFAULT_TTL,
+            coach = payload.coach,
+            seat = payload.berth,
+            pnrLast4 = BlePacketCodec.parsePnrLast4(payload.pnr),
+            handoverPin = BlePacketCodec.parsePinInt(payload.deliveryCode),
+            items = slots,
+        )
+        val meshKey = container.settings.meshKey.first()
+        val ok = BleMeshHub.sendOrderNew(container.app, packet, meshKey)
+        if (ok) outbox.markAck(orderId, Statuses.BROADCASTING)
+        return ok
+    }
+
+    /** Stops origin BLE broadcast when user cancels an unanswered offline order. */
+    suspend fun cancelOfflineOrder(orderId: String) {
+        BleMeshHub.cancelOrderBroadcast(BlePacketCodec.uuidToShortId(orderId))
+        outbox.markState(orderId, "CANCELLED")
+        refreshPending()
+    }
+
+    /** Broadcasts a preset Quick-Message (`0x13`) from Customer over the BLE mesh. */
+    suspend fun sendQuickMessage(
         orderId: String,
-        pnr: String,
         coach: String,
         berth: Int,
-        diners: Int,
-        items: List<MeshOrderPayload.Item>,
-        totalPaise: Int,
-    ) {
-        scope.launch {
-            val payload = MeshOrderPayload(
-                orderId = orderId,
-                pnr = pnr,
-                coach = coach,
-                berth = berth,
-                diners = diners,
-                createdAt = Instant.now().toString(),
-                deliveryCode = randomCode(),
-                items = items,
-                totalPaise = totalPaise,
-            )
-            val packet = packetFor(payload)
-            repeat(3) { i ->
-                container.meshTransport.advertiseBurst(packet, seconds = 6)
-                if (i < 2) delay(12_000)
-            }
-        }
+        presetCode: String,
+    ): OrderMessage? {
+        val presetByte = BlePacketCodec.codeForPreset(presetCode) ?: return null
+        val preset = BlePacketCodec.presetForCode(presetByte) ?: return null
+        val shortId = BlePacketCodec.uuidToShortId(orderId)
+        val seqCounter = msgSeqByOrder.getOrPut(shortId) { AtomicInteger(1) }
+        val seq = seqCounter.getAndIncrement().coerceIn(1, 65535)
+
+        val packet = BlePacketCodec.QuickMsg(
+            orderId = shortId,
+            hopCount = 0,
+            ttl = BlePacketCodec.DEFAULT_TTL,
+            coach = coach,
+            seat = berth,
+            senderRole = BlePacketCodec.ROLE_CUSTOMER,
+            presetCode = presetByte,
+            msgSeq = seq,
+        )
+        val meshKey = container.settings.meshKey.first()
+        val sent = BleMeshHub.sendQuickMsg(container.app, packet, meshKey)
+        if (!sent) return null
+
+        return OrderMessage(
+            id = "ble-${packet.senderRole}-${packet.msgSeq}",
+            orderId = orderId,
+            senderRole = "CUSTOMER",
+            senderId = null,
+            presetCode = preset.code,
+            body = preset.body,
+            createdAt = System.currentTimeMillis(),
+        )
     }
 
-    /**
-     * Background mesh duty cycle, started on app open and whenever a relay order is
-     * on screen:
-     *  - re-broadcasts pending orders every cycle until the pantry confirms (ack) or
-     *    the cloud sync lands — a closed/locked pantry app at the wrong second no
-     *    longer loses the order
-     *  - listens for STATUS announcements (accepted / out for delivery / delivered)
-     *    so the passenger's timeline advances fully offline
-     * Listening is skipped while nothing is in flight (battery).
-     */
+    /** Observes incoming BLE `STATUS_ACK` packets to keep [MeshOutbox] up-to-date in the background. */
     fun startLoop() {
-        if (loopJob?.isActive == true) return
-        loopJob = scope.launch {
-            val selfId = container.settings.ensureMeshNodeId()
-            val relay = MeshRelay(
-                selfId = selfId,
-                isSink = { it.type == MeshPacket.TYPE_STATUS }, // passenger consumes pantry outcomes
-                hmacSecret = { MeshTrip.SECRET },
-                forward = { pkt -> container.meshTransport.advertiseBurst(pkt, seconds = 5) },
-                onSink = { pkt -> scope.launch { handleStatusPacket(pkt) } },
-            )
-            while (isActive) {
-                val inFlight = outbox.all().filter {
-                    it.state == "PENDING" &&
-                        it.ack != MeshPacket.STATUS_DELIVERED &&
-                        it.ack != MeshPacket.STATUS_REJECTED
-                }
-                if (container.settings.meshRelayEnabled.first() && inFlight.isNotEmpty()) {
-                    for ((i, entry) in inFlight.take(2).withIndex()) {
-                        val payload = MeshOrderPayload.decode(entry.payload) ?: continue
-                        // Bursts run asynchronously on the transport and cancel the previous
-                        // one — wait out the burst before starting the next order's.
-                        if (i > 0) delay(7_000)
-                        container.meshTransport.advertiseBurst(packetFor(payload), seconds = 6)
+        if (collectorJob?.isActive == true) return
+        collectorJob = scope.launch {
+            // Re-arm BLE foreground listener cleanly whenever relay is enabled & radio is ready
+            if (container.settings.meshRelayEnabled.first() && BlePermissions.isReadyForMesh(container.app)) {
+                val activeId = container.settings.activeOrderId.first()
+                BleMeshService.start(container.app, lowLatency = activeId.isNotBlank())
+            }
+            BleMeshHub.incoming.collect { event ->
+                val pkt = event.packet
+                if (pkt is BlePacketCodec.StatusAck) {
+                    val status = BlePacketCodec.statusFromCode(pkt.statusCode)
+                    outbox.markAck(
+                        orderId = pkt.orderUuid,
+                        ack = status,
+                        captainId = pkt.pickerId,
+                        etaMin = pkt.etaMins.takeIf { it > 0 },
+                    )
+                    if (pkt.statusCode in BlePacketCodec.STATUS_ACCEPTED..BlePacketCodec.STATUS_DELIVERED) {
+                        BleMeshHub.cancelOrderBroadcast(pkt.orderId)
                     }
-                    listen(relay, seconds = 12)
-                    delay(3_000)
-                } else {
-                    delay(20_000)
+                    if (status == Statuses.DELIVERED) {
+                        container.settings.setActiveOrderId("")
+                        BleMeshService.start(container.app, lowLatency = false)
+                    }
+                    refreshPending()
                 }
             }
         }
     }
 
-    /** Scans for [seconds] so STATUS announcements (and mesh hops) can arrive. */
-    private suspend fun listen(relay: MeshRelay, seconds: Long) {
-        if (container.meshTransport.requiredPermissions().isNotEmpty()) return
-        container.meshTransport.startScanning { pkt ->
-            scope.launch { relay.receive(pkt) }
-        }
-        delay(seconds * 1000)
-        container.meshTransport.stopScanning()
-    }
-
-    /** STATUS announcement from the pantry phone: record it so tracking advances offline. */
-    private suspend fun handleStatusPacket(packet: MeshPacket) {
-        val state = packet.tag.ifBlank {
-            MeshCodec.b64Decode(packet.payloadB64)
-                ?.let { String(it, Charsets.UTF_8) }
-                ?: return
-        }
-        outbox.markAck(packet.orderId, state)
-    }
-
-    /** Called on app start / Home resume / manual refresh: POSTs everything pending. */
+    /** Replays pending / BLE-completed orders idempotently when LAN returns. */
     suspend fun syncPending(): Int {
         if (_syncing.value) return 0
         _syncing.value = true
         var synced = 0
         try {
-            val serverUrl = container.settings.serverUrl.first()
-            if (serverUrl.isBlank()) return 0
-            // Cheap reachability probe — throws when offline, which we treat as "nothing synced".
-            runCatching { ApiClient.testConnection(serverUrl) }.getOrElse { return 0 }
+            if (!container.transportRouter.checkLanReachable()) return 0
             val api = container.client.api()
-            val pending = outbox.all().filter { it.state != "SYNCED" }
-            for (entry in pending) {
+            val pendingList = outbox.all().filter {
+                it.state != "SYNCED" && it.state != "CANCELLED" && it.state != "REJECTED"
+            }
+            for (entry in pendingList) {
                 val payload = MeshOrderPayload.decode(entry.payload) ?: continue
-                try {
-                    api.createOrder(payload.toRequest())
+                val syncStatus = when (entry.ack) {
+                    Statuses.ACCEPTED,
+                    Statuses.PACKING,
+                    Statuses.OUT_FOR_DELIVERY,
+                    Statuses.DELIVERED -> entry.ack!!
+                    else -> Statuses.PLACED
+                }
+                val ok = runCatching {
+                    api.syncMeshOrder(
+                        MeshOrderSyncRequest(
+                            id = payload.orderId,
+                            pnr = payload.pnr,
+                            coach = payload.coach,
+                            berth = payload.berth,
+                            diners = payload.diners,
+                            paymentMode = "COD",
+                            items = payload.items.map { OrderCreateRequest.CreateItem(it.itemId, it.qty) },
+                            createdAt = payload.createdAt,
+                            status = syncStatus,
+                            captainId = entry.captainId,
+                            deliveryCode = payload.deliveryCode,
+                            cashPaise = payload.totalPaise,
+                            passengerConfirmed = entry.passengerConfirmed,
+                        ),
+                    )
+                    true
+                }.getOrElse { err ->
+                    val code = (err as? HttpException)?.code()
+                    if (code == 404 || code == 405) {
+                        // Backwards-compatible fallback for older servers without /orders/mesh-sync
+                        runCatching {
+                            api.createOrder(
+                                OrderCreateRequest(
+                                    id = payload.orderId,
+                                    pnr = payload.pnr,
+                                    coach = payload.coach,
+                                    berth = payload.berth,
+                                    diners = payload.diners,
+                                    paymentMode = "COD",
+                                    items = payload.items.map { OrderCreateRequest.CreateItem(it.itemId, it.qty) },
+                                    createdAt = payload.createdAt,
+                                    source = "RELAY",
+                                ),
+                            )
+                            true
+                        }.getOrDefault(false)
+                    } else {
+                        false
+                    }
+                }
+                if (ok) {
                     outbox.markState(payload.orderId, "SYNCED")
                     synced++
-                } catch (_: Exception) {
-                    break // server unreachable again — resume next time
                 }
             }
             refreshPending()
@@ -213,29 +307,4 @@ class MeshOrderSender(private val container: AppContainer) {
         }
         return synced
     }
-
-    private suspend fun packetFor(payload: MeshOrderPayload): MeshPacket = MeshCodec.sign(
-        MeshPacket(
-            orderId = payload.orderId,
-            ttl = MeshPacket.INITIAL_TTL,
-            origin = container.settings.ensureMeshNodeId(),
-            payloadB64 = MeshCodec.b64Encode(payload.encode().toByteArray()),
-            hmac8 = "",
-        ),
-        MeshTrip.SECRET,
-    )
-
-    private fun MeshOrderPayload.toRequest() = OrderCreateRequest(
-        id = orderId,
-        pnr = pnr,
-        coach = coach,
-        berth = berth,
-        diners = diners,
-        paymentMode = "COD",
-        items = items.map { OrderCreateRequest.CreateItem(it.itemId, it.qty) },
-        createdAt = createdAt,
-        source = "RELAY", // matches the shared schema enum: WIFI | SMS | RELAY
-    )
-
-    private fun randomCode(): String = (1000..9999).random().toString()
 }

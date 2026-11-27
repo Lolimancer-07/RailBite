@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from "fastify";
 import {
   FeedbackCreateSchema,
+  MeshOrderSyncSchema,
   OrderCreateSchema,
   OrderMessageCreateSchema,
   type OrderMessageSenderRole,
@@ -25,6 +26,35 @@ function customerOwns(
 
 export function createOrderRoutes(orderService: OrderService): FastifyPluginAsync {
   return async (fastify) => {
+    // POST /orders/mesh-sync — idempotent offline BLE order & cash ledger reconciliation
+    fastify.post("/orders/mesh-sync", async (request, reply) => {
+      if (!requireRoles(request, reply, ["customer", "picker", "admin"])) return;
+
+      const parsed = MeshOrderSyncSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.status(400).send({
+          error: "Invalid offline sync payload",
+          details: parsed.error.issues,
+        });
+      }
+
+      try {
+        const existing = await orderService.getOrder(parsed.data.id);
+        const userId = request.auth?.role === "customer" ? request.auth.sub : undefined;
+        const bodyCaptainId =
+          request.auth?.role === "picker"
+            ? request.auth.staffId || parsed.data.captainId
+            : parsed.data.captainId;
+        const order = await orderService.syncMeshOrder(
+          { ...parsed.data, captainId: bodyCaptainId },
+          userId,
+        );
+        return reply.status(existing ? 200 : 201).send(order);
+      } catch (err: any) {
+        return reply.status(400).send({ error: err.message });
+      }
+    });
+
     // POST /orders
     fastify.post("/orders", async (request, reply) => {
       if (!requireRoles(request, reply, ["customer"])) return;

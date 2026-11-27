@@ -3,6 +3,9 @@ package com.railbite.customer.ui.orders
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.customer.AppContainer
+import com.railbite.core.mesh.MeshEntry
+import com.railbite.core.mesh.MeshOrderPayload
+import com.railbite.core.mesh.MeshOutbox
 import com.railbite.core.model.Order
 import com.railbite.core.util.Statuses
 import kotlinx.coroutines.Job
@@ -15,13 +18,18 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+data class RelayOrderSummary(
+    val payload: MeshOrderPayload,
+    val entry: MeshEntry,
+)
+
 data class OrdersUiState(
     val loading: Boolean = true,
     val active: List<Order> = emptyList(),
     val past: List<Order> = emptyList(),
     val error: String? = null,
-    /** Bluetooth-relay orders still waiting to reach the cloud (offline feature). */
-    val relayPending: List<com.railbite.core.mesh.MeshOrderPayload> = emptyList(),
+    /** Offline BLE mesh orders not yet synced to the LAN edge-server. */
+    val relayPending: List<RelayOrderSummary> = emptyList(),
 )
 
 class OrdersViewModel(private val container: AppContainer) : ViewModel() {
@@ -32,13 +40,21 @@ class OrdersViewModel(private val container: AppContainer) : ViewModel() {
     private var refreshJob: Job? = null
 
     init {
+        viewModelScope.launch {
+            container.meshSender.entriesFlow.collect { entries ->
+                val summaries = entries
+                    .filter { it.state != "SYNCED" && it.state != "CANCELLED" }
+                    .mapNotNull { e -> MeshOrderPayload.decode(e.payload)?.let { RelayOrderSummary(it, e) } }
+                _state.update { it.copy(relayPending = summaries) }
+            }
+        }
         refresh()
     }
 
     fun refresh() {
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
-            _state.update { it.copy(loading = it.active.isEmpty() && it.past.isEmpty()) }
+            _state.update { it.copy(loading = it.active.isEmpty() && it.past.isEmpty() && it.relayPending.isEmpty()) }
             while (isActive) {
                 loadOnce()
                 val anyActive = _state.value.active.any { !Statuses.isTerminal(it.status) }
@@ -49,11 +65,10 @@ class OrdersViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private suspend fun loadOnce() {
-        // Relay orders first (offline feature): pending outbox entries shown as local cards.
         val relayPending = runCatching {
-            com.railbite.core.mesh.MeshOutbox(container.app).all()
-                .filter { it.state != "SYNCED" }
-                .mapNotNull { com.railbite.core.mesh.MeshOrderPayload.decode(it.payload) }
+            MeshOutbox(container.app).all()
+                .filter { it.state != "SYNCED" && it.state != "CANCELLED" }
+                .mapNotNull { e -> MeshOrderPayload.decode(e.payload)?.let { RelayOrderSummary(it, e) } }
         }.getOrDefault(emptyList())
         try {
             val pnr = container.settings.pnr.first()
@@ -71,11 +86,11 @@ class OrdersViewModel(private val container: AppContainer) : ViewModel() {
                     relayPending = relayPending,
                 )
             }
-        } catch (e: Exception) {
+        } catch (_: Exception) {
             _state.update {
                 it.copy(
                     loading = false,
-                    error = if (relayPending.isEmpty()) "Cannot reach server — retrying" else null,
+                    error = if (relayPending.isEmpty()) "Offline mode — BLE orders still active" else null,
                     relayPending = relayPending,
                 )
             }

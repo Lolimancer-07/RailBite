@@ -28,6 +28,14 @@ export class LedgerRepo {
     this.db = toDb(db);
   }
 
+  async hasEntryForOrder(orderId: string): Promise<boolean> {
+    const row = await this.db.get<{ id: number }>(
+      "SELECT id FROM cash_ledger WHERE order_id = ? LIMIT 1",
+      [orderId],
+    );
+    return Boolean(row);
+  }
+
   async append(
     orderId: string,
     captainId: string,

@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.EventSeat
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -36,6 +37,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -50,10 +52,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.railbite.core.mesh.BlePacketCodec
+import com.railbite.core.mesh.TransportMode
 import com.railbite.core.ui.EmptyState
 import com.railbite.core.ui.components.ErrorBar
 import com.railbite.core.util.Money
 import com.railbite.customer.ui.components.CartItemCard
+import com.railbite.customer.ui.components.LocalBleActionRequester
+import com.railbite.customer.ui.components.TransportIndicatorPill
 import com.railbite.customer.ui.theme.RailBiteCardBorder
 import com.railbite.customer.ui.theme.RailBiteMetrics
 import com.railbite.customer.ui.theme.RailBiteNumericType
@@ -72,6 +78,8 @@ fun CartScreen(
     val state by vm.state.collectAsState()
     val lines by vm.lines.collectAsState()
     val seat by vm.seat.collectAsState()
+    val transportStatus by vm.transportStatus.collectAsState()
+    val requestBleAction = LocalBleActionRequester.current
 
     // Wireframe & Stitch `21ec2fa3` locks payment mode to Cash on Delivery (COD) for offline-ready berth handover.
     LaunchedEffect(Unit) {
@@ -148,6 +156,21 @@ fun CartScreen(
                         ) {
                             state.error?.let { ErrorBar(it) }
 
+                            if (state.needsBleAction && !transportStatus.lanReachable) {
+                                OutlinedButton(
+                                    onClick = {
+                                        vm.clearError()
+                                        requestBleAction()
+                                    },
+                                    shape = RoundedCornerShape(RailBiteRadii.Button),
+                                    border = BorderStroke(1.dp, RailBitePalette.CyanPrimary),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = RailBitePalette.CyanPressed),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text("Enable Bluetooth / Grant Permissions")
+                                }
+                            }
+
                             Button(
                                 onClick = { vm.placeOrder(onPlaced) },
                                 enabled = !state.placing,
@@ -168,11 +191,15 @@ fun CartScreen(
                                     )
                                     if (state.sendingRelay) {
                                         Spacer(Modifier.size(8.dp))
-                                        Text("Sending over Bluetooth…", style = MaterialTheme.typography.titleSmall)
+                                        Text("Broadcasting BLE Mesh…", style = MaterialTheme.typography.titleSmall)
                                     }
                                 } else {
                                     Text(
-                                        text = "Place Order (COD)",
+                                        text = if (transportStatus.lanReachable) {
+                                            "Place Order (COD)"
+                                        } else {
+                                            "Broadcast via BLE Mesh (COD)"
+                                        },
                                         style = MaterialTheme.typography.titleSmall,
                                     )
                                     Spacer(Modifier.weight(1f))
@@ -218,6 +245,60 @@ fun CartScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // Transport mode pill + offline >4-item BLE limit notice
+                item {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        TransportIndicatorPill(
+                            status = transportStatus,
+                            onClick = if (transportStatus.mode == TransportMode.BLE_DISABLED) {
+                                requestBleAction
+                            } else {
+                                null
+                            },
+                        )
+                        if (!transportStatus.lanReachable) {
+                            Text(
+                                text = "Max ${BlePacketCodec.MAX_ORDER_ITEMS} dishes offline",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = RailBitePalette.TextSecondary,
+                            )
+                        }
+                    }
+                }
+
+                if (!transportStatus.lanReachable && lines.size > BlePacketCodec.MAX_ORDER_ITEMS) {
+                    item {
+                        Card(
+                            shape = RoundedCornerShape(RailBiteRadii.Button),
+                            colors = CardDefaults.cardColors(containerColor = RailBitePalette.SemanticAmberTint),
+                            border = BorderStroke(1.dp, RailBitePalette.SemanticAmberBorder),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.Top,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.padding(12.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Warning,
+                                    contentDescription = null,
+                                    tint = RailBitePalette.SemanticAmber,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Text(
+                                    text = "Offline BLE Mesh fits up to ${BlePacketCodec.MAX_ORDER_ITEMS} distinct items per 23-byte order (${lines.size} selected). Remove extra items or place in 2 separate orders.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = RailBitePalette.SemanticAmber,
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Delivering destination banner
                 item {
                     SeatVerificationCard(

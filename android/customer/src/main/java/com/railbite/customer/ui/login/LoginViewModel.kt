@@ -114,7 +114,11 @@ class CustomerLoginViewModel(
 
     private suspend fun demoSignIn(phoneDigits: String) {
         val phone = "+91$phoneDigits"
-        val serverSession = runCatching { withTimeout(12_000) { container.auth.devLogin(phone) } }.getOrNull()
+        val serverSession = if (container.transportRouter.checkLanReachable()) {
+            runCatching { withTimeout(5_000) { container.auth.devLogin(phone) } }.getOrNull()
+        } else {
+            null
+        }
         if (serverSession == null) {
             container.authStore.save(
                 AuthSession(

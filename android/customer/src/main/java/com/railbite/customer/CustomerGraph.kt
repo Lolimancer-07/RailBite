@@ -6,6 +6,7 @@ import com.railbite.core.api.RailBiteClient
 import com.railbite.core.auth.AuthRepository
 import com.railbite.core.auth.AuthStore
 import com.railbite.core.data.RailBiteSettings
+import com.railbite.core.mesh.TransportRouter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -16,7 +17,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
-/** Shared graph of the customer app: settings + api client + auth + cart + mqtt + start route. */
+/** Shared graph of the customer app: settings + api client + auth + cart + mqtt + transport router + start route. */
 class CustomerGraph(
     val container: AppContainer,
     scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
@@ -27,15 +28,14 @@ class CustomerGraph(
     val auth: AuthRepository = container.auth
     val cart: CartStore = container.cart
     val mqtt: CustomerMqtt = container.mqtt
+    val transport: TransportRouter = container.transportRouter
 
-    /** null = still resolving; "onboarding" | "home" */
+    /** null = still resolving; "login" | "onboarding" | "home" */
     private val _startDestination = MutableStateFlow<String?>(null)
     val startDestination: StateFlow<String?> = _startDestination.asStateFlow()
 
     init {
         scope.launch {
-            // Never leave the root on an infinite spinner if the local settings
-            // store is slow or fails to read — fall back to the login screen.
             val done = runCatching {
                 withTimeout(2_500) { settings.onboardingDone.first() }
             }.getOrDefault(false)

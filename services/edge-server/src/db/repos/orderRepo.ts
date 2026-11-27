@@ -334,6 +334,29 @@ export class OrderRepo {
     );
   }
 
+  async upsertAcceptedAssignment(
+    orderId: string,
+    captainId: string,
+    acceptedAt: string,
+    deliveredAt: string | null,
+  ): Promise<void> {
+    const existing = await this.db.get<AssignmentRow>(
+      "SELECT * FROM assignments WHERE order_id = ? AND captain_id = ? ORDER BY id DESC LIMIT 1",
+      [orderId, captainId],
+    );
+    if (!existing) {
+      await this.db.run(
+        "INSERT INTO assignments (order_id, captain_id, attempt, assigned_at, accepted_at, delivered_at) VALUES (?, ?, 1, ?, ?, ?)",
+        [orderId, captainId, acceptedAt, acceptedAt, deliveredAt],
+      );
+      return;
+    }
+    await this.db.run(
+      "UPDATE assignments SET accepted_at = COALESCE(accepted_at, ?), delivered_at = COALESCE(delivered_at, ?) WHERE id = ?",
+      [acceptedAt, deliveredAt, existing.id],
+    );
+  }
+
   async getLatestAssignment(orderId: string): Promise<AssignmentRow | null> {
     return this.db.get<AssignmentRow>(
       "SELECT * FROM assignments WHERE order_id = ? ORDER BY id DESC LIMIT 1",

@@ -122,49 +122,49 @@ class HomeViewModel(private val container: AppContainer) : ViewModel() {
 
     fun refresh() {
         viewModelScope.launch {
-            _state.update { it.copy(loading = it.menu.isEmpty(), error = null) }
+            // Seed and render bundled default_menu.json immediately so zero-internet launches never block.
+            val localMenu = com.railbite.core.data.OfflineMenuCatalog
+                .seedIfNeeded(container.app, container.settings)
+                .filter { it.track == "READY" }
+            if (localMenu.isNotEmpty() && _state.value.menu.isEmpty()) {
+                val localCats = localMenu.map { it.category }.distinct()
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        menu = localMenu,
+                        categories = localCats,
+                        selectedCategory = it.selectedCategory?.takeIf { c -> localCats.contains(c) },
+                    )
+                }
+            }
+
+            if (!container.transportRouter.checkLanReachable()) {
+                _state.update { it.copy(loading = false, error = null) }
+                return@launch
+            }
+
             try {
                 val menu = container.client.api().menu().filter { it.track == "READY" }
-                // Cache for offline browsing (cloud-first app; the mesh relay reuses this).
-                runCatching {
-                    container.settings.setMenuCache(
-                        com.railbite.core.mesh.MeshStore.json
-                            .encodeToString(
-                                kotlinx.serialization.builtins.ListSerializer(MenuItem.serializer()),
-                                menu,
-                            ),
-                    )
+                if (menu.isNotEmpty()) {
+                    runCatching {
+                        com.railbite.core.data.OfflineMenuCatalog.saveMenuCache(container.settings, menu)
+                    }
+                    val categories = menu.map { it.category }.distinct()
+                    _state.update {
+                        it.copy(
+                            loading = false,
+                            menu = menu,
+                            categories = categories,
+                            selectedCategory = if (categories.isEmpty()) it.selectedCategory
+                            else it.selectedCategory?.takeIf { c -> categories.contains(c) },
+                            error = null,
+                        )
+                    }
+                } else {
+                    _state.update { it.copy(loading = false) }
                 }
-                val categories = menu.map { it.category }.distinct()
-                _state.update {
-                    it.copy(
-                        loading = false,
-                        menu = menu,
-                        categories = categories,
-                        selectedCategory = if (categories.isEmpty()) it.selectedCategory
-                        else it.selectedCategory?.takeIf { c -> categories.contains(c) },
-                    )
-                }
-            } catch (e: Exception) {
-                // Offline: serve the last fetched menu so browsing/cart keep working.
-                val cached = runCatching {
-                    com.railbite.core.mesh.MeshStore.json.decodeFromString(
-                        kotlinx.serialization.builtins.ListSerializer(MenuItem.serializer()),
-                        container.settings.menuCache.first(),
-                    )
-                }.getOrDefault(emptyList()).filter { it.track == "READY" }
-                val categories = cached.map { it.category }.distinct()
-                _state.update {
-                    it.copy(
-                        loading = false,
-                        menu = cached,
-                        categories = categories,
-                        selectedCategory = if (categories.isEmpty()) it.selectedCategory
-                        else it.selectedCategory?.takeIf { c -> categories.contains(c) },
-                        error = if (cached.isEmpty()) "Cannot reach server — try again when you have internet"
-                        else "No internet — showing the saved menu",
-                    )
-                }
+            } catch (_: Exception) {
+                _state.update { it.copy(loading = false, error = null) }
             }
         }
     }

@@ -84,6 +84,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.railbite.core.mesh.TransportMode
 import com.railbite.core.model.ChatPresets
 import com.railbite.core.model.OrderMessage
 import com.railbite.core.ui.LoadingSkeleton
@@ -94,8 +95,10 @@ import com.railbite.customer.ui.components.CashConfirmInlineCard
 import com.railbite.customer.ui.components.CashConfirmSheet
 import com.railbite.customer.ui.components.FoodAssets
 import com.railbite.customer.ui.components.HandoverPinCard
+import com.railbite.customer.ui.components.LocalBleActionRequester
 import com.railbite.customer.ui.components.OrderProgressTimeline
 import com.railbite.customer.ui.components.StatusDot
+import com.railbite.customer.ui.components.TransportIndicatorPill
 import com.railbite.customer.ui.theme.RailBiteBottomSheetShape
 import com.railbite.customer.ui.theme.RailBiteCardBorder
 import com.railbite.customer.ui.theme.RailBiteMetrics
@@ -117,6 +120,8 @@ fun TrackingScreen(
     val vm = viewModel(key = "tracking-$orderId") { TrackingViewModel(graph.container, orderId) }
     val state by vm.state.collectAsState()
     val mqttStatuses by vm.mqttStatuses(orderId).collectAsState()
+    val transportStatus by graph.container.transportRouter.status.collectAsState()
+    val requestBle = LocalBleActionRequester.current
 
     LaunchedEffect(mqttStatuses) {
         vm.refreshMerged(mqttStatuses)
@@ -146,8 +151,8 @@ fun TrackingScreen(
     }
 
     var showCashSheet by remember { mutableStateOf(false) }
-    LaunchedEffect(state.delivered, state.cashConfirmed, state.relayed) {
-        if (state.delivered && !state.cashConfirmed && !state.relayed) {
+    LaunchedEffect(state.delivered, state.cashConfirmed) {
+        if (state.delivered && !state.cashConfirmed) {
             showCashSheet = true
         }
     }
@@ -218,16 +223,28 @@ fun TrackingScreen(
                 val order = state.order
                 val code = order?.deliveryCode
 
+                TransportIndicatorPill(
+                    status = transportStatus,
+                    onClick = if (transportStatus.mode == TransportMode.BLE_DISABLED) requestBle else null,
+                )
+
                 if (state.relayed) {
-                    RelayBanner()
+                    RelayBanner(
+                        status = state.status,
+                        bleDisabled = transportStatus.mode == TransportMode.BLE_DISABLED,
+                        retrying = state.retryingBroadcast,
+                        onEnableBle = requestBle,
+                        onRetry = vm::retryBroadcast,
+                        onCancel = { vm.cancelOfflineSearch(onBack) },
+                    )
                 }
 
                 // Stitch `5ea7ade2` 5-step Meal Journey Timeline
                 OrderProgressTimeline(
                     status = state.status,
                     etaMin = state.etaMin,
-                    coach = order?.coach,
-                    berth = order?.berth,
+                    coach = order?.coach ?: state.relayCoach,
+                    berth = order?.berth ?: state.relayBerth,
                     relayed = state.relayed,
                 )
 
@@ -235,7 +252,11 @@ fun TrackingScreen(
                 if (state.relayed && state.relayCode != null) {
                     HandoverPinCard(
                         code = state.relayCode!!,
-                        subtitle = relayHint,
+                        subtitle = if (state.relayBerth != null) {
+                            "Show this handover PIN to your pantry runner at Berth ${state.relayBerth}."
+                        } else {
+                            relayHint
+                        },
                     )
                 } else if (
                     code != null &&
@@ -280,9 +301,9 @@ fun TrackingScreen(
                 }
 
                 // Cash Handover Verification Inline Card (companion to CashConfirmSheet)
-                if (state.delivered && !state.relayed) {
+                if (state.delivered) {
                     CashConfirmInlineCard(
-                        totalPaise = order?.totalPaise ?: 0,
+                        totalPaise = order?.totalPaise ?: state.relayTotalPaise,
                         isUpi = order?.paymentMode == "UPI_QUEUED",
                         confirmed = state.cashConfirmed,
                         confirming = state.cashConfirming,
@@ -292,7 +313,7 @@ fun TrackingScreen(
                     )
                 }
 
-                if (state.status == Statuses.DELIVERED) {
+                if (state.status == Statuses.DELIVERED && !state.relayed) {
                     BillCard(
                         order = state.order,
                         onDownloadPdf = { deliveredOrder ->
@@ -375,6 +396,7 @@ fun TrackingScreen(
             pickerName = state.captainName?.let(::pickerDisplayName) ?: "Pantry Picker",
             messages = state.messages,
             canSend = state.canSendChat,
+            offlinePresetsOnly = state.relayed || !transportStatus.lanReachable,
             sending = state.sendingMessage,
             error = state.chatError,
             onSendPreset = { preset -> vm.sendChatMessage(preset.body, preset.code) },
@@ -384,9 +406,9 @@ fun TrackingScreen(
         )
     }
 
-    if (showCashSheet && state.delivered && !state.cashConfirmed && !state.relayed) {
+    if (showCashSheet && state.delivered && !state.cashConfirmed) {
         CashConfirmSheet(
-            totalPaise = state.order?.totalPaise ?: 0,
+            totalPaise = state.order?.totalPaise ?: state.relayTotalPaise,
             isUpi = state.order?.paymentMode == "UPI_QUEUED",
             captainName = state.captainName,
             confirming = state.cashConfirming,
@@ -403,29 +425,88 @@ fun TrackingScreen(
 private val relayHint = "Show this code to the pantry runner when the food reaches your seat."
 
 @Composable
-private fun RelayBanner() {
+private fun RelayBanner(
+    status: String,
+    bleDisabled: Boolean,
+    retrying: Boolean,
+    onEnableBle: () -> Unit,
+    onRetry: () -> Unit,
+    onCancel: () -> Unit,
+) {
     Surface(
         shape = RoundedCornerShape(RailBiteRadii.Card),
         color = RailBitePalette.CyanTint,
         border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        Column(
             modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Icon(
-                imageVector = Icons.Filled.BluetoothConnected,
-                contentDescription = null,
-                tint = RailBitePalette.CyanPrimary,
-                modifier = Modifier.size(20.dp),
-            )
-            Text(
-                text = "Sent over Bluetooth mesh. Pantry updates travel directly phone-to-phone without internet.",
-                style = MaterialTheme.typography.bodySmall,
-                color = RailBitePalette.CyanPressed,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.BluetoothConnected,
+                    contentDescription = null,
+                    tint = RailBitePalette.CyanPrimary,
+                    modifier = Modifier.size(20.dp),
+                )
+                Text(
+                    text = if (status == Statuses.BROADCASTING) {
+                        "Broadcasting 23B order over BLE mesh (hopping phone-to-phone to nearest picker). Works in Airplane Mode with Bluetooth ON."
+                    } else {
+                        "Connected over offline BLE mesh. Live status and 1-tap quick messages work without internet."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = RailBitePalette.CyanPressed,
+                )
+            }
+            if (bleDisabled) {
+                Button(
+                    onClick = onEnableBle,
+                    shape = RoundedCornerShape(RailBiteRadii.Button),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = RailBitePalette.SemanticAmber,
+                        contentColor = Color.White,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text("Enable Bluetooth to Broadcast", style = MaterialTheme.typography.labelLarge)
+                }
+            } else if (status == Statuses.BROADCASTING) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    OutlinedButton(
+                        onClick = onRetry,
+                        enabled = !retrying,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = if (retrying) "Broadcasting…" else "Retry Broadcast",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = RailBitePalette.CyanPressed,
+                        )
+                    }
+                    OutlinedButton(
+                        onClick = onCancel,
+                        shape = RoundedCornerShape(RailBiteRadii.Button),
+                        border = BorderStroke(1.dp, RailBitePalette.BorderSubtle),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        Text(
+                            text = "Cancel Search",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = RailBitePalette.TextSecondary,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -965,6 +1046,7 @@ private fun OrderChatBottomSheet(
     pickerName: String,
     messages: List<OrderMessage>,
     canSend: Boolean,
+    offlinePresetsOnly: Boolean,
     sending: Boolean,
     error: String?,
     onSendPreset: (com.railbite.core.model.ChatPreset) -> Unit,
@@ -1113,55 +1195,71 @@ private fun OrderChatBottomSheet(
                     }
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    OutlinedTextField(
-                        value = draft,
-                        onValueChange = { input ->
-                            if (input.length <= ChatPresets.MAX_BODY_LENGTH) {
-                                draft = input
-                            }
-                        },
-                        placeholder = { Text("Type a short note (max 120)…") },
-                        singleLine = true,
+                if (offlinePresetsOnly) {
+                    Surface(
                         shape = RoundedCornerShape(RailBiteRadii.Button),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = RailBitePalette.CyanPrimary,
-                            unfocusedBorderColor = RailBitePalette.BorderSubtle,
-                        ),
-                        modifier = Modifier.weight(1f),
-                    )
-                    Button(
-                        onClick = {
-                            val toSend = draft.trim()
-                            if (toSend.isNotEmpty() && !sending) {
-                                onSendCustom(toSend)
-                                draft = ""
-                            }
-                        },
-                        enabled = draft.isNotBlank() && !sending,
-                        shape = RoundedCornerShape(RailBiteRadii.Button),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = RailBitePalette.CyanPrimary,
-                            contentColor = Color.White,
-                        ),
-                        modifier = Modifier.heightIn(min = RailBiteMetrics.TouchTargetMin),
+                        color = RailBitePalette.Canvas,
+                        border = RailBiteCardBorder,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
-                        if (sending) {
-                            CircularProgressIndicator(
-                                color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(18.dp),
-                            )
-                        } else {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.Send,
-                                contentDescription = "Send",
-                                modifier = Modifier.size(18.dp),
-                            )
+                        Text(
+                            text = "Offline BLE Mesh active — tap any 1-tap preset above to message your picker.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = RailBitePalette.TextSecondary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                        )
+                    }
+                } else {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        OutlinedTextField(
+                            value = draft,
+                            onValueChange = { input ->
+                                if (input.length <= ChatPresets.MAX_BODY_LENGTH) {
+                                    draft = input
+                                }
+                            },
+                            placeholder = { Text("Type a short note (max 120)…") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(RailBiteRadii.Button),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = RailBitePalette.CyanPrimary,
+                                unfocusedBorderColor = RailBitePalette.BorderSubtle,
+                            ),
+                            modifier = Modifier.weight(1f),
+                        )
+                        Button(
+                            onClick = {
+                                val toSend = draft.trim()
+                                if (toSend.isNotEmpty() && !sending) {
+                                    onSendCustom(toSend)
+                                    draft = ""
+                                }
+                            },
+                            enabled = draft.isNotBlank() && !sending,
+                            shape = RoundedCornerShape(RailBiteRadii.Button),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = RailBitePalette.CyanPrimary,
+                                contentColor = Color.White,
+                            ),
+                            modifier = Modifier.heightIn(min = RailBiteMetrics.TouchTargetMin),
+                        ) {
+                            if (sending) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "Send",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
                         }
                     }
                 }

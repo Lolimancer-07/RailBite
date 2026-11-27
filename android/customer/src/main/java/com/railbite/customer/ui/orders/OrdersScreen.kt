@@ -112,8 +112,10 @@ fun OrdersScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     if (state.relayPending.isNotEmpty()) {
-                        item { SectionHeader("Sent via Bluetooth Relay") }
-                        items(state.relayPending, key = { it.orderId }) { RelayOrderCard(it) }
+                        item { SectionHeader("Offline BLE Mesh Orders") }
+                        items(state.relayPending, key = { it.payload.orderId }) { summary ->
+                            RelayOrderCard(summary = summary, onOpenOrder = onOpenOrder)
+                        }
                     }
                     if (state.active.isNotEmpty()) {
                         item { SectionHeader("Active") }
@@ -130,8 +132,14 @@ fun OrdersScreen(
 }
 
 @Composable
-private fun RelayOrderCard(p: com.railbite.core.mesh.MeshOrderPayload) {
+private fun RelayOrderCard(
+    summary: RelayOrderSummary,
+    onOpenOrder: (String) -> Unit,
+) {
+    val p = summary.payload
+    val statusLabel = Statuses.label(summary.entry.ack ?: Statuses.BROADCASTING)
     Card(
+        onClick = { onOpenOrder(p.orderId) },
         shape = RoundedCornerShape(RailBiteRadii.Card),
         colors = CardDefaults.cardColors(containerColor = RailBitePalette.SurfaceCard),
         border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
@@ -158,7 +166,7 @@ private fun RelayOrderCard(p: com.railbite.core.mesh.MeshOrderPayload) {
                     border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
                 ) {
                     Text(
-                        text = "BLE Relay",
+                        text = statusLabel,
                         style = MaterialTheme.typography.labelSmall,
                         color = RailBitePalette.CyanPrimary,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
@@ -166,7 +174,7 @@ private fun RelayOrderCard(p: com.railbite.core.mesh.MeshOrderPayload) {
                 }
             }
             Text(
-                text = "Bluetooth relay — syncs to the cloud automatically when online",
+                text = "BLE Mesh active — syncs automatically on LAN. Tap to track live & message picker.",
                 style = MaterialTheme.typography.bodySmall,
                 color = RailBitePalette.TextSecondary,
             )

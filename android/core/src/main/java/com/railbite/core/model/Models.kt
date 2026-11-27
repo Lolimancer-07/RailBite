@@ -83,6 +83,23 @@ data class OrderCreateRequest(
 }
 
 @Serializable
+data class MeshOrderSyncRequest(
+    val id: String,
+    val pnr: String,
+    val coach: String,
+    val berth: Int,
+    val diners: Int = 1,
+    val paymentMode: String = "COD",
+    val items: List<OrderCreateRequest.CreateItem>,
+    val createdAt: String,
+    val status: String = "PLACED",
+    val captainId: String? = null,
+    val deliveryCode: String? = null,
+    val cashPaise: Int? = null,
+    val passengerConfirmed: Boolean? = null,
+)
+
+@Serializable
 data class CaptainActionRequest(
     val captainId: String,
 )

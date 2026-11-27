@@ -10,6 +10,7 @@ import com.railbite.core.model.LedgerSummaryRow
 import com.railbite.core.model.LogoutRequest
 import com.railbite.core.model.MeResponse
 import com.railbite.core.model.MenuItem
+import com.railbite.core.model.MeshOrderSyncRequest
 import com.railbite.core.model.Order
 import com.railbite.core.model.OrderCreateRequest
 import com.railbite.core.model.OrderMessage
@@ -42,6 +43,9 @@ interface RailBiteApi {
 
     @POST("orders")
     suspend fun createOrder(@Body body: OrderCreateRequest): Order
+
+    @POST("orders/mesh-sync")
+    suspend fun syncMeshOrder(@Body body: MeshOrderSyncRequest): Order
 
     @GET("orders")
     suspend fun ordersByPnr(@Query("pnr") pnr: String): List<Order>

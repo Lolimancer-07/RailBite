@@ -2,15 +2,17 @@ package com.railbite.customer.ui.cart
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.railbite.customer.AppContainer
-import com.railbite.core.api.ApiClient
-import com.railbite.core.model.Order
+import com.railbite.core.mesh.BlePacketCodec
+import com.railbite.core.mesh.BlePermissions
+import com.railbite.core.mesh.MeshOrderPayload
+import com.railbite.core.mesh.TransportStatus
 import com.railbite.core.model.OrderCreateRequest
+import com.railbite.customer.AppContainer
+import com.railbite.customer.CartLine
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -19,12 +21,10 @@ import java.util.UUID
 
 data class CartUiState(
     val placing: Boolean = false,
-    /** True while the cart is being burst over Bluetooth (offline placement). */
     val sendingRelay: Boolean = false,
+    val needsBleAction: Boolean = false,
     val error: String? = null,
-    /** COD (default) or UPI_QUEUED — picker still verifies handover by code either way. */
     val paymentMode: String = "COD",
-    /** Set when the order went out over the Bluetooth relay instead of the cloud. */
     val relayedCode: String? = null,
 )
 
@@ -33,12 +33,13 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(CartUiState())
     val state: StateFlow<CartUiState> = _state.asStateFlow()
 
-    /** Cart lines + diners combined for the summary. */
     val lines = container.cart.lines
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
     val seat = com.railbite.core.data.SeatSnapshot(container.settings)
         .seat.stateIn(viewModelScope, SharingStarted.Eagerly, null)
+
+    val transportStatus: StateFlow<TransportStatus> = container.transportRouter.status
 
     val itemTotalPaise: Int get() = container.cart.totalPaise
 
@@ -48,155 +49,147 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
 
     fun decrement(itemId: String) = container.cart.decrement(itemId)
 
-    /**
-     * Places the order:
-     * - client generates the UUID (server uses it as an idempotency key)
-     * - sends ids + quantities only — the server is authoritative on prices/stock
-     */
-    /** COD or UPI_QUEUED; relayed (offline) orders are always COD — cash at handover. */
     fun setPaymentMode(mode: String) {
         _state.update { it.copy(paymentMode = mode) }
     }
 
+    fun clearError() {
+        _state.update { it.copy(error = null, needsBleAction = false) }
+    }
+
+    /**
+     * Step A: Check if `edge-server` LAN is reachable within `1500ms`. If reachable -> REST/MQTT.
+     * Step B: Immediately route through 23-byte BLE Multi-Hop Mesh with zero blocking queues.
+     */
     fun placeOrder(onPlaced: (String) -> Unit) {
         val linesMap = container.cart.lines.value
-        if (linesMap.isEmpty()) return
+        if (linesMap.isEmpty() || _state.value.placing) return
         val paymentMode = _state.value.paymentMode
-        _state.update { it.copy(placing = true, error = null) }
+
+        _state.update { it.copy(placing = true, error = null, needsBleAction = false) }
         viewModelScope.launch {
-            val relayPossible = paymentMode == "COD" &&
-                container.settings.meshRelayEnabled.first() &&
-                container.meshTransport.requiredPermissions().isEmpty()
-
-            // ~2s probe: with a dead train Wi-Fi go straight to the Bluetooth relay
-            // instead of letting the cart sit through the network timeouts.
-            val online = runCatching {
-                ApiClient.reachable(container.settings.serverUrl.first())
-            }.getOrDefault(false)
-            if (!online && relayPossible) {
-                _state.update { it.copy(sendingRelay = true) }
-                val relayed = relayViaMesh(linesMap)
-                if (relayed != null) {
-                    container.cart.clear()
-                    _state.update {
-                        it.copy(placing = false, sendingRelay = false, error = null, relayedCode = relayed.deliveryCode)
-                    }
-                    onPlaced(relayed.orderId)
-                    return@launch
-                }
-                _state.update { it.copy(sendingRelay = false) }
-                // Bluetooth burst failed (radio off?) — let the cloud attempt run below.
-            }
-
-            try {
-                val seat = container.settings.let { s ->
-                    com.railbite.core.data.SeatSnapshot.Seat(
-                        pnr = s.pnr.first(),
-                        coach = s.coach.first(),
-                        berth = s.berth.first(),
-                        diners = s.diners.first(),
-                    )
-                }
-                val orderId = UUID.randomUUID().toString()
-                val body = OrderCreateRequest(
-                    id = orderId,
-                    pnr = seat.pnr,
-                    coach = seat.coach,
-                    berth = seat.berth,
-                    diners = seat.diners,
-                    paymentMode = paymentMode,
-                    items = linesMap.values.map { OrderCreateRequest.CreateItem(it.item.id, it.qty) },
-                    createdAt = java.time.Instant.now().toString(),
-                    source = "WIFI",
-                )
-                val order = container.client.api().createOrder(body)
-                // Dual-path: the cloud has the order, but also burst it over the
-                // Bluetooth mesh so a nearby pantry phone rings instantly — no
-                // waiting on FCM (the pantry phone dedupes the mesh copy).
-                val totalPaise = container.cart.totalPaise
-                container.cart.clear()
-                container.settings.setActiveOrderId(order.id)
-                container.mqtt.watchOrder(order.id)
-                if (relayPossible) {
-                    container.meshSender.burstOnly(
-                        orderId = order.id,
-                        pnr = seat.pnr,
-                        coach = seat.coach,
-                        berth = seat.berth,
-                        diners = seat.diners,
-                        items = meshItems(linesMap),
-                        totalPaise = totalPaise,
-                    )
-                }
-                onPlaced(order.id)
-            } catch (e: Exception) {
-                // Cloud path failed: fall back to the Bluetooth relay when enabled
-                // (offline feature — the cloud remains the default transport). Relay
-                // orders settle in cash at handover, so UPI selections stay online-only.
-                if (paymentMode == "COD" && isUnreachable(e) && container.settings.meshRelayEnabled.first()) {
-                    _state.update { it.copy(sendingRelay = true) }
-                    val relayed = relayViaMesh(linesMap)
-                    if (relayed != null) {
-                        container.cart.clear()
-                        _state.update {
-                            it.copy(placing = false, sendingRelay = false, error = null, relayedCode = relayed.deliveryCode)
-                        }
-                        onPlaced(relayed.orderId)
-                        return@launch
-                    }
-                    _state.update { it.copy(sendingRelay = false) }
-                    if (container.meshTransport.requiredPermissions().isNotEmpty()) {
-                        _state.update {
-                            it.copy(
-                                placing = false,
-                                error = "Allow Nearby devices (Bluetooth) in system settings to order offline",
-                            )
-                        }
-                        return@launch
-                    }
-                }
+            val seatSnapshot = com.railbite.core.data.SeatSnapshot(container.settings).seat.first()
+            if (seatSnapshot == null) {
                 _state.update {
                     it.copy(
                         placing = false,
-                        error = friendly(e),
+                        error = "Set your PNR, Coach, and Seat before placing an order",
+                    )
+                }
+                return@launch
+            }
+
+            // Step A: Fast 1500ms LAN probe
+            val lanReachable = container.transportRouter.checkLanReachable()
+            if (lanReachable) {
+                try {
+                    val orderId = UUID.randomUUID().toString()
+                    val body = OrderCreateRequest(
+                        id = orderId,
+                        pnr = seatSnapshot.pnr,
+                        coach = seatSnapshot.coach,
+                        berth = seatSnapshot.berth,
+                        diners = seatSnapshot.diners,
+                        paymentMode = paymentMode,
+                        items = linesMap.values.map { OrderCreateRequest.CreateItem(it.item.id, it.qty) },
+                        createdAt = java.time.Instant.now().toString(),
+                        source = "WIFI",
+                    )
+                    val order = container.client.api().createOrder(body)
+                    container.cart.clear()
+                    container.settings.setActiveOrderId(order.id)
+                    container.mqtt.watchOrder(order.id)
+                    _state.update { it.copy(placing = false, sendingRelay = false, error = null) }
+                    onPlaced(order.id)
+                    return@launch
+                } catch (e: Exception) {
+                    if (!isUnreachable(e) || paymentMode != "COD") {
+                        _state.update { it.copy(placing = false, error = friendly(e)) }
+                        return@launch
+                    }
+                    // Transient network failure mid-call: seamlessly fail over to Step B (BLE Mesh)
+                }
+            }
+
+            // Step B: 100% Offline BLE Multi-Hop Flood Mesh
+            if (linesMap.size > BlePacketCodec.MAX_ORDER_ITEMS) {
+                _state.update {
+                    it.copy(
+                        placing = false,
+                        sendingRelay = false,
+                        error = "Offline BLE Mesh fits up to ${BlePacketCodec.MAX_ORDER_ITEMS} distinct items per order — remove extra items or place as two separate orders.",
+                    )
+                }
+                return@launch
+            }
+
+            val missingPerms = BlePermissions.requiredPermissions(container.app)
+            if (missingPerms.isNotEmpty()) {
+                _state.update {
+                    it.copy(
+                        placing = false,
+                        needsBleAction = true,
+                        error = "Allow Nearby Devices (Bluetooth) to broadcast your order over the BLE mesh.",
+                    )
+                }
+                return@launch
+            }
+
+            if (!BlePermissions.isBluetoothEnabled(container.app)) {
+                _state.update {
+                    it.copy(
+                        placing = false,
+                        needsBleAction = true,
+                        error = "Bluetooth is OFF — tap Enable Bluetooth to send your order offline.",
+                    )
+                }
+                return@launch
+            }
+
+            _state.update { it.copy(sendingRelay = true) }
+            val relayed = container.meshSender.send(
+                pnr = seatSnapshot.pnr,
+                coach = seatSnapshot.coach,
+                berth = seatSnapshot.berth,
+                diners = seatSnapshot.diners,
+                items = meshItems(linesMap),
+                totalPaise = container.cart.totalPaise,
+            )
+
+            if (relayed != null) {
+                container.cart.clear()
+                container.settings.setActiveOrderId(relayed.orderId)
+                _state.update {
+                    it.copy(
+                        placing = false,
+                        sendingRelay = false,
+                        error = null,
+                        relayedCode = relayed.deliveryCode,
+                    )
+                }
+                onPlaced(relayed.orderId)
+            } else {
+                _state.update {
+                    it.copy(
+                        placing = false,
+                        sendingRelay = false,
+                        needsBleAction = true,
+                        error = "Could not start BLE advertiser — ensure Bluetooth is ON cleanly.",
                     )
                 }
             }
         }
     }
 
-    /** Broadcasts the cart as a mesh packet and queues it for cloud sync. */
-    private suspend fun relayViaMesh(
-        linesMap: Map<String, com.railbite.customer.CartLine>,
-    ): com.railbite.core.mesh.MeshOrderPayload? {
-        val seat = com.railbite.core.data.SeatSnapshot(container.settings).seat.first() ?: return null
-        return try {
-            val orderId = UUID.randomUUID().toString()
-            container.meshSender.send(
-                orderId = orderId,
-                pnr = seat.pnr,
-                coach = seat.coach,
-                berth = seat.berth,
-                diners = seat.diners,
-                items = meshItems(linesMap),
-                totalPaise = container.cart.totalPaise,
+    private fun meshItems(linesMap: Map<String, CartLine>): List<MeshOrderPayload.Item> =
+        linesMap.values.map {
+            MeshOrderPayload.Item(
+                itemId = it.item.id,
+                name = it.item.name,
+                qty = it.qty,
+                unitPricePaise = it.item.mrpPaise,
             )
-        } catch (_: Exception) {
-            null // no BT hardware/permission — surface the normal cloud error instead
         }
-    }
-
-    /** Cart snapshot for mesh payloads: names/prices ride along for offline alerts. */
-    private fun meshItems(
-        linesMap: Map<String, com.railbite.customer.CartLine>,
-    ): List<com.railbite.core.mesh.MeshOrderPayload.Item> = linesMap.values.map {
-        com.railbite.core.mesh.MeshOrderPayload.Item(
-            itemId = it.item.id,
-            name = it.item.name,
-            qty = it.qty,
-            unitPricePaise = it.item.mrpPaise,
-        )
-    }
 
     private fun isUnreachable(e: Exception): Boolean {
         val msg = e.message ?: ""
@@ -204,7 +197,8 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
             msg.contains("Failed to connect", ignoreCase = true) ||
             msg.contains("timeout", ignoreCase = true) ||
             msg.contains("Network is unreachable", ignoreCase = true) ||
-            msg.contains("ECONNREFUSED", ignoreCase = true)
+            msg.contains("ECONNREFUSED", ignoreCase = true) ||
+            e is java.io.IOException
     }
 
     private fun friendly(e: Exception): String {
@@ -217,10 +211,6 @@ class CartViewModel(private val container: AppContainer) : ViewModel() {
                 "That item just sold out — adjust your cart and try again"
             msg.contains("PNR", ignoreCase = true) && msg.contains("manifest", ignoreCase = true) ->
                 "PNR not on this train's manifest — check your seat details"
-            msg.contains("Unable to resolve host", ignoreCase = true) ||
-                msg.contains("Failed to connect", ignoreCase = true) ||
-                msg.contains("timeout", ignoreCase = true) ->
-                "Cannot reach the pantry server — check Settings → server URL"
             else -> "Could not place order: $msg"
         }
     }

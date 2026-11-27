@@ -6,6 +6,7 @@ package com.railbite.core.util
  * (+ CANCELLED / EXPIRED exits).
  */
 object Statuses {
+    const val BROADCASTING = "BROADCASTING"
     const val PLACED = "PLACED"
     const val ASSIGNED = "ASSIGNED"
     const val ACCEPTED = "ACCEPTED"
@@ -19,6 +20,7 @@ object Statuses {
 
     /** Step index for the 5-step passenger timeline; -1 for terminal failure states. */
     fun timelineStep(status: String): Int = when (status) {
+        BROADCASTING -> 0
         PLACED -> 0
         ASSIGNED -> 0
         ACCEPTED -> 1
@@ -35,6 +37,7 @@ object Statuses {
 
     /** Short human label used on cards. */
     fun label(status: String): String = when (status) {
+        BROADCASTING -> "Searching via BLE mesh"
         PLACED -> "Order placed"
         ASSIGNED -> "Finding picker"
         ACCEPTED -> "Picker accepted"

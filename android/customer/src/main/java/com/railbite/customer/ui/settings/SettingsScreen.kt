@@ -51,8 +51,12 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.railbite.core.mesh.BleMeshHub
+import com.railbite.core.mesh.TransportMode
 import com.railbite.core.ui.components.ErrorBar
+import com.railbite.customer.ui.components.LocalBleActionRequester
 import com.railbite.customer.ui.components.StatusDot
+import com.railbite.customer.ui.components.TransportIndicatorPill
 import com.railbite.customer.ui.onboarding.flatTextFieldColors
 import com.railbite.customer.ui.theme.RailBiteCardBorder
 import com.railbite.customer.ui.theme.RailBiteMetrics
@@ -69,6 +73,9 @@ fun SettingsScreen(
     val vm = viewModel(key = "settings") { SettingsViewModel(graph.container) }
     val state by vm.state.collectAsState()
     val mqttConnected by graph.mqtt.connected.collectAsState()
+    val transportStatus by graph.container.transportRouter.status.collectAsState()
+    val meshStats by BleMeshHub.stats.collectAsState()
+    val requestBle = LocalBleActionRequester.current
 
     Scaffold(
         containerColor = RailBitePalette.Canvas,
@@ -222,6 +229,30 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.titleMedium,
                         color = RailBitePalette.TextPrimary,
                     )
+                    TransportIndicatorPill(
+                        status = transportStatus,
+                        onClick = if (transportStatus.mode == TransportMode.BLE_DISABLED) requestBle else null,
+                    )
+                    if (!meshStats.bluetoothEnabled || !meshStats.permissionsGranted) {
+                        OutlinedButton(
+                            onClick = requestBle,
+                            shape = RoundedCornerShape(RailBiteRadii.Button),
+                            border = BorderStroke(1.dp, RailBitePalette.CyanBorder),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = RailBitePalette.CyanPrimary),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = RailBiteMetrics.TouchTargetMin),
+                        ) {
+                            Text(
+                                text = if (!meshStats.permissionsGranted) {
+                                    "Grant Bluetooth Permissions"
+                                } else {
+                                    "Enable Bluetooth"
+                                },
+                                style = MaterialTheme.typography.labelLarge,
+                            )
+                        }
+                    }
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -230,12 +261,12 @@ fun SettingsScreen(
                     ) {
                         Column(Modifier.weight(1f)) {
                             Text(
-                                text = "Bluetooth relay",
+                                text = "Bluetooth mesh relay",
                                 style = MaterialTheme.typography.titleSmall,
                                 color = RailBitePalette.TextPrimary,
                             )
                             Text(
-                                text = if (state.meshRelayEnabled) "Enabled" else "Off",
+                                text = if (state.meshRelayEnabled) "Enabled (multi-hop flood)" else "Off",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = if (state.meshRelayEnabled) RailBitePalette.CyanPrimary else RailBitePalette.TextSecondary,
                             )
@@ -251,14 +282,90 @@ fun SettingsScreen(
                     }
 
                     Text(
-                        text = "When cellular/Wi-Fi drops, orders hop phone-to-phone over Bluetooth and ring at the pantry device automatically.",
+                        text = "When cellular/Wi-Fi drops, 23-byte order frames hop phone-to-phone over BLE to reach the nearest picker automatically.",
                         style = MaterialTheme.typography.bodySmall,
                         color = RailBitePalette.TextSecondary,
                     )
 
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(min = RailBiteMetrics.TouchTargetMin),
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                text = "Mesh Debug",
+                                style = MaterialTheme.typography.titleSmall,
+                                color = RailBitePalette.TextPrimary,
+                            )
+                            Text(
+                                text = "Live packet counters & shared train key",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = RailBitePalette.TextSecondary,
+                            )
+                        }
+                        Switch(
+                            checked = state.meshDebugEnabled,
+                            onCheckedChange = vm::setMeshDebugEnabled,
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = RailBitePalette.CyanPrimary,
+                            ),
+                        )
+                    }
+
+                    if (state.meshDebugEnabled) {
+                        Surface(
+                            shape = RoundedCornerShape(RailBiteRadii.Button),
+                            color = RailBitePalette.Canvas,
+                            border = RailBiteCardBorder,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text("Packets Sent", style = MaterialTheme.typography.bodySmall, color = RailBitePalette.TextSecondary)
+                                    Text("${meshStats.packetsSent}", style = RailBiteNumericType.MetaMono, color = RailBitePalette.TextPrimary)
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text("Packets Relayed", style = MaterialTheme.typography.bodySmall, color = RailBitePalette.TextSecondary)
+                                    Text("${meshStats.packetsRelayed}", style = RailBiteNumericType.MetaMono, color = RailBitePalette.TextPrimary)
+                                }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                ) {
+                                    Text("Last RSSI / Hops", style = MaterialTheme.typography.bodySmall, color = RailBitePalette.TextSecondary)
+                                    Text(
+                                        text = "${meshStats.lastRssiDbm?.let { "$it dBm" } ?: "—"} • ${meshStats.lastHopCount?.let { "$it hops" } ?: "—"}",
+                                        style = RailBiteNumericType.MetaMono,
+                                        color = RailBitePalette.CyanPrimary,
+                                    )
+                                }
+                                OutlinedTextField(
+                                    value = state.meshKey,
+                                    onValueChange = vm::setMeshKey,
+                                    label = { Text("Train Mesh Key (HMAC-16)") },
+                                    singleLine = true,
+                                    colors = flatTextFieldColors(),
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+
                     if (state.meshPending > 0) {
                         Text(
-                            text = "${state.meshPending} relay order${if (state.meshPending == 1) "" else "s"} waiting for sync",
+                            text = "${state.meshPending} offline order${if (state.meshPending == 1) "" else "s"} waiting for LAN sync",
                             style = MaterialTheme.typography.labelLarge,
                             color = RailBitePalette.CyanPrimary,
                         )

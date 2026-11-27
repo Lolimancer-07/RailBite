@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.customer.AppContainer
 import com.railbite.core.api.ApiClient
+import com.railbite.core.mesh.BlePacketCodec
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,8 +21,10 @@ data class SettingsUiState(
     val testState: OnboardingLikeTestState = OnboardingLikeTestState.Idle,
     val saved: Boolean = false,
     val error: String? = null,
-    // Bluetooth relay (offline feature)
+    // Bluetooth relay (offline BLE mesh)
     val meshRelayEnabled: Boolean = false,
+    val meshDebugEnabled: Boolean = false,
+    val meshKey: String = BlePacketCodec.RAILBITE_MESH_KEY,
     val meshPending: Int = 0,
     val meshSyncing: Boolean = false,
     val meshSyncMessage: String? = null,
@@ -55,6 +58,7 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
                     berth = s.berth.first().let { b -> if (b == 0) "" else b.toString() },
                     diners = s.diners.first(),
                     meshRelayEnabled = s.meshRelayEnabled.first(),
+                    meshKey = s.meshKey.first(),
                 )
             }
             container.meshSender.refreshPending()
@@ -64,7 +68,18 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setMeshRelayEnabled(value: Boolean) {
         _state.update { it.copy(meshRelayEnabled = value) }
-        viewModelScope.launch { container.settings.setMeshRelayEnabled(value) }
+        viewModelScope.launch {
+            container.settings.setMeshRelayEnabled(value)
+            container.transportRouter.refreshRadioOnly()
+        }
+    }
+
+    fun setMeshDebugEnabled(value: Boolean) {
+        _state.update { it.copy(meshDebugEnabled = value) }
+    }
+
+    fun setMeshKey(value: String) {
+        _state.update { it.copy(meshKey = value.take(32), saved = false) }
     }
 
     /** Manual "sync relay orders now" — also runs automatically on Home resume. */
@@ -120,11 +135,13 @@ class SettingsViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             try {
                 container.settings.setServerUrl(ApiClient.normalizeServerUrl(s.serverUrl))
+                container.settings.setMeshKey(s.meshKey)
                 if (s.seatValid) {
                     container.settings.setSeat(s.pnr, s.coach, s.berth.toInt(), s.diners)
                 }
                 container.mqtt.disconnect()
                 container.mqtt.ensureConnected()
+                container.transportRouter.probeNow()
                 _state.update { it.copy(saved = true) }
                 onSaved()
             } catch (e: Exception) {

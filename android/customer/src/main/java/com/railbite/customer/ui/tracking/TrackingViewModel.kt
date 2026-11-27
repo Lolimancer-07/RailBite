@@ -3,7 +3,10 @@ package com.railbite.customer.ui.tracking
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.railbite.customer.AppContainer
-import com.railbite.core.api.RailBiteApi
+import com.railbite.core.mesh.BleMeshHub
+import com.railbite.core.mesh.BlePacketCodec
+import com.railbite.core.mesh.MeshEntry
+import com.railbite.core.mesh.MeshOrderPayload
 import com.railbite.core.model.ChatPresets
 import com.railbite.core.model.MqttOrderStatus
 import com.railbite.core.model.Order
@@ -15,11 +18,14 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 data class TrackingUiState(
     val loading: Boolean = true,
@@ -31,11 +37,14 @@ data class TrackingUiState(
     val cashConfirming: Boolean = false,
     val cashConfirmed: Boolean = false,
     val cancelled: Boolean = false,
-    /** Order travelling over the Bluetooth relay — exists only in the local outbox. */
+    /** Order travelling over the 23-byte BLE mesh — lives in the local outbox until LAN sync. */
     val relayed: Boolean = false,
     val relayCode: String? = null,
-    val relayItems: List<com.railbite.core.mesh.MeshOrderPayload.Item> = emptyList(),
+    val relayCoach: String? = null,
+    val relayBerth: Int? = null,
+    val relayItems: List<MeshOrderPayload.Item> = emptyList(),
     val relayTotalPaise: Int = 0,
+    val retryingBroadcast: Boolean = false,
     val messages: List<OrderMessage> = emptyList(),
     val unreadCount: Int = 0,
     val chatOpen: Boolean = false,
@@ -46,13 +55,11 @@ data class TrackingUiState(
     val delivered: Boolean get() = status == Statuses.DELIVERED
     val failed: Boolean get() = Statuses.isFailed(status)
     val canSendChat: Boolean
-        get() = !relayed && (
-            status == Statuses.ACCEPTED ||
-                status == Statuses.PACKING ||
-                status == Statuses.OUT_FOR_DELIVERY
-            )
+        get() = status == Statuses.ACCEPTED ||
+            status == Statuses.PACKING ||
+            status == Statuses.OUT_FOR_DELIVERY
     val chatAvailable: Boolean
-        get() = !relayed && (canSendChat || status == Statuses.DELIVERED || messages.isNotEmpty())
+        get() = canSendChat || status == Statuses.DELIVERED || messages.isNotEmpty()
 }
 
 class TrackingViewModel(
@@ -65,9 +72,11 @@ class TrackingViewModel(
 
     private var pollJob: Job? = null
     private val seenMessageIds = mutableSetOf<String>()
+    private val bleMsgTimestamps = ConcurrentHashMap<String, Long>()
     private var initialChatSynced = false
+    private var initialBleChatSynced = false
 
-    /** True while the order exists only in the local Bluetooth-relay outbox. */
+    /** True while the order exists only in the local Bluetooth-mesh outbox. */
     private var relayMode = false
 
     init {
@@ -83,31 +92,67 @@ class TrackingViewModel(
                 }
             }
         }
-        // REST fallback poll every 3 s while the order is active
-        pollJob = viewModelScope.launch {
-            // Bluetooth-relay orders live in the local outbox until the cloud is
-            // reachable: follow the outbox (no cloud polling, no error noise). Pantry
-            // outcomes arrive over the same Bluetooth mesh and advance the timeline
-            // offline; when the order syncs to the cloud the normal timeline takes over.
-            val entry = runCatching { container.meshSender.relayEntry(orderId) }.getOrNull()
-            if (entry != null && entry.state != "SYNCED") {
-                relayMode = true
-                container.meshSender.startLoop() // re-broadcast + ack listening while visible
-                showRelay(entry)
-                while (isActive && relayMode) {
-                    delay(4_000)
-                    val now = runCatching { container.meshSender.relayEntry(orderId) }.getOrNull()
-                    when {
-                        now == null -> Unit // keep showing the local snapshot
-                        now.state == "SYNCED" -> {
-                            // The server has the order now — normal cloud timeline takes over.
-                            relayMode = false
-                            _state.update { it.copy(relayed = false) }
-                        }
-                        else -> showRelay(now)
+        // BLE Mesh preset quick-chat frames (`0x13`) for this order
+        viewModelScope.launch {
+            val shortId = BlePacketCodec.uuidToShortId(orderId)
+            BleMeshHub.quickMessages.collect { byOrder ->
+                val list = byOrder[shortId].orEmpty()
+                if (list.isNotEmpty()) {
+                    val converted = list.mapNotNull { pkt ->
+                        val preset = BlePacketCodec.presetForCode(pkt.presetCode) ?: return@mapNotNull null
+                        val msgId = "ble-${pkt.senderRole}-${pkt.msgSeq}"
+                        val ts = bleMsgTimestamps.getOrPut(msgId) { System.currentTimeMillis() }
+                        OrderMessage(
+                            id = msgId,
+                            orderId = orderId,
+                            senderRole = if (pkt.senderRole == BlePacketCodec.ROLE_PICKER) "PICKER" else "CUSTOMER",
+                            senderId = null,
+                            presetCode = preset.code,
+                            body = preset.body,
+                            createdAt = ts,
+                        )
+                    }
+                    if (converted.isNotEmpty()) {
+                        mergeMessages(converted, markBaselineOnly = !initialBleChatSynced)
+                        initialBleChatSynced = true
                     }
                 }
             }
+        }
+        // REST + BLE Mesh tracking lifecycle
+        pollJob = viewModelScope.launch {
+            val entry = runCatching { container.meshSender.relayEntry(orderId) }.getOrNull()
+            if (entry != null && entry.state != "SYNCED") {
+                if (entry.state == "CANCELLED") {
+                    showRelay(entry)
+                    return@launch
+                }
+                relayMode = true
+                container.meshSender.startLoop()
+                showRelay(entry)
+                container.meshSender.observeEntry(orderId)
+                    .takeWhile { now ->
+                        when {
+                            now == null -> isActive
+                            now.state == "SYNCED" -> {
+                                relayMode = false
+                                _state.update { it.copy(relayed = false) }
+                                false
+                            }
+                            now.state == "CANCELLED" -> {
+                                relayMode = false
+                                showRelay(now)
+                                false
+                            }
+                            else -> {
+                                showRelay(now)
+                                isActive
+                            }
+                        }
+                    }
+                    .collect {}
+            }
+            if (_state.value.cancelled) return@launch
             while (isActive) {
                 loadOnce()
                 val st = _state.value.status
@@ -118,29 +163,34 @@ class TrackingViewModel(
     }
 
     /**
-     * Local offline snapshot; pantry outcomes heard over the mesh ([MeshEntry.ack])
-     * advance the timeline — placed → accepted → delivered, all without internet.
+     * Local offline snapshot; BLE `STATUS_ACK (0x12)` updates ([MeshEntry.ack])
+     * advance the timeline cleanly without internet:
+     * BROADCASTING -> ACCEPTED -> PACKING -> OUT_FOR_DELIVERY -> DELIVERED.
      */
-    private fun showRelay(entry: com.railbite.core.mesh.MeshEntry) {
-        val payload = com.railbite.core.mesh.MeshOrderPayload.decode(entry.payload)
-        val status = when (entry.ack) {
-            com.railbite.core.mesh.MeshPacket.STATUS_ACCEPTED -> Statuses.ACCEPTED
-            com.railbite.core.mesh.MeshPacket.STATUS_OUT_FOR_DELIVERY -> Statuses.OUT_FOR_DELIVERY
-            com.railbite.core.mesh.MeshPacket.STATUS_DELIVERED -> Statuses.DELIVERED
-            else -> Statuses.PLACED
+    private fun showRelay(entry: MeshEntry) {
+        val payload = MeshOrderPayload.decode(entry.payload)
+        val status = when {
+            entry.state == "CANCELLED" -> Statuses.CANCELLED
+            entry.ack == Statuses.ACCEPTED -> Statuses.ACCEPTED
+            entry.ack == Statuses.PACKING -> Statuses.PACKING
+            entry.ack == Statuses.OUT_FOR_DELIVERY -> Statuses.OUT_FOR_DELIVERY
+            entry.ack == Statuses.DELIVERED -> Statuses.DELIVERED
+            else -> Statuses.BROADCASTING
         }
         _state.update { s ->
             s.copy(
                 loading = false,
-                error = if (entry.ack == com.railbite.core.mesh.MeshPacket.STATUS_REJECTED) {
-                    "A picker declined the order — try another pantry nearby"
-                } else {
-                    null
-                },
+                error = null,
                 relayed = true,
-                relayCode = payload?.deliveryCode,
-                relayItems = payload?.items.orEmpty(),
-                relayTotalPaise = payload?.totalPaise ?: 0,
+                cancelled = entry.state == "CANCELLED",
+                relayCode = payload?.deliveryCode ?: s.relayCode,
+                relayCoach = payload?.coach ?: s.relayCoach,
+                relayBerth = payload?.berth ?: s.relayBerth,
+                relayItems = payload?.items ?: s.relayItems,
+                relayTotalPaise = payload?.totalPaise ?: s.relayTotalPaise,
+                captainName = entry.captainId?.let { "Crew $it" } ?: s.captainName,
+                etaMin = entry.etaMin ?: s.etaMin,
+                cashConfirmed = entry.passengerConfirmed || s.cashConfirmed,
                 status = status,
             )
         }
@@ -197,6 +247,11 @@ class TrackingViewModel(
     fun confirmCash() {
         _state.update { it.copy(cashConfirming = true) }
         viewModelScope.launch {
+            if (_state.value.relayed || !container.transportRouter.checkLanReachable()) {
+                runCatching { container.meshSender.markCashConfirmed(orderId) }
+                _state.update { it.copy(cashConfirming = false, cashConfirmed = true) }
+                return@launch
+            }
             try {
                 container.client.api().confirmCash(orderId)
                 _state.update { it.copy(cashConfirming = false, cashConfirmed = true) }
@@ -213,7 +268,34 @@ class TrackingViewModel(
         }
     }
 
+    fun retryBroadcast() {
+        if (_state.value.retryingBroadcast) return
+        _state.update { it.copy(retryingBroadcast = true, error = null) }
+        viewModelScope.launch {
+            val ok = runCatching { container.meshSender.retryBroadcast(orderId) }.getOrDefault(false)
+            _state.update {
+                it.copy(
+                    retryingBroadcast = false,
+                    error = if (ok) null else "Enable Bluetooth & BLE permissions to broadcast",
+                )
+            }
+        }
+    }
+
+    fun cancelOfflineSearch(onDone: () -> Unit = {}) {
+        viewModelScope.launch {
+            runCatching { container.meshSender.cancelOfflineOrder(orderId) }
+            runCatching { container.settings.setActiveOrderId("") }
+            _state.update { it.copy(status = Statuses.CANCELLED, cancelled = true) }
+            onDone()
+        }
+    }
+
     fun cancelOrder() {
+        if (_state.value.relayed) {
+            cancelOfflineSearch()
+            return
+        }
         viewModelScope.launch {
             try {
                 val order = container.client.api().cancelOrder(orderId)
@@ -235,9 +317,11 @@ class TrackingViewModel(
             )
         }
         viewModelScope.launch {
-            runCatching { container.client.api().orderMessages(orderId) }
-                .getOrNull()
-                ?.let { mergeMessages(it, markBaselineOnly = false) }
+            if (!_state.value.relayed && container.transportRouter.checkLanReachable()) {
+                runCatching { container.client.api().orderMessages(orderId) }
+                    .getOrNull()
+                    ?.let { mergeMessages(it, markBaselineOnly = false) }
+            }
         }
     }
 
@@ -265,31 +349,64 @@ class TrackingViewModel(
         _state.update { it.copy(sendingMessage = true, chatError = null) }
         val messageId = UUID.randomUUID().toString()
         viewModelScope.launch {
-            try {
-                val created = container.client.api().sendOrderMessage(
-                    orderId,
-                    OrderMessageCreateRequest(
-                        id = messageId,
-                        senderRole = "CUSTOMER",
-                        presetCode = presetCode,
-                        body = trimmed,
-                    ),
-                )
-                mergeMessages(listOf(created), markBaselineOnly = false)
-                _state.update { it.copy(sendingMessage = false) }
-            } catch (e: HttpException) {
-                val msg = if (e.code() == 409) {
-                    "Chat closed — order is no longer active"
-                } else {
-                    "Could not send message (HTTP ${e.code()})"
+            val lanReachable = !current.relayed && container.transportRouter.checkLanReachable()
+            if (lanReachable) {
+                try {
+                    val created = container.client.api().sendOrderMessage(
+                        orderId,
+                        OrderMessageCreateRequest(
+                            id = messageId,
+                            senderRole = "CUSTOMER",
+                            presetCode = presetCode,
+                            body = trimmed,
+                        ),
+                    )
+                    mergeMessages(listOf(created), markBaselineOnly = false)
+                    _state.update { it.copy(sendingMessage = false) }
+                    return@launch
+                } catch (e: HttpException) {
+                    val msg = if (e.code() == 409) {
+                        "Chat closed — order is no longer active"
+                    } else {
+                        "Could not send message (HTTP ${e.code()})"
+                    }
+                    _state.update { it.copy(sendingMessage = false, chatError = msg) }
+                    if (e.code() == 409) loadOnce()
+                    return@launch
+                } catch (_: Exception) {
+                    // Fall through to BLE preset failover when LAN fails mid-request
                 }
-                _state.update { it.copy(sendingMessage = false, chatError = msg) }
-                if (e.code() == 409) loadOnce()
-            } catch (_: Exception) {
+            }
+
+            if (presetCode == null) {
                 _state.update {
                     it.copy(
                         sendingMessage = false,
-                        chatError = "Message not sent — check server connection",
+                        chatError = "Offline BLE mode supports 1-tap quick presets only",
+                    )
+                }
+                return@launch
+            }
+            val coach = current.order?.coach
+                ?: current.relayCoach
+                ?: runCatching { container.settings.coach.first() }.getOrDefault("")
+            val berth = current.order?.berth
+                ?: current.relayBerth
+                ?: runCatching { container.settings.berth.first() }.getOrDefault(0)
+            val sent = container.meshSender.sendQuickMessage(
+                orderId = orderId,
+                coach = coach,
+                berth = berth,
+                presetCode = presetCode,
+            )
+            if (sent != null) {
+                mergeMessages(listOf(sent), markBaselineOnly = false)
+                _state.update { it.copy(sendingMessage = false) }
+            } else {
+                _state.update {
+                    it.copy(
+                        sendingMessage = false,
+                        chatError = "Bluetooth off — enable Bluetooth to message over BLE mesh",
                     )
                 }
             }

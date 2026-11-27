@@ -8,6 +8,7 @@ import {
   Track,
   type Order,
   type OrderCreate,
+  type MeshOrderSync,
   type OrderMessage,
   type OrderMessageCreate,
   type OrderMessageSenderRole,
@@ -205,6 +206,131 @@ export class OrderService {
     }
 
     return order;
+  }
+
+  /**
+   * Idempotently reconciles an order progressed offline over the BLE mesh.
+   * Safe for repeated retries from either Customer or Picker without duplicate ledger entries.
+   */
+  async syncMeshOrder(input: MeshOrderSync, userId?: string): Promise<Order> {
+    const rankMap: Record<string, number> = {
+      PLACED: 0,
+      ASSIGNED: 1,
+      ACCEPTED: 2,
+      PACKING: 3,
+      OUT_FOR_DELIVERY: 4,
+      DELIVERED: 5,
+    };
+
+    const menuMap = await this.menuRepo.getMenuMap();
+    for (const item of input.items) {
+      if (!menuMap.get(item.itemId)) {
+        throw new Error(`Menu item not found: ${item.itemId}`);
+      }
+    }
+    const pricing = computeTotal(input.items, menuMap);
+    const verified = (await this.manifestRepo.checkPassenger(
+      input.pnr,
+      input.coach.trim().toUpperCase(),
+      input.berth,
+    ))
+      ? 1
+      : 0;
+    const now = new Date().toISOString();
+    const targetStatus = input.status as (typeof OrderStatus)[keyof typeof OrderStatus];
+
+    await this.db.transaction(async (tx) => {
+      const orderRepo = new OrderRepo(tx);
+      const menuRepo = new MenuRepo(tx);
+      const ledgerRepo = new LedgerRepo(tx);
+      const outboxRepo = new OutboxRepo(tx);
+
+      const inserted = await orderRepo.insertOrder({
+        id: input.id,
+        pnr: input.pnr,
+        coach: input.coach.trim().toUpperCase(),
+        berth: input.berth,
+        diners: input.diners,
+        track: Track.READY,
+        status: targetStatus,
+        paymentMode: input.paymentMode,
+        totalPaise: pricing.totalPaise,
+        source: "RELAY",
+        verified,
+        userId: userId || null,
+        createdAt: input.createdAt || now,
+        updatedAt: now,
+      });
+
+      if (inserted) {
+        for (const item of input.items) {
+          await menuRepo.decrementStock(item.itemId, item.qty);
+        }
+        await orderRepo.insertOrderItems(
+          input.id,
+          pricing.lineItems.map((li) => ({
+            itemId: li.itemId,
+            qty: li.qty,
+            unitPricePaise: li.unitPricePaise,
+          })),
+        );
+        await outboxRepo.append("ORDER_CREATED", {
+          orderId: input.id,
+          pnr: input.pnr,
+          totalPaise: pricing.totalPaise,
+          track: Track.READY,
+          source: "RELAY",
+          createdAt: input.createdAt || now,
+        });
+      } else {
+        const current = await orderRepo.findById(input.id);
+        if (current && (rankMap[targetStatus] ?? 0) > (rankMap[current.status] ?? 0)) {
+          await orderRepo.updateStatus(input.id, targetStatus, now);
+        }
+      }
+
+      if (input.deliveryCode) {
+        const existingCode = await orderRepo.getDeliveryCode(input.id);
+        if (!existingCode) {
+          await orderRepo.setDeliveryCode(input.id, input.deliveryCode);
+        }
+      }
+
+      if (input.captainId) {
+        const deliveredAt = targetStatus === OrderStatus.DELIVERED ? now : null;
+        await orderRepo.upsertAcceptedAssignment(input.id, input.captainId, now, deliveredAt);
+
+        if (targetStatus === OrderStatus.DELIVERED) {
+          if (this.dispatcher) {
+            this.dispatcher.cancelTimer(input.id);
+          }
+          const alreadyLogged = await ledgerRepo.hasEntryForOrder(input.id);
+          if (!alreadyLogged) {
+            const amount =
+              input.cashPaise !== undefined
+                ? input.cashPaise
+                : input.paymentMode === "UPI_QUEUED"
+                  ? 0
+                  : pricing.totalPaise;
+            await ledgerRepo.append(input.id, input.captainId, amount, now);
+          }
+          if (input.passengerConfirmed) {
+            await ledgerRepo.confirmByPassenger(input.id);
+          }
+        }
+      }
+    });
+
+    const synced = await this.orderRepo.findById(input.id);
+    if (!synced) throw new Error(`Failed to retrieve synced order: ${input.id}`);
+
+    const captain = input.captainId ? await this.staffRepo.findById(input.captainId) : null;
+    await this.publisher.publishOrderStatus(synced.id, {
+      status: synced.status,
+      updatedAt: synced.updatedAt,
+      captainName: captain?.name,
+    });
+    return synced;
   }
 
   async transition(
