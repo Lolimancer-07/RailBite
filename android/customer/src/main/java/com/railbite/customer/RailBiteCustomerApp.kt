@@ -36,7 +36,7 @@ class AppContainer(val app: Application) {
     val auth = AuthRepository(client, authStore)
     val cart = CartStore()
     val mqtt = CustomerMqtt(settings)
-    val transportRouter = TransportRouter(app, settings)
+    val transportRouter = TransportRouter(app, settings, client = client)
     val meshTransport = BleMeshTransport(app)
     val meshSender = MeshOrderSender(this)
 

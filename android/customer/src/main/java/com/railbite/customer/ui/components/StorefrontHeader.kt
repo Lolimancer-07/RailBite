@@ -1,5 +1,11 @@
 package com.railbite.customer.ui.components
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -30,6 +36,11 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -44,6 +55,7 @@ import com.railbite.customer.ui.theme.RailBiteMetrics
 import com.railbite.customer.ui.theme.RailBiteNumericType
 import com.railbite.customer.ui.theme.RailBitePalette
 import com.railbite.customer.ui.theme.RailBiteRadii
+import kotlinx.coroutines.delay
 
 /**
  * Wireframe Home Top Row (`acf3d694`):
@@ -156,9 +168,17 @@ fun SeatInfoBox(
     }
 }
 
+private val ROTATING_SEARCH_HINTS = listOf(
+    "Search \"Masala Chai\"",
+    "Search \"Veg Biryani\"",
+    "Search \"Samosa\"",
+    "Search \"RailNeer\"",
+)
+
 /**
  * Wireframe Home Utility Row (`acf3d694`):
- * `SearchPill` (`Modifier.weight(1f)`) + `AccountIconButton` + `CartIconButton` (with live badge count).
+ * Animated clickable `HomeSearchEntryPill` (`Modifier.weight(1f)`) -> navigates to dedicated SearchScreen,
+ * plus `AccountIconButton` + `CartIconButton` (with live badge count).
  */
 @Composable
 fun StorefrontUtilityRow(
@@ -167,6 +187,7 @@ fun StorefrontUtilityRow(
     cartCount: Int,
     onAccountClick: () -> Unit,
     onCartClick: () -> Unit,
+    onOpenSearch: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -176,11 +197,18 @@ fun StorefrontUtilityRow(
             .fillMaxWidth()
             .padding(horizontal = RailBiteMetrics.ScreenPadding),
     ) {
-        SearchPill(
-            value = search,
-            onValueChange = onSearchChange,
-            modifier = Modifier.weight(1f),
-        )
+        if (onOpenSearch != null) {
+            HomeSearchEntryPill(
+                onClick = onOpenSearch,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            SearchPill(
+                value = search,
+                onValueChange = onSearchChange,
+                modifier = Modifier.weight(1f),
+            )
+        }
 
         AccountIconButton(onClick = onAccountClick)
 
@@ -188,6 +216,64 @@ fun StorefrontUtilityRow(
             count = cartCount,
             onClick = onCartClick,
         )
+    }
+}
+
+/** Clickable search trigger pill with subtle rotating placeholder hints every 3 seconds. */
+@Composable
+fun HomeSearchEntryPill(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var hintIdx by remember { mutableIntStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(3_000)
+            hintIdx = (hintIdx + 1) % ROTATING_SEARCH_HINTS.size
+        }
+    }
+
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(RailBiteRadii.Pill),
+        color = RailBitePalette.SurfaceCard,
+        border = RailBiteCardBorder,
+        shadowElevation = 0.dp,
+        modifier = modifier
+            .heightIn(min = 48.dp)
+            .semantics { contentDescription = "Search pantry items" },
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = null,
+                tint = RailBitePalette.CyanPrimary,
+                modifier = Modifier.size(20.dp),
+            )
+            AnimatedContent(
+                targetState = ROTATING_SEARCH_HINTS[hintIdx],
+                transitionSpec = {
+                    (fadeIn() + slideInVertically { it / 3 })
+                        .togetherWith(fadeOut() + slideOutVertically { -it / 3 })
+                },
+                label = "home-search-hint",
+                modifier = Modifier.weight(1f),
+            ) { hint ->
+                Text(
+                    text = hint,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = RailBitePalette.TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
     }
 }
 

@@ -89,6 +89,7 @@ fun HomeScreen(
     onOpenOrders: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenOrder: (String) -> Unit,
+    onOpenSearch: () -> Unit = {},
 ) {
     val vm = viewModel(key = "home") { HomeViewModel(graph.container) }
     val state by vm.state.collectAsState()
@@ -175,13 +176,14 @@ fun HomeScreen(
                     }
                 }
 
-                // Wireframe Utility Row: SearchPill + AccountIconButton + CartIconButton
+                // Wireframe Utility Row: Animated Search Trigger + AccountIconButton + CartIconButton
                 StorefrontUtilityRow(
                     search = state.search,
                     onSearchChange = vm::setSearch,
                     cartCount = cartCount,
                     onAccountClick = { showAccountSheet = true },
                     onCartClick = onOpenCart,
+                    onOpenSearch = onOpenSearch,
                 )
 
                 Spacer(Modifier.size(10.dp))

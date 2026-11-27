@@ -15,6 +15,7 @@ import com.railbite.customer.ui.login.CustomerLoginScreen
 import com.railbite.customer.ui.onboarding.OnboardingScreen
 import com.railbite.customer.ui.orders.OrdersScreen
 import com.railbite.customer.ui.report.ReportProblemScreen
+import com.railbite.customer.ui.search.SearchScreen
 import com.railbite.customer.ui.settings.SettingsScreen
 import com.railbite.customer.ui.tracking.TrackingScreen
 import kotlinx.coroutines.flow.first
@@ -24,6 +25,7 @@ object Routes {
     const val ONBOARDING = "onboarding"
     const val LOGIN = "login"
     const val HOME = "home"
+    const val SEARCH = "search"
     const val CART = "cart"
     const val ORDERS = "orders"
     const val SETTINGS = "settings"
@@ -91,6 +93,14 @@ fun CustomerNavHost(graph: CustomerGraph, startDestination: String) {
                 onOpenOrders = { nav.navigate(Routes.ORDERS) },
                 onOpenSettings = { nav.navigate(Routes.SETTINGS) },
                 onOpenOrder = { id -> nav.navigate(Routes.tracking(id)) },
+                onOpenSearch = { nav.navigate(Routes.SEARCH) { launchSingleTop = true } },
+            )
+        }
+        composable(Routes.SEARCH) {
+            SearchScreen(
+                graph = graph,
+                onBack = { nav.popBackStack() },
+                onOpenCart = { nav.navigate(Routes.CART) },
             )
         }
         composable(Routes.ORDERS) {
